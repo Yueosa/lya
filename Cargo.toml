@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lya-http"]
+members = ["crates/lya-http", "crates/lya-llm"]
 
 [workspace.package]
 edition = "2024"
@@ -8,8 +8,11 @@ license = "MIT"
 rust-version = "1.85"
 
 [workspace.dependencies]
+async-stream = "0.3"
 bytes = "1"
 futures-core = "0.3"
+futures-util = "0.3"
+lya-http = { path = "crates/lya-http" }
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
     "stream",
@@ -17,5 +20,6 @@ reqwest = { version = "0.12", default-features = false, features = [
     "http2",
 ] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
