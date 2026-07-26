@@ -24,7 +24,7 @@
 //! - [`traits`] — [`Tool`] trait
 //! - [`registry`] — [`ToolRegistry`] / [`ToolBundle`]
 //! - [`error`] — [`ToolError`]
-//! - [`tools`] — 具体工具占位（后续填充）
+//! - [`tools`] — 内置工具（`local/file_read` 等）
 
 #![deny(missing_docs)]
 
@@ -39,4 +39,5 @@ pub use error::ToolError;
 pub use meta::{ToolMeta, ToolResult};
 pub use permission::Permission;
 pub use registry::{openai_tool_schema, ToolBundle, ToolRegistry};
+pub use tools::register_builtins;
 pub use traits::Tool;

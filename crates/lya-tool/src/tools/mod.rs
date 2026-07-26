@@ -1,11 +1,19 @@
-//! 具体工具实现占位。
+//! 具体工具实现。
 //!
-//! 内置工具后续按指导在此目录添加（如 `bash` / `file` / `web`），
-//! 并在启动组装处 `registry.register(...)`。
-//!
-//! 当前刻意不注册任何工具，避免空实现污染行为。
+//! - [`local`]：本机文件系统等本地工具
+//! - 启动时调用 [`register_builtins`] 把内置工具挂进注册中心
 
-/// 占位：表示「工具实现目录已预留」。
+pub mod local;
+
+use std::sync::Arc;
+
+use crate::error::ToolError;
+use crate::registry::ToolRegistry;
+
+/// 注册全部内置工具。
 ///
-/// 真正的工具模块会以 `pub mod xxx;` 形式出现在本文件。
-pub fn placeholder() {}
+/// 由进程启动组装处调用一次即可。
+pub fn register_builtins(registry: &mut ToolRegistry) -> Result<(), ToolError> {
+    registry.register(Arc::new(local::file::FileReadTool::new()))?;
+    Ok(())
+}

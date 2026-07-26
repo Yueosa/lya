@@ -8,9 +8,11 @@ description = "lya 工具定义、注册中心与 OpenAI tools / 提示词导出
 readme = "README.md"
 
 [dependencies]
+regex = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
