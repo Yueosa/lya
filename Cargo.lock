@@ -564,6 +564,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-prompt"
+version = "0.1.0"
+
+[[package]]
 name = "lya-tool"
 version = "0.1.0"
 dependencies = [

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/lya-http", "crates/lya-llm", "crates/lya-tool"]
+members = ["crates/lya-http", "crates/lya-llm", "crates/lya-tool", "crates/lya-prompt"]
 
 [workspace.package]
 edition = "2024"
@@ -13,6 +13,7 @@ bytes = "1"
 futures-core = "0.3"
 futures-util = "0.3"
 lya-http = { path = "crates/lya-http" }
+lya-prompt = { path = "crates/lya-prompt" }
 lya-tool = { path = "crates/lya-tool" }
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
