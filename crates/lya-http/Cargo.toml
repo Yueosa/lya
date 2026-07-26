@@ -1,0 +1,19 @@
+[package]
+name = "lya-http"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "lya 出站 HTTP 基础设施：共享连接池、超时配置、流式响应与错误分类"
+readme = "README.md"
+
+[dependencies]
+bytes = { workspace = true }
+futures-core = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
