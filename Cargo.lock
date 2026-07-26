@@ -564,6 +564,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-mode"
+version = "0.1.0"
+dependencies = [
+ "lya-tool",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "lya-prompt"
 version = "0.1.0"
 
