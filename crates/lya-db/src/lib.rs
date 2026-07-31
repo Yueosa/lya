@@ -62,7 +62,10 @@ impl Db {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
-             PRAGMA foreign_keys = ON;",
+             PRAGMA foreign_keys = ON;
+             -- 正常情况下写入都被内部那把锁串起来了，这个超时是给「同一库文件
+             -- 被另开连接」的情况兜底，免得直接吃 SQLITE_BUSY
+             PRAGMA busy_timeout = 5000;",
         )?;
 
         Ok(Self {

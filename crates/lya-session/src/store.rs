@@ -3,6 +3,8 @@
 //! 所有写操作都跑在 [`lya_db::Db::write`] 的事务里，读操作走 [`lya_db::Db::read`]。
 //! 一次调用 = 一个事务，调用方不需要自己管理原子性。
 
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use lya_db::Db;
 use lya_mode::Mode;
@@ -17,7 +19,7 @@ use crate::types::{CreateSession, MessageRecord, SessionMeta, SessionStatus};
 /// 会话存储：会话元数据 + 消息树。
 pub struct SessionStore {
     /// 共享数据库句柄。
-    db: Db,
+    db: Arc<Db>,
 }
 
 impl SessionStore {
@@ -27,8 +29,18 @@ impl SessionStore {
     /// 这样多个领域 crate 可以先各自登记迁移，最后统一执行。
     pub fn new(db: Db) -> Self {
         Self {
-            db: db.with_migration(MIGRATION_SQL),
+            db: Arc::new(db.with_migration(MIGRATION_SQL)),
         }
+    }
+
+    /// 复用别处已经建好的 [`Db`]。
+    ///
+    /// 与 [`SessionStore::new`] 的区别是**不登记迁移**——调用方要自己先
+    /// `with_migration(lya_session::MIGRATION_SQL)` 并 `migrate()`。
+    /// 多个领域仓储共享同一个库文件时用这个，这样写入仍走同一把锁，
+    /// 不会出现两个连接互相抢。
+    pub fn with_db(db: Arc<Db>) -> Self {
+        Self { db }
     }
 
     /// 打开默认库 `~/.lya/lya.db` 并立即迁移。
@@ -71,7 +83,11 @@ impl SessionStore {
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
-        let tools_json = serde_json::to_string(&meta.enabled_tools)?;
+        let tools_json = meta
+            .enabled_tools
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?;
 
         self.db.write(|conn| -> Result<(), SessionError> {
             conn.execute(
@@ -140,16 +156,16 @@ impl SessionStore {
         })
     }
 
-    /// 设置用户启用的工具列表（内部名）。
+    /// 设置用户启用的工具列表（内部名）；`None` 表示启用全部。
     ///
     /// 这里只存用户意愿，不做 RWX 校验；实际可见工具由
     /// [`lya_mode::Mode::resolve`] 与本列表取交集决定。
     pub fn set_enabled_tools(
         &self,
         session_id: &str,
-        tools: &[String],
+        tools: Option<&[String]>,
     ) -> Result<(), SessionError> {
-        let json = serde_json::to_string(tools)?;
+        let json = tools.map(serde_json::to_string).transpose()?;
         self.set_field(session_id, |conn, now| {
             conn.execute(
                 "UPDATE sessions SET enabled_tools_json = ?1, updated_at = ?2 WHERE id = ?3",
@@ -442,7 +458,7 @@ struct RawSession {
     active_leaf_id: Option<i64>,
     work_mode: String,
     persona: Option<String>,
-    enabled_tools_json: String,
+    enabled_tools_json: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -471,7 +487,11 @@ impl RawSession {
                 .work_mode
                 .parse()
                 .map_err(|err: lya_mode::ModeParseError| SessionError::Invalid(err.to_string()))?,
-            enabled_tools: serde_json::from_str(&self.enabled_tools_json)?,
+            enabled_tools: self
+                .enabled_tools_json
+                .as_deref()
+                .map(serde_json::from_str)
+                .transpose()?,
             created_at: parse_time(&self.created_at)?,
             updated_at: parse_time(&self.updated_at)?,
             id: self.id,
@@ -629,7 +649,7 @@ mod tests {
             .create_session(CreateSession {
                 title: "t".into(),
                 work_mode: Mode::Agent,
-                enabled_tools: vec!["file_read".into()],
+                enabled_tools: Some(vec!["file_read".into()]),
                 ..Default::default()
             })
             .unwrap()
@@ -643,11 +663,13 @@ mod tests {
 
         let meta = store.get_session(&id).unwrap().unwrap();
         assert_eq!(meta.work_mode, Mode::Agent);
-        assert_eq!(meta.enabled_tools, vec!["file_read".to_string()]);
+        assert_eq!(meta.enabled_tools, Some(vec!["file_read".to_string()]));
         assert_eq!(meta.active_leaf_id, None);
 
         store.set_work_mode(&id, Mode::Ask).unwrap();
-        store.set_enabled_tools(&id, &["file_read".into()]).unwrap();
+        store
+            .set_enabled_tools(&id, Some(&["file_read".to_string()]))
+            .unwrap();
         store.set_title(&id, "renamed").unwrap();
         store.set_persona(&id, Some("小恋恋")).unwrap();
 

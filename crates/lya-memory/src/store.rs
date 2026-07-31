@@ -3,6 +3,8 @@
 //! 只做存取与索引渲染，不定义暴露给模型的 action/tool——那属于 `lya-action`，
 //! 它才决定哪些操作给 LLM（删除就不给）以及配套的提示词。
 
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use lya_db::Db;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -15,7 +17,7 @@ use crate::types::{Memory, MemoryLimits, MemoryPatch, NewMemory};
 /// 长期记忆仓储。
 pub struct MemoryStore {
     /// 共享数据库句柄。
-    db: Db,
+    db: Arc<Db>,
     /// 写入长度上限。
     limits: MemoryLimits,
     /// 常驻索引的体积上限。
@@ -26,7 +28,19 @@ impl MemoryStore {
     /// 用已打开的 [`Db`] 构造，并登记 memory 迁移（不执行）。
     pub fn new(db: Db) -> Self {
         Self {
-            db: db.with_migration(MIGRATION_SQL),
+            db: Arc::new(db.with_migration(MIGRATION_SQL)),
+            limits: MemoryLimits::default(),
+            budget: IndexBudget::default(),
+        }
+    }
+
+    /// 复用别处已经建好的 [`Db`]。
+    ///
+    /// **不登记迁移**——调用方要自己先 `with_migration(lya_memory::MIGRATION_SQL)`
+    /// 并 `migrate()`。与 `lya-session` 共享同一个库文件时用这个。
+    pub fn with_db(db: Arc<Db>) -> Self {
+        Self {
+            db,
             limits: MemoryLimits::default(),
             budget: IndexBudget::default(),
         }

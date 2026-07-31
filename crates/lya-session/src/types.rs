@@ -44,8 +44,10 @@ pub struct CreateSession {
     pub work_mode: Mode,
     /// 会话人设覆盖；`None` 表示用全局。
     pub persona: Option<String>,
-    /// 启用的工具内部名列表。
-    pub enabled_tools: Vec<String>,
+    /// 启用的工具内部名。
+    ///
+    /// `None` = 启用全部；`Some(list)` = 只启用列出的；`Some(vec![])` = 全禁。
+    pub enabled_tools: Option<Vec<String>>,
 }
 
 /// 会话元数据快照。
@@ -63,8 +65,8 @@ pub struct SessionMeta {
     pub work_mode: Mode,
     /// 会话人设。
     pub persona: Option<String>,
-    /// 用户启用的工具名。
-    pub enabled_tools: Vec<String>,
+    /// 用户启用的工具名；`None` 表示全部启用。
+    pub enabled_tools: Option<Vec<String>>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
