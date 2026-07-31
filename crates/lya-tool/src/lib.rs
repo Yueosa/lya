@@ -38,6 +38,6 @@ pub mod tools;
 pub use error::ToolError;
 pub use meta::{ToolMeta, ToolResult};
 pub use permission::Permission;
-pub use registry::{openai_tool_schema, ToolBundle, ToolRegistry};
+pub use registry::{openai_function_schema, openai_tool_schema, ToolBundle, ToolRegistry};
 pub use tools::register_builtins;
 pub use traits::Tool;

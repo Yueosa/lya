@@ -18,9 +18,10 @@
 | `lya-db` | 数据目录、连接、迁移、写事务 | 可用 |
 | `lya-session` | 会话元数据、消息树、分支、HITL 独立节点 | 可用 |
 | `lya-memory` | 跨会话笔记的仓储 + 常驻索引渲染 | 可用 |
+| `lya-action` | 元认知动作：记忆读写、表单、请求切模式 | 可用 |
 
-依赖方向保持单向：`session → db`、`memory → db`、`mode → tool`、`llm → http`，
-彼此不反向依赖。
+依赖方向保持单向：`session → db`、`memory → db`、`mode → tool`、`llm → http`、
+`action → tool/memory/session/mode`，彼此不反向依赖。
 
 ---
 
@@ -67,10 +68,21 @@
   字段对应关系是 topic→title、summary→summary、md 正文→body、tags_json→tags，
   namespace 丢弃。
 
+### lya-action
+
+- **只有四个动作**：`memory_read` / `memory_write` / `form` /
+  `request_mode_change`。`transcript`（回查被省略的历史）等上下文压缩做了
+  再说，现在喂给模型的是完整路径，用不上。
+- **HITL 的答复没有结构化留档**：用户答完表单后，渲染出的文本会作为
+  `role=tool` 消息入树，但 HITL 节点本身只翻转成 resolved，不存原始答案。
+  等界面要「回看当时选了什么」时，给 `resolve_hitl` 加一个答案参数存进
+  `lya.meta` 即可。
+- **动作与工具的重名没人查**：两边的 schemas 由 agent 合并进同一个
+  `tools[]`，撞名应当在合并处报错。
+
 ### lya-prompt
 
-- **`action_section` 目前无人注入**：接口留好了，等 `lya-action` 产出元认知
-  段落再接上。
+- **`action_section` 已可用**：接 `ActionRegistry::prompt_section(mode)`。
 
 ### lya-llm / lya-http
 
@@ -81,22 +93,7 @@
 
 ## 接下来的顺序
 
-`lya-action` → `lya-config` → `lya-agent`
-
-具体先后再议，但 `lya-config` 必须排在 `lya-agent` 之前。
-
-### lya-action
-
-元认知层，产出 `lya-prompt` 的 `action_section`，并执行 memory / form /
-`request_mode_change` / `done` 等动作。`lya-memory` 只提供仓储，**记忆的读写
-动作与「什么时候该记」的指导文案都归这里**；删除不暴露给模型，只走用户界面。
-
-**已定**：action 与 tool **对外走同一套协议**（OpenAI function calling），
-lya 内部当两类东西治理——tool 受 mode 的 RWX 与会话启用名单约束，
-action 不受约束、始终可见。
-
-**待解**：`Tool::call(args)` 没有会话上下文，而 action 恰恰要改会话状态。
-倾向共用「schema 与提示词导出」这一层，执行分两路，由 agent 按名字路由。
+`lya-config` → `lya-agent`
 
 ### lya-config
 
@@ -118,12 +115,33 @@ action 不受约束、始终可见。
 → 调 LLM → 分发 tool/action → 结果回写消息树 → HITL 中断与恢复。
 它是唯一知道「一轮怎么跑」的地方，其余 crate 保持无状态。
 
+循环规则只有一条：**assistant 消息带 `tool_calls` 就执行并回灌、继续下一轮；
+不带就结束本轮。** 「边说边干」靠 `content` 与 `tool_calls` 同时出现表达
+（`ChatMessage::assistant_tool_calls`），所以不需要 `done` 这类显式信号。
+
+它要处理的边界：
+
+- 模型闷头连调多轮工具、`content` 始终为空，界面上一片空白——靠提示词治，
+  文案抄 lianclaw 的「不要沉默地连续操作多轮」
+- 工具调用死循环——靠 `max_tool_rounds` 轮数上限兜
+- 模型返回空 `content` 且无 `tool_calls`，本轮静默结束
+- 合并 tool 与 action 的 schemas 时检测重名
+
+HITL 的完整链路（表单为例）：模型调 `form` → agent 追加带 `tool_calls` 的
+assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 → agent 用
+[`render_form_answer`] 渲染成文本、追加 `role=tool` 节点（`tool_call_id` 对应）
+并 `resolve_hitl` → 继续本轮。HITL 节点的 `openai` 保持 `None`，只服务界面与
+状态恢复；模型上下文里始终是标准的 tool_call / tool_result 配对。
+
 之后才是 HTTP 层、`SessionHub` 订阅协议、WebUI 与托盘。
 
 ---
 
 ## 明确不做
 
+- **`done` 动作**：不带 `tool_calls` 的 assistant 消息即本轮结束。上一代的
+  `done` 是给后台 worker 用的——后台任务没有用户可回复，必须显式声明完成；
+  我们砍了子 agent 就不需要。
 - **skills 体系**：工具提示词与实现放在一起，不再单独抽一层。
 - **子 agent / `spawn_agent`**：太复杂，砍掉。TMP.md 里相关条目作废。
 - **插件系统**：lianclaw 的历史包袱，不带过来。
@@ -169,7 +187,20 @@ action 不受约束、始终可见。
   一致性得自己维护、topic 里的 `/` 要转义、备份要管两处。
 - **LLM 无删除权**是有意为之，lya 沿用。
 - 写入门槛几乎全靠提示词治理（大段「什么时候该写/不该写」），三个月只攒 8 条
-  说明确实有效，这批文案做 `lya-action` 时值得抄。
+  说明确实有效，这批文案已抄进 `lya-action` 的 `memory_write` 用法说明。
+
+### HITL：从 lianclaw 学到的教训
+
+- **它没有「请求切换模式」这个动作。** 模式只能用户从 HTTP 改，模型撞到权限墙
+  时只会干说一句「请切到 agent 模式」。lya 补上了 `request_mode_change`，
+  走 HITL 让用户一次确认。
+- **表单题型只有 single / multi，没有自由文本。** 「它在哪个目录？」这种只能
+  靠表单级的 `_freetext` 兜。而且「备注」不在题目定义里，是硬塞在答案侧的
+  `{题目id}_note` 魔法键，题目本身没法声明要不要备注，前端只好给所有题都挂
+  一个备注框。lya 加了 `text` 题型和每题显式的 `allow_note`。
+- **题目和选项数量没有任何上限。** lya 限制 10 题 / 20 选项。
+- **答复走 `role=tool` 而不是伪造用户消息**，`tool_call_id` 对应那次 form
+  调用——这点是对的，lya 沿用，正好和 HITL 独立节点互不干扰。
 
 ### 旧前端（`web-bak/`）
 

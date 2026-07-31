@@ -157,6 +157,21 @@ impl ToolRegistry {
     }
 }
 
+/// 生成单条 OpenAI function 定义。
+///
+/// 工具与 action 最终发给的是同一个 `tools[]`，schema 形状必须完全一致，
+/// 所以两边共用这一个函数，而不是各写各的。
+pub fn openai_function_schema(name: &str, description: &str, parameters: &Value) -> Value {
+    json!({
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": parameters,
+        }
+    })
+}
+
 /// 从工具生成单条 OpenAI function tool 定义。
 ///
 /// - `function.name` ← `meta.name`
@@ -166,14 +181,7 @@ impl ToolRegistry {
 /// `raw_name` / `prmt` / `prompt_hint` **不**进入该 JSON。
 pub fn openai_tool_schema(tool: &dyn Tool) -> Value {
     let meta = tool.meta();
-    json!({
-        "type": "function",
-        "function": {
-            "name": meta.name,
-            "description": meta.desc,
-            "parameters": tool.parameters(),
-        }
-    })
+    openai_function_schema(&meta.name, &meta.desc, tool.parameters())
 }
 
 #[cfg(test)]

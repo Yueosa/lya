@@ -117,6 +117,50 @@ pub enum HitlKind {
     ModeChange,
 }
 
+/// 表单题型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FormQuestionKind {
+    /// 单选，必须给选项。
+    Single,
+    /// 多选，必须给选项。
+    Multi,
+    /// 自由文本，不给选项。
+    ///
+    /// 上一代实现只有单选/多选，「它在哪个目录？」这类问题只能靠表单级的
+    /// 补充说明兜，很别扭，所以这里补上正经的文本题。
+    Text,
+}
+
+/// 表单选项。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormOption {
+    /// 提交时回传的值。
+    pub key: String,
+    /// 展示给用户的文案。
+    pub label: String,
+}
+
+/// 表单里的一道题。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FormQuestion {
+    /// 题目 id，表单内唯一，答案按它对应。
+    pub id: String,
+    /// 题干。
+    pub text: String,
+    /// 题型。
+    pub kind: FormQuestionKind,
+    /// 选项；文本题为空。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub options: Vec<FormOption>,
+    /// 是否额外提供一个备注输入框。
+    ///
+    /// 显式声明而不是像上一代那样给所有题都挂备注——出题的时候就该想清楚
+    /// 这题要不要补充说明。
+    #[serde(default)]
+    pub allow_note: bool,
+}
+
 /// HITL 块内容。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -127,8 +171,8 @@ pub enum HitlBlock {
         form_id: String,
         /// 标题。
         title: String,
-        /// 题目列表（自由 JSON，后续再收紧 schema）。
-        questions: Value,
+        /// 题目列表。
+        questions: Vec<FormQuestion>,
     },
     /// 工具确认。
     ToolConfirm {
