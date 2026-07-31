@@ -4,6 +4,7 @@
 //! - 启动时调用 [`register_builtins`] 把内置工具挂进注册中心
 
 pub mod local;
+pub mod shell;
 pub mod web;
 
 use std::sync::Arc;
