@@ -662,6 +662,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-agent"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "chrono",
+ "futures-core",
+ "futures-util",
+ "lya-action",
+ "lya-config",
+ "lya-db",
+ "lya-http",
+ "lya-llm",
+ "lya-memory",
+ "lya-mode",
+ "lya-prompt",
+ "lya-session",
+ "lya-tool",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "lya-config"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,29 @@
+[package]
+name = "lya-agent"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "lya 一轮对话的驱动器：上下文装配、循环、工具分发与 HITL"
+
+[dependencies]
+async-stream = { workspace = true }
+chrono = { workspace = true }
+futures-core = { workspace = true }
+futures-util = { workspace = true }
+lya-action = { workspace = true }
+lya-llm = { workspace = true }
+lya-memory = { workspace = true }
+lya-mode = { workspace = true }
+lya-prompt = { workspace = true }
+lya-session = { workspace = true }
+lya-tool = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+lya-config = { workspace = true }
+lya-db = { workspace = true }
+lya-http = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true }

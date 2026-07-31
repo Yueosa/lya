@@ -1,0 +1,585 @@
+//! [`Agent`]：一轮对话的驱动器。
+
+use std::sync::Arc;
+
+use futures_core::Stream;
+use futures_util::StreamExt;
+use lya_action::{ActionCtx, ActionOutcome, ActionRegistry, FormAnswer, render_form_answer};
+use lya_llm::{CompletionAssembler, LlmEndpoint, StreamEvent};
+use lya_memory::MemoryStore;
+use lya_mode::Mode;
+use lya_prompt::{PromptBuilder, PromptInput};
+use lya_session::{
+    HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus, OpenAiFunction,
+    OpenAiMessage, OpenAiToolCall, SessionStore,
+};
+use lya_tool::ToolRegistry;
+use serde_json::{Value, json};
+
+use crate::backend::ChatBackend;
+use crate::context::build_messages;
+use crate::error::AgentError;
+use crate::event::{AgentEvent, CallKind, CancelToken, TurnEndReason};
+
+/// 构造 [`Agent`] 所需的全部部件。
+pub struct AgentParts<B: ChatBackend> {
+    /// LLM 后端。
+    pub backend: B,
+    /// 调用哪个模型。
+    pub endpoint: LlmEndpoint,
+    /// 会话与消息树。
+    pub sessions: Arc<SessionStore>,
+    /// 长期记忆。
+    pub memory: Arc<MemoryStore>,
+    /// 工具目录。
+    pub tools: Arc<ToolRegistry>,
+    /// 动作目录。
+    pub actions: Arc<ActionRegistry>,
+    /// 提示词组装器（持有全局人设）。
+    pub prompt: PromptBuilder,
+    /// 单轮内 LLM 与工具最多来回几次。
+    pub max_tool_rounds: u32,
+}
+
+/// 一轮对话的驱动器。
+///
+/// **自身无状态**：每次 [`Agent::run_turn`] 都从消息树读当前状态。HITL 挂起
+/// 不在内存里留任何东西——表单发出去本轮就正常结束了，用户什么时候答复都行，
+/// 进程重启也能接上。
+pub struct Agent<B: ChatBackend> {
+    backend: B,
+    endpoint: LlmEndpoint,
+    sessions: Arc<SessionStore>,
+    memory: Arc<MemoryStore>,
+    tools: Arc<ToolRegistry>,
+    actions: Arc<ActionRegistry>,
+    prompt: PromptBuilder,
+    max_tool_rounds: u32,
+}
+
+impl<B: ChatBackend> Agent<B> {
+    /// 组装 agent。
+    ///
+    /// 工具与动作会合并进同一个 `tools[]`，所以这里检查一次重名——名字集合
+    /// 是固定的（`visible_in` 只取子集），不必每轮都查。
+    pub fn new(parts: AgentParts<B>) -> Result<Self, AgentError> {
+        for name in parts.actions.names() {
+            if parts.tools.get(&name).is_some() {
+                return Err(AgentError::NameCollision(name));
+            }
+        }
+        Ok(Self {
+            backend: parts.backend,
+            endpoint: parts.endpoint,
+            sessions: parts.sessions,
+            memory: parts.memory,
+            tools: parts.tools,
+            actions: parts.actions,
+            prompt: parts.prompt,
+            max_tool_rounds: parts.max_tool_rounds,
+        })
+    }
+
+    /// 会话仓储。
+    pub fn sessions(&self) -> &SessionStore {
+        &self.sessions
+    }
+
+    /// 记忆仓储。
+    pub fn memory(&self) -> &MemoryStore {
+        &self.memory
+    }
+
+    /// 跑一轮对话。
+    ///
+    /// **不接收用户输入**——用户消息由调用方先 append 进树。这样「发消息」
+    /// 「重新生成」「编辑重发」「HITL 答复后继续」都是同一套：改树，再跑一轮。
+    ///
+    /// 返回的流最后一定恰好有一条 [`AgentEvent::TurnEnd`]。
+    pub fn run_turn(
+        &self,
+        session_id: impl Into<String>,
+        cancel: CancelToken,
+    ) -> impl Stream<Item = AgentEvent> + '_ {
+        let session_id = session_id.into();
+
+        async_stream::stream! {
+            /// 出错就收尾走人，省掉满地的 match。
+            macro_rules! bail {
+                ($e:expr) => {
+                    match $e {
+                        Ok(value) => value,
+                        Err(err) => {
+                            yield AgentEvent::TurnEnd {
+                                reason: TurnEndReason::Failed(err.to_string()),
+                            };
+                            return;
+                        }
+                    }
+                };
+            }
+
+            if let Some(pending) = bail!(self.sessions.pending_hitl(&session_id)) {
+                yield AgentEvent::TurnEnd {
+                    reason: TurnEndReason::Failed(format!(
+                        "会话有未处理的确认（消息 #{pending}），请先答复"
+                    )),
+                };
+                return;
+            }
+
+            let mut round = 0u32;
+            loop {
+                if cancel.is_cancelled() {
+                    yield AgentEvent::TurnEnd { reason: TurnEndReason::Cancelled };
+                    return;
+                }
+                if round >= self.max_tool_rounds {
+                    yield AgentEvent::TurnEnd { reason: TurnEndReason::MaxRounds };
+                    return;
+                }
+                round += 1;
+                yield AgentEvent::RoundStarted { round };
+
+                // ── 每轮重新装配 ────────────────────────────────
+                // 系统提示词每轮重建：模型可能刚写了一条记忆，重建才能让它
+                // 立刻出现在常驻索引里。
+                let meta = match bail!(self.sessions.get_session(&session_id)) {
+                    Some(meta) => meta,
+                    None => {
+                        yield AgentEvent::TurnEnd {
+                            reason: TurnEndReason::Failed(format!("会话不存在：{session_id}")),
+                        };
+                        return;
+                    }
+                };
+
+                // None = 会话没限制过，全部工具都可见
+                let enabled: Option<Vec<&str>> = meta
+                    .enabled_tools
+                    .as_ref()
+                    .map(|names| names.iter().map(String::as_str).collect());
+                let mode_bundle = meta.work_mode.resolve(&self.tools, enabled.as_deref());
+                let action_bundle = self.actions.bundle(meta.work_mode);
+                let memory_section = bail!(self.memory.index_section());
+
+                let mut input = PromptInput::new()
+                    .with_actions(action_bundle.prompt.clone())
+                    .with_tools(mode_bundle.tools.prompt.clone())
+                    .with_mode(mode_bundle.mode_prompt.clone())
+                    .with_memory(memory_section);
+                input.persona = meta.persona.clone();
+                let system = self.prompt.build(&input);
+
+                let path = bail!(self.sessions.path_to_active_leaf(&session_id));
+                let messages = build_messages(&system, &path);
+
+                let mut schemas = mode_bundle.tools.schemas.clone();
+                schemas.extend(action_bundle.schemas.clone());
+
+                // ── 流式生成 ────────────────────────────────────
+                // 先落一条占位消息，界面才有 id 可以挂增量
+                let draft = bail!(self.sessions.append(
+                    &session_id,
+                    MessagePayload::assistant_text("", MessageStatus::Streaming),
+                    false,
+                ));
+                yield AgentEvent::MessageCommitted { id: draft.id };
+
+                let stream = self.backend.chat_stream(&self.endpoint, messages, schemas).await;
+                let mut stream = match stream {
+                    Ok(stream) => stream,
+                    Err(err) => {
+                        // 一个字都没产出，别在历史里留个空壳
+                        let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                        yield AgentEvent::TurnEnd {
+                            reason: TurnEndReason::Failed(err.to_string()),
+                        };
+                        return;
+                    }
+                };
+
+                let mut assembler = CompletionAssembler::default();
+                let mut cancelled = false;
+                let mut failure: Option<String> = None;
+                let mut produced = false;
+
+                while let Some(item) = stream.next().await {
+                    if cancel.is_cancelled() {
+                        cancelled = true;
+                        break;
+                    }
+                    match item {
+                        Ok(event) => {
+                            match &event {
+                                StreamEvent::TextDelta(text) => {
+                                    produced = true;
+                                    yield AgentEvent::Delta(text.clone());
+                                }
+                                StreamEvent::ReasoningDelta(text) => {
+                                    produced = true;
+                                    yield AgentEvent::Reasoning(text.clone());
+                                }
+                                StreamEvent::ToolCallDelta(_) => produced = true,
+                                StreamEvent::Finished { .. } => {}
+                            }
+                            assembler.apply(&event);
+                        }
+                        Err(err) => {
+                            failure = Some(err.to_string());
+                            break;
+                        }
+                    }
+                }
+                drop(stream);
+
+                let completion = assembler.into_completion();
+
+                if cancelled || failure.is_some() {
+                    // 有内容就留下来标成中断，什么都没有就清掉
+                    if produced {
+                        let mut payload = assistant_payload(&completion);
+                        payload.status = MessageStatus::Interrupted;
+                        let _ = self.sessions.update_payload(&session_id, draft.id, &payload);
+                    } else {
+                        let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                    }
+                    yield AgentEvent::TurnEnd {
+                        reason: match failure {
+                            Some(msg) => TurnEndReason::Failed(msg),
+                            None => TurnEndReason::Cancelled,
+                        },
+                    };
+                    return;
+                }
+
+                if completion.content.trim().is_empty() && completion.tool_calls.is_empty() {
+                    let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                    yield AgentEvent::TurnEnd { reason: TurnEndReason::EmptyResponse };
+                    return;
+                }
+
+                let payload = assistant_payload(&completion);
+                bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
+
+                // 不带 tool_calls 就是本轮说完了
+                if completion.tool_calls.is_empty() {
+                    yield AgentEvent::TurnEnd { reason: TurnEndReason::Completed };
+                    return;
+                }
+
+                // ── 分发调用 ────────────────────────────────────
+                let mut awaiting: Option<i64> = None;
+                for call in &completion.tool_calls {
+                    let kind = if self.actions.get(&call.name).is_some() {
+                        CallKind::Action
+                    } else {
+                        CallKind::Tool
+                    };
+                    yield AgentEvent::CallStarted {
+                        call_id: call.id.clone(),
+                        name: call.name.clone(),
+                        kind,
+                    };
+
+                    let outcome = self
+                        .dispatch(
+                            &session_id,
+                            meta.work_mode,
+                            &mode_bundle.tools,
+                            &call.name,
+                            &call.arguments,
+                            awaiting.is_some(),
+                        )
+                        .await;
+
+                    let (payload, success, hitl) = match outcome {
+                        Dispatched::Result { content, success } => (
+                            MessagePayload::tool_result(&call.id, content),
+                            success,
+                            None,
+                        ),
+                        Dispatched::AwaitHuman(block) => {
+                            (hitl_payload(&call.id, *block), true, Some(()))
+                        }
+                    };
+
+                    let record = bail!(self.sessions.append(&session_id, payload, true));
+                    yield AgentEvent::MessageCommitted { id: record.id };
+                    yield AgentEvent::CallFinished {
+                        call_id: call.id.clone(),
+                        name: call.name.clone(),
+                        success,
+                    };
+                    if hitl.is_some() {
+                        awaiting = Some(record.id);
+                    }
+                }
+
+                if let Some(message_id) = awaiting {
+                    yield AgentEvent::AwaitHuman { message_id };
+                    yield AgentEvent::TurnEnd { reason: TurnEndReason::AwaitingHuman };
+                    return;
+                }
+            }
+        }
+    }
+
+    /// 执行一次调用：先查动作，再查工具。
+    ///
+    /// **执行前必须再拦一次**。筛选只决定「提供给模型什么」，拦不住模型凭空
+    /// 编一个没提供的名字——它见过别的工具名，也可能从历史里翻出旧的。少了
+    /// 这道关，ask 模式下一句 `file_write` 就能真的写文件。
+    ///
+    /// 判断依据用的是**本轮那次筛选的结果**（`allowed`），而不是在这里重算
+    /// 一遍条件；两处逻辑一旦漂移，漏洞就又回来了。
+    async fn dispatch(
+        &self,
+        session_id: &str,
+        mode: Mode,
+        allowed: &lya_tool::ToolBundle,
+        name: &str,
+        arguments: &str,
+        already_awaiting: bool,
+    ) -> Dispatched {
+        let args: Value = if arguments.trim().is_empty() {
+            json!({})
+        } else {
+            match serde_json::from_str(arguments) {
+                Ok(value) => value,
+                Err(err) => {
+                    return Dispatched::err(format!("参数不是合法 JSON：{err}"));
+                }
+            }
+        };
+
+        if let Some(action) = self.actions.get(name) {
+            if !action.visible_in(mode) {
+                return Dispatched::err(format!("动作 `{name}` 在当前 {mode} 模式下不可用。"));
+            }
+            let ctx = ActionCtx::new(session_id, mode);
+            return match action.call(ctx, args).await {
+                ActionOutcome::Continue(result) => Dispatched::Result {
+                    content: result.content,
+                    success: result.success,
+                },
+                ActionOutcome::AwaitHuman(block) => {
+                    if already_awaiting {
+                        // 一轮里只挂起一次；同一条消息里再发一个只会让用户
+                        // 面对两个并列的确认框，说不清先答哪个
+                        Dispatched::err(
+                            "本轮已经有一个待用户答复的请求了，等这个处理完再发下一个。",
+                        )
+                    } else {
+                        Dispatched::AwaitHuman(block)
+                    }
+                }
+            };
+        }
+
+        let Some(tool) = self.tools.get(name) else {
+            return Dispatched::err(format!("没有名为 `{name}` 的函数，请检查可用列表。"));
+        };
+
+        if !allowed.allows(name) {
+            let prmt = tool.meta().prmt;
+            return Dispatched::err(if prmt.is_subset_of(mode.permission()) {
+                // 权限够，那就是用户没在本会话启用它
+                format!("工具 `{name}` 没有在本会话启用，请让用户在工具管理里打开。")
+            } else {
+                format!(
+                    "工具 `{name}` 在当前 {mode} 模式下不可用（需要 {prmt}，本模式只授予 {}）。\
+                     请改用当前可用的工具，或用 request_mode_change 请用户切换模式。",
+                    mode.permission()
+                )
+            });
+        }
+
+        let result = tool.call(args).await;
+        Dispatched::Result {
+            content: result.content,
+            success: result.success,
+        }
+    }
+
+    /// 用户手动切换工作模式，并在树上留一条系统消息说明这次变更。
+    ///
+    /// 模型自己发起的切换走 `request_mode_change` + [`Agent::resolve_mode_change`]，
+    /// 那条路的 tool 结果已经交代了来龙去脉，不必再加标记。用户从界面切则毫无
+    /// 痕迹——模型只会发现自己突然能干别的事了，所以这里补一条。
+    ///
+    /// 做成持久节点而不是一次性消息：树是唯一真相，追加也不影响前缀缓存。
+    pub fn switch_mode(&self, session_id: &str, mode: Mode) -> Result<(), AgentError> {
+        let meta = self
+            .sessions
+            .get_session(session_id)?
+            .ok_or_else(|| AgentError::Invalid(format!("会话不存在：{session_id}")))?;
+        if meta.work_mode == mode {
+            return Ok(());
+        }
+
+        self.sessions.set_work_mode(session_id, mode)?;
+        self.sessions.append(
+            session_id,
+            MessagePayload::system_text(format!(
+                "[模式变更] 用户已将工作模式从 {} 切换为 {}。可用工具已随之调整。",
+                meta.work_mode, mode
+            )),
+            true,
+        )?;
+        Ok(())
+    }
+
+    /// 提交表单答复：把作答写成 tool 结果、结清 HITL。
+    ///
+    /// 之后再调一次 [`Agent::run_turn`] 就能接着跑。
+    pub fn submit_form(&self, session_id: &str, answer: &FormAnswer) -> Result<(), AgentError> {
+        let (hitl_id, call_id, block) = self.pending_block(session_id)?;
+        let HitlBlock::Form {
+            form_id,
+            title,
+            questions,
+        } = block
+        else {
+            return Err(AgentError::Invalid("当前待处理的不是表单".into()));
+        };
+        if form_id != answer.form_id {
+            return Err(AgentError::Invalid(format!(
+                "表单 id 对不上：待处理的是 {form_id}，提交的是 {}",
+                answer.form_id
+            )));
+        }
+
+        let text = render_form_answer(&title, &questions, answer);
+        self.sessions
+            .append(session_id, MessagePayload::tool_result(call_id, text), true)?;
+        self.sessions.resolve_hitl(session_id, hitl_id)?;
+        Ok(())
+    }
+
+    /// 答复模式切换请求；`approved` 为真时顺带把会话模式改掉。
+    pub fn resolve_mode_change(&self, session_id: &str, approved: bool) -> Result<(), AgentError> {
+        let (hitl_id, call_id, block) = self.pending_block(session_id)?;
+        let HitlBlock::ModeChange { to_mode, .. } = block else {
+            return Err(AgentError::Invalid("当前待处理的不是模式切换请求".into()));
+        };
+
+        let text = if approved {
+            let mode: Mode = to_mode
+                .parse()
+                .map_err(|err: lya_mode::ModeParseError| AgentError::Invalid(err.to_string()))?;
+            self.sessions.set_work_mode(session_id, mode)?;
+            format!("用户已同意，会话切换到 {to_mode} 模式。")
+        } else {
+            format!("用户拒绝切换到 {to_mode} 模式，请在现有权限内继续。")
+        };
+
+        self.sessions
+            .append(session_id, MessagePayload::tool_result(call_id, text), true)?;
+        self.sessions.resolve_hitl(session_id, hitl_id)?;
+        Ok(())
+    }
+
+    /// 取出当前待处理的 HITL：节点 id、对应的 tool_call_id、块内容。
+    fn pending_block(&self, session_id: &str) -> Result<(i64, String, HitlBlock), AgentError> {
+        let hitl_id = self
+            .sessions
+            .pending_hitl(session_id)?
+            .ok_or_else(|| AgentError::Invalid("当前没有待处理的确认".into()))?;
+        let record = self.sessions.get_message(session_id, hitl_id)?;
+        let block = record
+            .payload
+            .lya
+            .hitl
+            .clone()
+            .ok_or_else(|| AgentError::Invalid(format!("消息 #{hitl_id} 没有 HITL 内容")))?;
+        let call_id = record
+            .payload
+            .lya
+            .meta
+            .as_ref()
+            .and_then(|meta| meta.get("tool_call_id"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| AgentError::Invalid(format!("消息 #{hitl_id} 没有记录 tool_call_id")))?
+            .to_string();
+        Ok((hitl_id, call_id, block))
+    }
+}
+
+/// 一次分发的结果。
+enum Dispatched {
+    /// 直接产出结果。
+    Result {
+        /// 回灌给模型的文本。
+        content: String,
+        /// 是否成功。
+        success: bool,
+    },
+    /// 需要人介入。
+    AwaitHuman(Box<HitlBlock>),
+}
+
+impl Dispatched {
+    fn err(content: impl Into<String>) -> Self {
+        Self::Result {
+            content: content.into(),
+            success: false,
+        }
+    }
+}
+
+/// 把一次生成结果落成助手消息。
+fn assistant_payload(completion: &lya_llm::ChatCompletion) -> MessagePayload {
+    let tool_calls: Vec<OpenAiToolCall> = completion
+        .tool_calls
+        .iter()
+        .map(|call| OpenAiToolCall {
+            id: call.id.clone(),
+            kind: "function".into(),
+            function: OpenAiFunction {
+                name: call.name.clone(),
+                arguments: call.arguments.clone(),
+            },
+        })
+        .collect();
+
+    let mut payload = MessagePayload {
+        v: MessagePayload::VERSION,
+        role: MessageRole::Assistant,
+        kind: if tool_calls.is_empty() {
+            MessageKind::Chat
+        } else {
+            MessageKind::ToolCall
+        },
+        status: MessageStatus::Complete,
+        openai: Some(OpenAiMessage {
+            role: "assistant".into(),
+            content: completion.content.clone(),
+            tool_calls: (!tool_calls.is_empty()).then_some(tool_calls),
+            tool_call_id: None,
+        }),
+        lya: Default::default(),
+    };
+    if !completion.content.is_empty() {
+        payload.lya.blocks = vec![json!({ "type": "text", "text": completion.content })];
+    }
+    if !completion.reasoning.is_empty() {
+        payload.lya.reasoning = Some(completion.reasoning.clone());
+    }
+    payload
+}
+
+/// 把 HITL 块落成待处理节点，并记下它对应哪次调用。
+///
+/// `tool_call_id` 必须存下来：用户答复时要用它写 tool 结果，否则那次调用
+/// 永远配不上结果。
+fn hitl_payload(call_id: &str, block: HitlBlock) -> MessagePayload {
+    let kind = match &block {
+        HitlBlock::Form { .. } => MessageKind::Form,
+        HitlBlock::ToolConfirm { .. } => MessageKind::ToolConfirm,
+        HitlBlock::ModeChange { .. } => MessageKind::ModeChange,
+    };
+    let mut payload = MessagePayload::hitl_pending(kind, block);
+    payload.lya.meta = Some(json!({ "tool_call_id": call_id }));
+    payload
+}

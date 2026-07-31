@@ -11,6 +11,7 @@ members = [
     "crates/lya-memory",
     "crates/lya-action",
     "crates/lya-config",
+    "crates/lya-agent",
 ]
 
 [workspace.package]
@@ -29,9 +30,11 @@ chrono = { version = "0.4", default-features = false, features = [
 futures-core = "0.3"
 futures-util = "0.3"
 lya-action = { path = "crates/lya-action" }
+lya-agent = { path = "crates/lya-agent" }
 lya-config = { path = "crates/lya-config" }
 lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }
+lya-llm = { path = "crates/lya-llm" }
 lya-memory = { path = "crates/lya-memory" }
 lya-mode = { path = "crates/lya-mode" }
 lya-prompt = { path = "crates/lya-prompt" }
