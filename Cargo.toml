@@ -7,6 +7,7 @@ members = [
     "crates/lya-prompt",
     "crates/lya-mode",
     "crates/lya-db",
+    "crates/lya-session",
 ]
 
 [workspace.package]
@@ -17,12 +18,18 @@ rust-version = "1.85"
 [workspace.dependencies]
 async-stream = "0.3"
 bytes = "1"
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+    "serde",
+] }
 futures-core = "0.3"
 futures-util = "0.3"
 lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }
 lya-mode = { path = "crates/lya-mode" }
 lya-prompt = { path = "crates/lya-prompt" }
+lya-session = { path = "crates/lya-session" }
 lya-tool = { path = "crates/lya-tool" }
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
@@ -37,3 +44,4 @@ regex = "1"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+uuid = { version = "1", features = ["v4"] }
