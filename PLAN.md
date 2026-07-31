@@ -12,7 +12,7 @@
 |-------|------|------|
 | `lya-http` | 共享 `reqwest` 客户端、流式响应、错误分类 | 可用 |
 | `lya-llm` | OpenAI 兼容 chat/completions、SSE 解析与增量装配 | 可用 |
-| `lya-tool` | `Tool` trait、注册中心、按 RWX 与名单筛选出 prompt + schema | 可用（6 个工具，缺 bash / web） |
+| `lya-tool` | `Tool` trait、注册中心、按 RWX 与名单筛选出 prompt + schema | 可用（9 个工具） |
 | `lya-prompt` | 系统认知 / 自我认知 / 人设，其余段落外部注入 | 可用 |
 | `lya-mode` | ask / edit / agent 与权限映射、模式提示词、工具筛选 | 可用 |
 | `lya-db` | 数据目录、连接、迁移、写事务 | 可用 |
@@ -67,7 +67,7 @@
 |------|------|--------|
 | `file_read` / `dir_list` / `system_info` / `web_search` / `web_fetch` | `-R-` | ask 起 |
 | `file_write` / `file_edit` | `-R-W-` | edit 起 |
-| `file_manage`（删/移/拷/信息/建目录） | `-R-W-X-` | 仅 agent |
+| `file_manage`（删/移/拷/信息/建目录） / `bash` | `-R-W-X-` | 仅 agent |
 
 删除与移动划到执行级而不是写级：它们不可逆，和「改文件内容」不是一回事。
 
@@ -75,7 +75,13 @@
 各自独立（用得最多，schema 要精确），低频的删/移/拷/信息/建目录合成一个
 `file_manage`，省提示词预算。
 
-- **`bash` 待补**，且要自带命令解析与确认，见下。
+- **`bash` 的解析是「够看懂」而不是完整 shell 语法**。遇到 `$(...)`、反引号、
+  引号没闭合就如实标注看不懂并强制确认——解析失败恰恰是最该拦的情况，绝不能
+  当作安全放行。想覆盖更多语法就得往真解析器走，暂时不值得。
+- **`bash` 没有沙箱**：子进程继承完整环境，`kill_on_drop` + 超时能收掉进程，
+  但拦不住它在超时前干的事。确认流程是唯一的闸门。
+- **`bash` 收不到取消信号**：`Tool::call` 拿不到 `CancelToken`，「停止本轮」
+  停不掉已经跑起来的命令，只能等超时。要传得改 trait 签名。
 - **`image_*` 待补**：上一代那三个是本地图片文件管理（扫描目录、算 sha256 与
   dHash、找重复图），**不是视觉能力**。图片靠工具返回路径、模型写
   `![](path)`、前端提供一个受限的本地图片接口来渲染。
@@ -134,10 +140,8 @@
   `Interrupted`。
 - **模型固定用 `default_model`**：`sessions` 表还没有 `model_id` 列，会话不能
   各自选模型。
-- **`ToolConfirm` 类型的 HITL 没有产出方**：`HitlBlock` 里有这个变体、
-  `Agent::pending_block` 也认，但目前没有任何东西会发起工具确认。第一个产出方
-  会是 `bash`，见 lya-tool。届时 `dispatch` 需要能接受工具返回「要确认」这种
-  结果——现在只有 action 能挂起，工具不能。
+- **确认期间的执行没有流式进度**：`resolve_tool_confirm` 里同步跑完才返回，
+  一条跑三十秒的命令在界面上就是干等。要给进度得让它也走事件流。
 - **命令行 example 不处理 HITL**：碰到需要确认时只打印一行提示。表单交互留给
   WebUI，`submit_form` / `resolve_mode_change` 接口已经有了。
 
@@ -172,22 +176,20 @@
 
 ## 接下来的顺序
 
-`bash`（含命令解析与确认）→ `image_*` → HTTP 层与 `SessionHub`
-→ WebUI 与托盘
+`image_*` → HTTP 层与 `SessionHub` → WebUI 与托盘
 
-文件、目录、网络这几批都补完了，三个模式现在真的不一样。`bash` 动的是结构，
-它要打通「工具也能挂起等确认」这条链路：
+工具已经补齐九个，三个模式真的不一样了。**工具确认链路也打通了**，实现方式：
 
-- `lya-tool` 加 `Tool::confirm_request(&self, args) -> Option<ConfirmRequest>`，
-  默认返回 `None`，现有工具一行不改。`ConfirmRequest` 定义在 `lya-tool` 里，
-  **不能引用 `HitlBlock`**——`lya-session → lya-mode → lya-tool`，反向依赖会成环。
-- `lya-agent` 在 `dispatch` 里先问 `confirm_request`，有则映射成
-  `HitlBlock::ToolConfirm` 走已有的 `Dispatched::AwaitHuman`。
+- `Tool::confirm_request(&self, args) -> Option<ConfirmRequest>` 默认返回 `None`，
+  现有工具一行不改。`ConfirmRequest` 定义在 `lya-tool`，**不能引用 `HitlBlock`**
+  ——`lya-session → lya-mode → lya-tool`，反向依赖会成环，所以两边各定义一份、
+  由 `lya-agent` 映射。
+- 把「要不要确认」和「执行」拆成两个方法：前者是对参数的纯函数，后者才有副作用，
+  且只在放行后发生。
 - **恢复流程和表单不同**：表单的答复本身就是 tool 结果；确认的「同意」意味着
-  *现在才去执行*，再把真实输出写成 tool 结果。所以 HITL 节点里要存下工具名与
-  参数，`resolve_tool_confirm(session_id, approved, note)` 批准时执行、拒绝时写
-  `[用户拒绝] …`，用户备注按 `[用户备注: "..."]` 混进结果。
-- 执行发生在 `resolve_tool_confirm` 里，所以那段时间没有流式进度。先这样。
+  *现在才去执行*。所以 HITL 节点存下工具名与参数，`resolve_tool_confirm` 批准时
+  执行并**重新检查一遍权限**（挂起期间用户可能改过模式），拒绝时写 `[用户拒绝] …`。
+  用户备注按 `[用户备注: "..."]` 混进结果。
 
 **action 侧已经做完了。** 上一代 14 个 action 里，我们只需要 `memory` / `form` /
 `transcript` 三类，其余 11 个（`delegate` / `interrupt` / `report` /
