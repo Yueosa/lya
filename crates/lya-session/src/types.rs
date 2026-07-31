@@ -44,6 +44,8 @@ pub struct CreateSession {
     pub work_mode: Mode,
     /// 会话人设覆盖；`None` 表示用全局。
     pub persona: Option<String>,
+    /// 使用哪个模型；`None` 表示用配置里的默认模型。
+    pub model_id: Option<String>,
     /// 启用的工具内部名。
     ///
     /// `None` = 启用全部；`Some(list)` = 只启用列出的；`Some(vec![])` = 全禁。
@@ -65,6 +67,8 @@ pub struct SessionMeta {
     pub work_mode: Mode,
     /// 会话人设。
     pub persona: Option<String>,
+    /// 使用哪个模型；`None` 表示用配置里的默认模型。
+    pub model_id: Option<String>,
     /// 用户启用的工具名；`None` 表示全部启用。
     pub enabled_tools: Option<Vec<String>>,
     /// 创建时间。

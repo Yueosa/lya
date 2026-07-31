@@ -16,7 +16,9 @@ use lya_memory::MemoryStore;
 use lya_mode::Mode;
 use lya_prompt::PromptBuilder;
 use lya_session::{CreateSession, HitlBlock, MessagePayload, MessageRole, SessionStore};
-use lya_tool::{Permission, Tool, ToolMeta, ToolRegistry, ToolResult, traits::ToolCallFuture};
+use lya_tool::{
+    Permission, Tool, ToolCtx, ToolMeta, ToolRegistry, ToolResult, traits::ToolCallFuture,
+};
 use serde_json::{Value, json};
 use tempfile::TempDir;
 
@@ -169,7 +171,7 @@ impl Tool for EchoTool {
     fn prompt_hint(&self) -> &str {
         "测试用"
     }
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             match args.get("text").and_then(Value::as_str) {
                 Some(text) => ToolResult::ok(format!("echo: {text}")),
@@ -210,7 +212,8 @@ fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
     let backend = ScriptedBackend::new(turns);
     let agent = Agent::new(AgentParts {
         backend: Arc::clone(&backend),
-        endpoint: LlmEndpoint::new("https://example.invalid/v1", "k"),
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")],
+        default_model: "default".into(),
         sessions: Arc::clone(&sessions),
         memory,
         tools: Arc::new(tools),
@@ -677,7 +680,7 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
         fn prompt_hint(&self) -> &str {
             ""
         }
-        fn call(&self, _args: Value) -> ToolCallFuture<'_> {
+        fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
             Box::pin(async { ToolResult::ok("已经写进去了！") })
         }
     }
@@ -714,7 +717,8 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
     ]);
     let agent = Agent::new(AgentParts {
         backend: Arc::clone(&backend),
-        endpoint: LlmEndpoint::new("https://example.invalid/v1", "k"),
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")],
+        default_model: "default".into(),
         sessions: Arc::clone(&sessions),
         memory,
         tools: Arc::new(tools),
@@ -866,7 +870,7 @@ impl Tool for GuardedTool {
             reasons: vec!["会删文件".into()],
         })
     }
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             let command = args["command"].as_str().unwrap_or("").to_string();
             self.ran.lock().unwrap().push(command.clone());
@@ -900,7 +904,8 @@ fn fixture_with_guarded(turns: Vec<Turn>) -> (Fixture, Arc<Mutex<Vec<String>>>) 
 
     fx.agent = Agent::new(AgentParts {
         backend: Arc::clone(&fx.backend),
-        endpoint: LlmEndpoint::new("https://example.invalid/v1", "k"),
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")],
+        default_model: "default".into(),
         sessions: Arc::clone(&fx.sessions),
         memory: Arc::new(MemoryStore::open(fx._dir.path().join("m2.db")).unwrap()),
         tools: Arc::new(tools),
@@ -963,7 +968,7 @@ async fn approval_executes_and_feeds_the_output_back() {
     fx.run().await;
 
     fx.agent
-        .resolve_tool_confirm(&fx.session_id, true, Some("可以，但别动日志"))
+        .resolve_tool_confirm(&fx.session_id, true, Some("可以，但别动日志"), CancelToken::new())
         .await
         .unwrap();
 
@@ -998,7 +1003,7 @@ async fn rejection_does_not_execute() {
     fx.run().await;
 
     fx.agent
-        .resolve_tool_confirm(&fx.session_id, false, Some("太危险了"))
+        .resolve_tool_confirm(&fx.session_id, false, Some("太危险了"), CancelToken::new())
         .await
         .unwrap();
     assert!(ran.lock().unwrap().is_empty(), "拒绝就是一步都不执行");
@@ -1028,7 +1033,7 @@ async fn permission_is_rechecked_after_approval() {
     // 挂起期间用户把会话降到 ask，放行也不该执行
     fx.sessions.set_work_mode(&fx.session_id, Mode::Ask).unwrap();
     fx.agent
-        .resolve_tool_confirm(&fx.session_id, true, None)
+        .resolve_tool_confirm(&fx.session_id, true, None, CancelToken::new())
         .await
         .unwrap();
 
@@ -1042,6 +1047,103 @@ async fn permission_is_rechecked_after_approval() {
         .unwrap();
     let content = &record.payload.openai.unwrap().content;
     assert!(content.contains("重新检查权限"), "{content}");
+}
+
+#[tokio::test]
+async fn session_model_selection_is_honoured() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(
+        Db::open(dir.path().join("lya.db"))
+            .unwrap()
+            .with_migration(lya_session::MIGRATION_SQL)
+            .with_migration(lya_memory::MIGRATION_SQL),
+    );
+    db.migrate().unwrap();
+    let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
+    let memory = Arc::new(MemoryStore::with_db(db));
+
+    let mut actions = ActionRegistry::new();
+    register_builtins(&mut actions, Arc::clone(&memory)).unwrap();
+    let backend = ScriptedBackend::new(vec![Turn::Text("好".into()), Turn::Text("好".into())]);
+
+    let agent = Agent::new(AgentParts {
+        backend: Arc::clone(&backend),
+        endpoints: vec![
+            LlmEndpoint::new("https://a.invalid/v1", "k").with_id("cheap"),
+            LlmEndpoint::new("https://b.invalid/v1", "k").with_id("smart"),
+        ],
+        default_model: "cheap".into(),
+        sessions: Arc::clone(&sessions),
+        memory,
+        tools: Arc::new(ToolRegistry::new()),
+        actions: Arc::new(actions),
+        prompt: PromptBuilder::new(),
+        max_tool_rounds: 4,
+    })
+    .unwrap();
+
+    let id = sessions.create_session(CreateSession::default()).unwrap().id;
+    sessions
+        .append(&id, MessagePayload::user_text("hi"), false)
+        .unwrap();
+
+    // 没指定就用默认模型
+    let stream = agent.run_turn(id.clone(), CancelToken::new());
+    futures_util::pin_mut!(stream);
+    while stream.next().await.is_some() {}
+
+    // 指名一个不存在的模型要报错，而不是悄悄换成默认的
+    sessions.set_model(&id, Some("ghost")).unwrap();
+    sessions
+        .append(&id, MessagePayload::user_text("再来"), false)
+        .unwrap();
+    let stream = agent.run_turn(id.clone(), CancelToken::new());
+    futures_util::pin_mut!(stream);
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event);
+    }
+    assert!(
+        matches!(end_reason(&events), TurnEndReason::Failed(msg) if msg.contains("ghost")),
+        "{:?}",
+        end_reason(&events)
+    );
+
+    // 换成存在的模型就能继续
+    sessions.set_model(&id, Some("smart")).unwrap();
+    let stream = agent.run_turn(id.clone(), CancelToken::new());
+    futures_util::pin_mut!(stream);
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event);
+    }
+    assert_eq!(end_reason(&events), TurnEndReason::Completed);
+}
+
+#[tokio::test]
+async fn default_model_must_exist() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(
+        Db::open(dir.path().join("lya.db"))
+            .unwrap()
+            .with_migration(lya_session::MIGRATION_SQL)
+            .with_migration(lya_memory::MIGRATION_SQL),
+    );
+    db.migrate().unwrap();
+    let memory = Arc::new(MemoryStore::with_db(Arc::clone(&db)));
+
+    let result = Agent::new(AgentParts {
+        backend: ScriptedBackend::new(vec![]),
+        endpoints: vec![LlmEndpoint::new("https://a.invalid/v1", "k").with_id("cheap")],
+        default_model: "nope".into(),
+        sessions: Arc::new(SessionStore::with_db(db)),
+        memory,
+        tools: Arc::new(ToolRegistry::new()),
+        actions: Arc::new(ActionRegistry::new()),
+        prompt: PromptBuilder::new(),
+        max_tool_rounds: 4,
+    });
+    assert!(matches!(result.err(), Some(lya_agent::AgentError::Invalid(_))));
 }
 
 #[tokio::test]
@@ -1068,7 +1170,7 @@ async fn name_collision_is_rejected_at_construction() {
         fn prompt_hint(&self) -> &str {
             ""
         }
-        fn call(&self, _args: Value) -> ToolCallFuture<'_> {
+        fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
             Box::pin(async { ToolResult::ok("") })
         }
     }
@@ -1085,7 +1187,8 @@ async fn name_collision_is_rejected_at_construction() {
 
     let result = Agent::new(AgentParts {
         backend: ScriptedBackend::new(vec![]),
-        endpoint: LlmEndpoint::new("https://example.invalid/v1", "k"),
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")],
+        default_model: "default".into(),
         sessions: Arc::new(SessionStore::with_db(db)),
         memory,
         tools: Arc::new(tools),

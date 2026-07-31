@@ -62,9 +62,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user_agent: http_settings.user_agent.clone(),
         ..Default::default()
     })?;
-    let endpoint = LlmEndpoint::new(&model.base_url, &model.api_key)
-        .with_id(&model.id)
-        .with_params(model.params.clone());
+    // 整份清单都交给 agent，会话可以各自选
+    let endpoints: Vec<LlmEndpoint> = config
+        .models
+        .models
+        .iter()
+        .map(|entry| {
+            LlmEndpoint::new(&entry.base_url, &entry.api_key)
+                .with_id(&entry.id)
+                .with_params(entry.params.clone())
+        })
+        .collect();
 
     let db = Db::open(config.db_path())?
         .with_migration(lya_session::MIGRATION_SQL)
@@ -87,7 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = Agent::new(AgentParts {
         backend: LlmClient::new(http),
-        endpoint,
+        endpoints,
+        default_model: model.id.clone(),
         sessions: Arc::clone(&sessions),
         memory,
         tools: Arc::new(tools),

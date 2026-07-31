@@ -1,5 +1,6 @@
 //! [`Agent`]：一轮对话的驱动器。
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use futures_core::Stream;
@@ -13,7 +14,7 @@ use lya_session::{
     ConfirmStepBlock, HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus,
     OpenAiFunction, OpenAiMessage, OpenAiToolCall, SessionStore,
 };
-use lya_tool::{ConfirmRequest, ToolRegistry};
+use lya_tool::{ConfirmRequest, ToolCtx, ToolRegistry};
 use serde_json::{Value, json};
 
 use crate::backend::ChatBackend;
@@ -25,8 +26,12 @@ use crate::event::{AgentEvent, CallKind, CancelToken, TurnEndReason};
 pub struct AgentParts<B: ChatBackend> {
     /// LLM 后端。
     pub backend: B,
-    /// 调用哪个模型。
-    pub endpoint: LlmEndpoint,
+    /// 可用的模型端点，按 `LlmEndpoint::id` 索引。
+    ///
+    /// 会话可以用 `model_id` 指定其中一个；没指定就用 `default_model`。
+    pub endpoints: Vec<LlmEndpoint>,
+    /// 默认模型 id，必须在 `endpoints` 里。
+    pub default_model: String,
     /// 会话与消息树。
     pub sessions: Arc<SessionStore>,
     /// 长期记忆。
@@ -48,7 +53,8 @@ pub struct AgentParts<B: ChatBackend> {
 /// 进程重启也能接上。
 pub struct Agent<B: ChatBackend> {
     backend: B,
-    endpoint: LlmEndpoint,
+    endpoints: BTreeMap<String, LlmEndpoint>,
+    default_model: String,
     sessions: Arc<SessionStore>,
     memory: Arc<MemoryStore>,
     tools: Arc<ToolRegistry>,
@@ -68,9 +74,22 @@ impl<B: ChatBackend> Agent<B> {
                 return Err(AgentError::NameCollision(name));
             }
         }
+        let endpoints: BTreeMap<String, LlmEndpoint> = parts
+            .endpoints
+            .into_iter()
+            .map(|endpoint| (endpoint.id.clone(), endpoint))
+            .collect();
+        if !endpoints.contains_key(&parts.default_model) {
+            return Err(AgentError::Invalid(format!(
+                "默认模型 {:?} 不在端点列表里；现有：{:?}",
+                parts.default_model,
+                endpoints.keys().collect::<Vec<_>>()
+            )));
+        }
         Ok(Self {
             backend: parts.backend,
-            endpoint: parts.endpoint,
+            endpoints,
+            default_model: parts.default_model,
             sessions: parts.sessions,
             memory: parts.memory,
             tools: parts.tools,
@@ -78,6 +97,22 @@ impl<B: ChatBackend> Agent<B> {
             prompt: parts.prompt,
             max_tool_rounds: parts.max_tool_rounds,
         })
+    }
+
+    /// 取出会话该用的端点。
+    ///
+    /// 会话指名了一个已经不存在的模型时**报错而不是悄悄退回默认**——静默换成
+    /// 另一个模型（可能更贵、能力也不同）比直接说清楚更让人困惑。
+    fn endpoint_for(&self, model_id: Option<&str>) -> Result<&LlmEndpoint, String> {
+        match model_id {
+            None => Ok(&self.endpoints[&self.default_model]),
+            Some(id) => self.endpoints.get(id).ok_or_else(|| {
+                format!(
+                    "会话指定的模型 {id:?} 不在配置里；请重新选一个。现有：{:?}",
+                    self.endpoints.keys().collect::<Vec<_>>()
+                )
+            }),
+        }
     }
 
     /// 会话仓储。
@@ -186,7 +221,15 @@ impl<B: ChatBackend> Agent<B> {
                 ));
                 yield AgentEvent::MessageCommitted { id: draft.id };
 
-                let stream = self.backend.chat_stream(&self.endpoint, messages, schemas).await;
+                let endpoint = match self.endpoint_for(meta.model_id.as_deref()) {
+                    Ok(endpoint) => endpoint,
+                    Err(msg) => {
+                        let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                        yield AgentEvent::TurnEnd { reason: TurnEndReason::Failed(msg) };
+                        return;
+                    }
+                };
+                let stream = self.backend.chat_stream(endpoint, messages, schemas).await;
                 let mut stream = match stream {
                     Ok(stream) => stream,
                     Err(err) => {
@@ -290,6 +333,7 @@ impl<B: ChatBackend> Agent<B> {
                             &call.name,
                             &call.arguments,
                             awaiting.is_some(),
+                            ToolCtx::new(cancel.clone()),
                         )
                         .await;
 
@@ -333,6 +377,7 @@ impl<B: ChatBackend> Agent<B> {
     ///
     /// 判断依据用的是**本轮那次筛选的结果**（`allowed`），而不是在这里重算
     /// 一遍条件；两处逻辑一旦漂移，漏洞就又回来了。
+    #[allow(clippy::too_many_arguments)]
     async fn dispatch(
         &self,
         session_id: &str,
@@ -341,6 +386,7 @@ impl<B: ChatBackend> Agent<B> {
         name: &str,
         arguments: &str,
         already_awaiting: bool,
+        ctx: ToolCtx,
     ) -> Dispatched {
         let args: Value = if arguments.trim().is_empty() {
             json!({})
@@ -395,7 +441,7 @@ impl<B: ChatBackend> Agent<B> {
             return Dispatched::AwaitHuman(Box::new(confirm_block(name, &args, request)));
         }
 
-        let result = tool.call(args).await;
+        let result = tool.call(ctx, args).await;
         Dispatched::Result {
             content: result.content,
             success: result.success,
@@ -406,11 +452,14 @@ impl<B: ChatBackend> Agent<B> {
     ///
     /// 与表单最大的不同：表单的答复本身就是结果，而这里的「同意」意味着
     /// **现在才真正去执行**，再把真实输出写成 tool 结果。
+    /// `cancel` 让放行后的执行也能被叫停——批准一条跑十分钟的命令之后，
+    /// 用户仍该有权中止。
     pub async fn resolve_tool_confirm(
         &self,
         session_id: &str,
         approved: bool,
         note: Option<&str>,
+        cancel: CancelToken,
     ) -> Result<(), AgentError> {
         let (hitl_id, call_id, block) = self.pending_block(session_id)?;
         let HitlBlock::ToolConfirm {
@@ -423,7 +472,7 @@ impl<B: ChatBackend> Agent<B> {
         };
 
         let content = if approved {
-            self.execute_confirmed(session_id, &tool_name, arguments, note)
+            self.execute_confirmed(session_id, &tool_name, arguments, note, cancel)
                 .await?
         } else {
             let mut text = format!("[用户拒绝] 用户没有放行 `{tool_name}`，该操作未执行。");
@@ -448,6 +497,7 @@ impl<B: ChatBackend> Agent<B> {
         tool_name: &str,
         arguments: Value,
         note: Option<&str>,
+        cancel: CancelToken,
     ) -> Result<String, AgentError> {
         let meta = self
             .sessions
@@ -466,7 +516,7 @@ impl<B: ChatBackend> Agent<B> {
             return Ok(format!("放行后重新检查权限：{reason}"));
         }
 
-        let result = tool.call(arguments).await;
+        let result = tool.call(ToolCtx::new(cancel), arguments).await;
         Ok(match note.filter(|n| !n.trim().is_empty()) {
             Some(note) => format!("[用户备注: {}]\n{}", note.trim(), result.content),
             None => result.content,

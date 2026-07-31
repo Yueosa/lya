@@ -79,6 +79,7 @@ impl SessionStore {
             active_leaf_id: None,
             work_mode: req.work_mode,
             persona: req.persona,
+            model_id: req.model_id,
             enabled_tools: req.enabled_tools,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -92,15 +93,16 @@ impl SessionStore {
         self.db.write(|conn| -> Result<(), SessionError> {
             conn.execute(
                 "INSERT INTO sessions (
-                     id, title, status, active_leaf_id, work_mode, persona,
+                     id, title, status, active_leaf_id, work_mode, persona, model_id,
                      enabled_tools_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8)",
+                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     meta.id,
                     meta.title,
                     meta.status.as_str(),
                     meta.work_mode.as_str(),
                     meta.persona,
+                    meta.model_id,
                     tools_json,
                     meta.created_at.to_rfc3339(),
                     meta.updated_at.to_rfc3339(),
@@ -121,7 +123,7 @@ impl SessionStore {
     pub fn list_sessions(&self) -> Result<Vec<SessionMeta>, SessionError> {
         self.db.read(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, status, active_leaf_id, work_mode, persona,
+                "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
                         enabled_tools_json, created_at, updated_at
                  FROM sessions
                  WHERE status = 'active'
@@ -182,6 +184,20 @@ impl SessionStore {
             conn.execute(
                 "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
                 params![title, now, session_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// 设置会话使用的模型；`None` 表示回退到配置里的默认模型。
+    ///
+    /// 只存 id，不校验它是否真的存在——模型清单归 `lya-config`，会话层不认识它。
+    /// 校验放在写入接口（HTTP 层）和取用处。
+    pub fn set_model(&self, session_id: &str, model_id: Option<&str>) -> Result<(), SessionError> {
+        self.set_field(session_id, |conn, now| {
+            conn.execute(
+                "UPDATE sessions SET model_id = ?1, updated_at = ?2 WHERE id = ?3",
+                params![model_id, now, session_id],
             )?;
             Ok(())
         })
@@ -458,6 +474,7 @@ struct RawSession {
     active_leaf_id: Option<i64>,
     work_mode: String,
     persona: Option<String>,
+    model_id: Option<String>,
     enabled_tools_json: Option<String>,
     created_at: String,
     updated_at: String,
@@ -472,9 +489,10 @@ impl RawSession {
             active_leaf_id: row.get(3)?,
             work_mode: row.get(4)?,
             persona: row.get(5)?,
-            enabled_tools_json: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
+            model_id: row.get(6)?,
+            enabled_tools_json: row.get(7)?,
+            created_at: row.get(8)?,
+            updated_at: row.get(9)?,
         })
     }
 
@@ -498,6 +516,7 @@ impl RawSession {
             title: self.title,
             active_leaf_id: self.active_leaf_id,
             persona: self.persona,
+            model_id: self.model_id,
         })
     }
 }
@@ -561,7 +580,7 @@ fn touch_session(conn: &Connection, session_id: &str) -> Result<(), SessionError
 fn load_session(conn: &Connection, session_id: &str) -> Result<Option<SessionMeta>, SessionError> {
     let raw = conn
         .query_row(
-            "SELECT id, title, status, active_leaf_id, work_mode, persona,
+            "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
                     enabled_tools_json, created_at, updated_at
              FROM sessions WHERE id = ?1",
             [session_id],
