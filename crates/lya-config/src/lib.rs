@@ -35,7 +35,9 @@ pub mod runtime;
 pub use core::{CoreConfig, DbConfig, HttpSettings, LogConfig, LogLevel, ServerConfig};
 pub use error::ConfigError;
 pub use models::{ModelCatalog, ModelEntry};
-pub use runtime::{AgentSettings, MemorySettings, RuntimeConfig, ToolSettings};
+pub use runtime::{
+    AgentSettings, MemorySettings, RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings,
+};
 
 use std::env;
 use std::fs;

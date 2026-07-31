@@ -7,6 +7,7 @@ use std::pin::Pin;
 
 use serde_json::Value;
 
+use crate::confirm::ConfirmRequest;
 use crate::meta::{ToolMeta, ToolResult};
 
 /// 异步调用返回类型（便于 `dyn Tool`）。
@@ -31,6 +32,16 @@ pub trait Tool: Send + Sync {
 
     /// 用法说明，由注册中心拼进提示词段。
     fn prompt_hint(&self) -> &str;
+
+    /// 执行前是否要让用户过目；返回 `Some` 则挂起等放行。
+    ///
+    /// 默认不需要——绝大多数工具的作用范围由 RWX 权限就能框住。只有 `bash`
+    /// 这种「参数本身就是另一门语言」的工具才需要逐次判断。
+    ///
+    /// 这必须是对参数的**纯函数**：只看要做什么，不产生任何副作用。
+    fn confirm_request(&self, _args: &Value) -> Option<ConfirmRequest> {
+        None
+    }
 
     /// 执行工具。
     ///

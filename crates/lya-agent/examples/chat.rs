@@ -24,6 +24,18 @@ use lya_prompt::PromptBuilder;
 use lya_session::{CreateSession, MessagePayload, SessionStore};
 use lya_tool::{ToolRegistry, register_builtins as register_tools};
 
+/// 配置里的确认策略映射到工具层。`lya-config` 刻意不依赖 `lya-tool`，
+/// 所以这层映射由装配方负责。
+fn shell_policy(confirm: lya_config::ShellConfirm) -> lya_tool::tools::shell::ConfirmPolicy {
+    use lya_config::ShellConfirm;
+    use lya_tool::tools::shell::ConfirmPolicy;
+    match confirm {
+        ShellConfirm::Always => ConfirmPolicy::Always,
+        ShellConfirm::Unknown => ConfirmPolicy::Unknown,
+        ShellConfirm::Risky => ConfirmPolicy::Risky,
+    }
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ── 配置 ────────────────────────────────────────────────
@@ -64,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(MemoryStore::with_db(db));
 
     let mut tools = ToolRegistry::new();
-    register_tools(&mut tools, http.clone())?;
+    register_tools(&mut tools, http.clone(), shell_policy(config.runtime.shell.confirm))?;
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, Arc::clone(&memory))?;
 

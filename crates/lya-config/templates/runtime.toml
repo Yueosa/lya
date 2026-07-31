@@ -18,6 +18,13 @@ default_model = "deepseek-v4-flash"
 # 给出数组 = 只启用列出的这些；空数组 [] = 一个都不启用
 # enabled = ["file_read"]
 
+[shell]
+# 什么时候要你亲自过目一条 shell 命令：
+#   unknown = 已知只读的命令（ls / cat / git status 之类）直接放行，其余都问一遍（默认）
+#   risky   = 只有命中危险规则（rm -rf、sudo、dd 之类）才问，打断少但漏网多
+#   always  = 每条都问
+confirm = "unknown"
+
 [memory]
 # 长期记忆的索引会常驻在系统提示词里，这几个值限制它的体积。
 # 超出上限时只保留最近更新的若干条，并告知模型还有多少条没列出。

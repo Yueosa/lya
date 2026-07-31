@@ -16,6 +16,31 @@ pub struct RuntimeConfig {
     pub tools: ToolSettings,
     /// 记忆索引体积。
     pub memory: MemorySettings,
+    /// shell 命令的确认策略。
+    pub shell: ShellSettings,
+}
+
+/// 什么时候要用户确认 shell 命令。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ShellConfirm {
+    /// 每条命令都确认。
+    Always,
+    /// 已知只读的命令直接放行，其余都确认。
+    ///
+    /// 默认档。黑名单永远列不全，白名单漏了顶多多问一次。
+    #[default]
+    Unknown,
+    /// 只有命中风险规则才确认。打断少，但漏网的多。
+    Risky,
+}
+
+/// shell 相关设置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ShellSettings {
+    /// 确认策略。
+    pub confirm: ShellConfirm,
 }
 
 /// agent 循环设置。

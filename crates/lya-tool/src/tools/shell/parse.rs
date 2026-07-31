@@ -92,7 +92,7 @@ pub fn parse(command: &str) -> ParsedCommand {
     let chars: Vec<char> = command.chars().collect();
     let mut index = 0;
 
-    let mut note = |caveats: &mut Vec<String>, text: &str| {
+    let note = |caveats: &mut Vec<String>, text: &str| {
         if !caveats.iter().any(|existing| existing == text) {
             caveats.push(text.to_string());
         }
@@ -234,7 +234,7 @@ fn tokenize(raw: &str) -> Option<Vec<String>> {
     let mut escaped = false;
     let mut skip_next = false;
 
-    let mut flush = |token: &mut String, has: &mut bool, argv: &mut Vec<String>| {
+    let flush = |token: &mut String, has: &mut bool, argv: &mut Vec<String>| {
         if *has {
             argv.push(std::mem::take(token));
             *has = false;

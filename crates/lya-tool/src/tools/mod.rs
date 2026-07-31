@@ -18,7 +18,11 @@ use crate::registry::ToolRegistry;
 ///
 /// 由进程启动组装处调用一次即可。网络工具共用调用方传进来的
 /// [`HttpClient`]，避免各自建连接池。
-pub fn register_builtins(registry: &mut ToolRegistry, http: HttpClient) -> Result<(), ToolError> {
+pub fn register_builtins(
+    registry: &mut ToolRegistry,
+    http: HttpClient,
+    shell_confirm: shell::ConfirmPolicy,
+) -> Result<(), ToolError> {
     registry.register(Arc::new(local::FileReadTool::new()))?;
     registry.register(Arc::new(local::FileWriteTool::new()))?;
     registry.register(Arc::new(local::FileEditTool::new()))?;
@@ -27,6 +31,7 @@ pub fn register_builtins(registry: &mut ToolRegistry, http: HttpClient) -> Resul
     registry.register(Arc::new(local::SystemInfoTool::new()))?;
     registry.register(Arc::new(web::WebSearchTool::new(http.clone())))?;
     registry.register(Arc::new(web::WebFetchTool::new(http)))?;
+    registry.register(Arc::new(shell::BashTool::new(shell_confirm)))?;
     Ok(())
 }
 
@@ -39,7 +44,7 @@ mod tests {
     fn names(permission: Permission) -> Vec<String> {
         let http = HttpClient::with_defaults().unwrap();
         let mut registry = ToolRegistry::new();
-        register_builtins(&mut registry, http).unwrap();
+        register_builtins(&mut registry, http, shell::ConfirmPolicy::default()).unwrap();
         registry.bundle(None, permission).names
     }
 
@@ -76,6 +81,7 @@ mod tests {
         assert_eq!(
             names(Permission::READ_WRITE_EXEC),
             vec![
+                "bash",
                 "dir_list",
                 "file_edit",
                 "file_manage",
@@ -85,7 +91,7 @@ mod tests {
                 "web_fetch",
                 "web_search"
             ],
-            "agent 模式才有不可逆操作"
+            "agent 模式才有不可逆操作与命令执行"
         );
     }
 }
