@@ -255,6 +255,31 @@ impl MessagePayload {
         }
     }
 
+    /// 系统提示消息。
+    ///
+    /// 用于把「用户手动切换了工作模式」这类系统侧事件写进树。做成持久节点
+    /// 而不是临时消息，是因为树是唯一真相：以后回看这段对话，仍然解释得通
+    /// 助手的行为边界为什么变了。
+    pub fn system_text(content: impl Into<String>) -> Self {
+        let content = content.into();
+        Self {
+            v: Self::VERSION,
+            role: MessageRole::System,
+            kind: MessageKind::Chat,
+            status: MessageStatus::Complete,
+            openai: Some(OpenAiMessage {
+                role: "system".into(),
+                content: content.clone(),
+                tool_calls: None,
+                tool_call_id: None,
+            }),
+            lya: LyaExtras {
+                blocks: vec![serde_json::json!({ "type": "text", "text": content })],
+                ..Default::default()
+            },
+        }
+    }
+
     /// 助手文本（可标 streaming）。
     pub fn assistant_text(content: impl Into<String>, status: MessageStatus) -> Self {
         let content = content.into();
