@@ -4,5 +4,7 @@
 
 前言: [为什么想做lya](./docs/lya.md)
 
+进度与取舍: [开发计划](./docs/PLAN.md)
+
 --
 
