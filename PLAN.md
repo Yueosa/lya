@@ -20,9 +20,24 @@
 | `lya-memory` | 跨会话笔记的仓储 + 常驻索引渲染 | 可用 |
 | `lya-action` | 元认知动作：记忆读写、表单、请求切模式 | 可用 |
 | `lya-config` | 分层配置：core / runtime / 模型清单 / 人设 | 可用 |
+| `lya-agent` | 一轮对话的驱动器，串起以上全部 | 可用 |
+
+**后端骨架已经打通**：从配置加载、开会话、组提示词、调 LLM、分发工具与动作、
+结果回写消息树，到 HITL 挂起与恢复，整条链路都跑通了，109 个测试覆盖。
+剩下的主要是**广度**（工具只有一个）和**外壳**（HTTP 层、界面、托盘）。
 
 依赖方向保持单向：`session → db`、`memory → db`、`mode → tool`、`llm → http`、
-`action → tool/memory/session/mode`、`config → mode`，彼此不反向依赖。
+`action → tool/memory/session/mode`、`config → mode`、`agent → 全部`，
+彼此不反向依赖。
+
+**启用工具的三层语义是统一的**：`None`（会话表里是 NULL、配置里是键缺省）
+= 全部启用；`Some(list)` = 只启用列出的；`Some([])` = 全禁。`lya-config`
+的 `tools.enabled`、`sessions.enabled_tools_json`、`ToolRegistry::bundle`
+的 `names` 三者对齐，中间不做转换。
+
+`lya-session` 与 `lya-memory` 共享同一个 `Arc<Db>`：调用方先把两份迁移都
+`with_migration` 进去再 `migrate()`，然后用 `with_db` 分别构造。这样写入
+仍走同一把锁，不会两个连接互相抢。
 
 ---
 
@@ -42,19 +57,19 @@
 - **删子树**：目前只允许 `delete_leaf`。
   递归删整条分支要先想清楚「当前 leaf 在被删子树里」怎么办，等 UI 上真的
   有「删除这个分支」按钮时再定语义。
-- **消息树 → `lya_llm::ChatMessage` 的转换**：还没人做。
-  这一步要决定 HITL 节点、思考内容、被中断的消息怎么喂给模型，属于对话
-  策略而不是存储，放进 `lya-agent`。
 
 ### lya-tool
 
-- **只实现了 `file_read`**：`dir` / `file_write` / `bash` / `web` / `image`
-  等一律待补。先用一个工具把 trait、schema 导出、权限筛选跑通，剩下的按
-  需要补，每个工具的提示词跟实现放在一起。
-- **`invoke` 没有超时与取消**：等 `lya-agent` 的一轮驱动成型后，超时策略
-  跟「停止本轮」一起设计，避免两套取消机制。
-- **`Tool::call` 拿不到会话上下文**：现在签名是 `(args) -> ToolResult`。
-  action 要改会话状态，做 `lya-action` 时会碰到这个边界，见下。
+- **只实现了 `file_read`**：`dir` / `file_write` / `bash` / `web_search` /
+  `image` 等一律待补。先用一个工具把 trait、schema 导出、权限筛选跑通，
+  剩下的按需要补，每个工具的提示词跟实现放在一起。
+- **`bash` 需要自带命令解析与确认**：模型很爱返回一长串 `&&` 和 `|` 串起来的
+  命令，原样丢给用户等于让人闭眼签字。这个工具要把命令拆开、逐段说明它在干
+  什么，再走 `HitlBlock::ToolConfirm` 请用户放行。**确认逻辑属于 bash 自己**，
+  不做成所有工具通用的风险等级，见「明确不做」。
+- **工具内部没有超时**：「停止本轮」已经由 `lya-agent` 的 `CancelToken` 覆盖，
+  但一个卡死的工具调用本身还拦不住。等 `bash` 落地时一并设计，那才是真会卡的
+  场景。
 
 ### lya-memory
 
@@ -78,8 +93,22 @@
   `role=tool` 消息入树，但 HITL 节点本身只翻转成 resolved，不存原始答案。
   等界面要「回看当时选了什么」时，给 `resolve_hitl` 加一个答案参数存进
   `lya.meta` 即可。
-- **动作与工具的重名没人查**：两边的 schemas 由 agent 合并进同一个
-  `tools[]`，撞名应当在合并处报错。
+
+### lya-agent
+
+- **流式只落两次库**（开始占位、结束定稿）。进程崩在生成中途会丢掉半截正文，
+  只留一条 `Streaming` 记录。真觉得可惜再改成阶段性落盘。
+- **`Streaming` 残留没有启动清理**：装配上下文时会把它当作中断处理（追加
+  「（此处被中断）」），但数据库里的状态没被改写。等有启动流程时扫一遍标成
+  `Interrupted`。
+- **模型固定用 `default_model`**：`sessions` 表还没有 `model_id` 列，会话不能
+  各自选模型。
+- **`ToolConfirm` 类型的 HITL 没有产出方**：`HitlBlock` 里有这个变体、
+  `Agent::pending_block` 也认，但目前没有任何东西会发起工具确认。第一个产出方
+  会是 `bash`，见 lya-tool。届时 `dispatch` 需要能接受工具返回「要确认」这种
+  结果——现在只有 action 能挂起，工具不能。
+- **命令行 example 不处理 HITL**：碰到需要确认时只打印一行提示。表单交互留给
+  WebUI，`submit_form` / `resolve_mode_change` 接口已经有了。
 
 ### lya-config
 
@@ -94,7 +123,14 @@
 
 ### lya-prompt
 
-- **`action_section` 已可用**：接 `ActionRegistry::prompt_section(mode)`。
+- **提示词必须逐字节确定**：整段不含任何随时间变化的内容，否则 API 商的前缀
+  缓存每轮都会全量失效。当前时间通过消息前缀传达（见 `TIME_ANCHOR`）。
+  `lya-agent` 有一条 `system_prompt_is_byte_stable_across_rounds` 测试钉住
+  这个不变量，往提示词里塞时间戳或随机序会在那里炸。
+- **记忆写入会打断缓存**：记忆索引在系统提示词里，写一条记忆就换掉整个前缀，
+  那一次请求全量 miss。写入很稀疏（上一代三个月 8 次），先不管。真变频繁了
+  可以把索引挪到靠近末尾的独立消息，那样只失效尾部——代价是模型会更倾向把它
+  当对话内容而不是设定。
 
 ### lya-llm / lya-http
 
@@ -105,17 +141,19 @@
 
 ## 接下来的顺序
 
-`lya-agent` → 补齐工具（`file_write` / `bash` / `dir` / `web` / `image`）
-→ HTTP 层与 `SessionHub` → WebUI 与托盘
+补齐工具（`file_write` / `bash` / `dir` / `web` / `image`）→ HTTP 层与
+`SessionHub` → WebUI 与托盘
 
-先 agent 后工具：现在九个 crate 全是单元测试，一次真实 LLM 往返都没跑过，
-消息树转 `ChatMessage`、HITL 挂起恢复、结果回灌这些接缝只有跑起来才知道对不对。
-补工具是纯增量，`file_read` 已经把路走通了，不会再动架构。
+**在补齐写类工具之前，edit 与 agent 模式实际上和 ask 没区别**——唯一的工具
+`file_read` 是只读的，两个高权限模式拿不到任何额外能力，模式系统处于空转。
+补工具是纯增量，`file_read` 已经把 trait、schema 导出、权限筛选这条路走通了，
+不会再动架构。
 
-**注意**：在补齐写类工具之前，edit 与 agent 模式实际上和 ask 没区别——唯一的
-工具 `file_read` 是只读的，两个高权限模式拿不到任何额外能力，模式系统处于空转。
+`SessionHub`（core 层）要负责的事，agent 刻意没做：spawn 任务消费
+`run_turn` 的流并转发到广播（否则用户刷新页面就把对话掐了）、同会话轮次串行的
+锁、以及在线订阅者的增量缓冲。
 
-### lya-agent
+### lya-agent 的设计（已实现）
 
 一轮对话的驱动器，把前面所有模块串起来：读会话路径装配上下文 → 组 prompt
 → 调 LLM → 分发 tool/action → 结果回写消息树 → HITL 中断与恢复。
@@ -133,9 +171,15 @@
 - 模型返回空 `content` 且无 `tool_calls`，本轮静默结束
 - 合并 tool 与 action 的 schemas 时检测重名
 
-做完时要能**真的跟 DeepSeek 说上话**：带一个最小命令行 example，读配置、开
-会话、发一句话、看到流式输出、让它调一次 `file_read`。跑通了才算数，否则仍然
-只有单元测试。
+`run_turn` **不接收用户输入**：用户消息由调用方先 append 进树。于是「发消息」
+「重新生成」「编辑重发」「HITL 答复后继续」退化成同一套动作——改树，再跑一轮。
+
+由此 **agent 自身无状态，HITL 不在内存里挂起**。表单发出去本轮就正常结束，
+没有挂起的 future、没有 waiter 表、没有超时；用户何时答复都行，进程重启也能
+接上。上一代把状态放内存，就得配一整套阻塞与超时机制。
+
+验证方式：`cargo run -p lya-agent --example chat`。首次运行生成配置模板并提示
+填 api_key，填好后就能真的对话。
 
 HITL 的完整链路（表单为例）：模型调 `form` → agent 追加带 `tool_calls` 的
 assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 → agent 用
@@ -152,6 +196,14 @@ assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 �
 - **`done` 动作**：不带 `tool_calls` 的 assistant 消息即本轮结束。上一代的
   `done` 是给后台 worker 用的——后台任务没有用户可回复，必须显式声明完成；
   我们砍了子 agent 就不需要。
+- **单个工具的权限收紧**：上一代允许用户把某个工具的 RWX 改得比它声明的更严
+  （`current_perm` 覆盖 `declared_perm`）。会话级的启用/禁用已经够表达「我不想
+  让它用这个」，再加一层只会让「为什么这个工具不能用」变难排查。
+- **通用的工具风险等级**：上一代给每个工具标 `risk_default` 和 `confirm_policy`
+  （`never` / `on_high_risk` / `always`）。但真正需要确认的只有 `bash`——给所有
+  工具都挂一个只有 bash 需要回答的属性，是冗余设计。而且笼统的「高风险，是否
+  执行？」帮不了用户判断，真正有用的是把那串 `&&` 拆开讲清楚，那是 bash 自己的
+  活。
 - **skills 体系**：工具提示词与实现放在一起，不再单独抽一层。
 - **子 agent / `spawn_agent`**：太复杂，砍掉。TMP.md 里相关条目作废。
 - **插件系统**：lianclaw 的历史包袱，不带过来。
@@ -212,6 +264,21 @@ assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 �
 - **题目和选项数量没有任何上限。** lya 限制 10 题 / 20 选项。
 - **答复走 `role=tool` 而不是伪造用户消息**，`tool_call_id` 对应那次 form
   调用——这点是对的，lya 沿用，正好和 HITL 独立节点互不干扰。
+
+### 时间与工具管控：从 lianclaw 学到的教训
+
+- **时间不进系统提示词。** 它只在系统提示词放一段静态说明，真正的时间戳在
+  序列化时加到 user / tool 消息前缀上，取自消息不可变的 `created_at`。这样
+  历史渲染永远一致，前缀缓存不受影响。lya 照抄了这套，连「（距上一条消息
+  11 小时）」「（日期已变更：…）」两个节奏提示一起。
+- **模式切换要有痕迹。** 用户从界面切模式后，它插一条一次性的
+  `[mode_switch]` 系统消息告诉模型。lya 做成**持久**的 system 节点——树是唯一
+  真相，以后回看也解释得通行为边界为什么变了。
+- **工具管控是两道关：列表过滤 + 执行前再查一次。** 只做前者挡不住模型凭空
+  编一个没提供的名字。lya 原本就漏了第二道，照此补上了，判断依据复用本轮那次
+  筛选的结果而不是重算条件。
+- 它的工具开关是**全局**的（`tools` 表一行一个工具），lya 是**按会话**——这是
+  当初就定好的差异，不改。
 
 ### 旧前端（`web-bak/`）
 
