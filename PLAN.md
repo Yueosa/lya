@@ -65,7 +65,7 @@
 
 | 工具 | 权限 | 可见于 |
 |------|------|--------|
-| `file_read` / `dir_list` / `system_info` | `-R-` | ask 起 |
+| `file_read` / `dir_list` / `system_info` / `web_search` / `web_fetch` | `-R-` | ask 起 |
 | `file_write` / `file_edit` | `-R-W-` | edit 起 |
 | `file_manage`（删/移/拷/信息/建目录） | `-R-W-X-` | 仅 agent |
 
@@ -76,11 +76,18 @@
 `file_manage`，省提示词预算。
 
 - **`bash` 待补**，且要自带命令解析与确认，见下。
-- **`web_search` / `web_fetch` 待补**：上一代用 DuckDuckGo（Python `ddgs` 包），
-  不需要 API key，Rust 侧得自己解析 DDG 的 HTML 或找现成 crate。
 - **`image_*` 待补**：上一代那三个是本地图片文件管理（扫描目录、算 sha256 与
   dHash、找重复图），**不是视觉能力**。图片靠工具返回路径、模型写
   `![](path)`、前端提供一个受限的本地图片接口来渲染。
+- **`web_fetch` 不能翻页**：只有 `max_chars` 截断，没有偏移量。长文档读不全时
+  只能换更具体的页面。等真遇到了再加。
+- **`web_fetch` 不拦内网地址**：只挡住了非 http(s) 协议。等 HTTP 层落地后要重新
+  评估——那时 lya 自己会在 `127.0.0.1:51616` 上监听且无鉴权，网页里的提示词注入
+  有可能诱导模型去抓它。现在没有那个面，先不拦，免得挡掉「看看我本地开发服务器」
+  这类正当用途。
+- **`web_search` 依赖 DDG 的 HTML 结构**：页面改版就会解析不出结果。选它是因为
+  不需要 API key，对本地应用最省事。解析时**必须滤掉 `result--ad`**——DDG 会把
+  广告混在结果最前面，链接指向自家跳转统计页，模型分辨不出那是广告。
 - **不做 `text_*`**（统计/diff/正则替换那六个）和 `http_request`：前者模型自己
   就能处理，后者与 `web_fetch` 重叠且滥用面更大。
 - **`bash` 需要自带命令解析与确认**：模型很爱返回一长串 `&&` 和 `|` 串起来的
@@ -165,11 +172,22 @@
 
 ## 接下来的顺序
 
-`bash`（含命令解析与确认）→ `web_search` / `web_fetch` / `image_*`
-→ HTTP 层与 `SessionHub` → WebUI 与托盘
+`bash`（含命令解析与确认）→ `image_*` → HTTP 层与 `SessionHub`
+→ WebUI 与托盘
 
-文件与目录这批已经补完，三个模式现在真的不一样了。`bash` 排在最前是因为它要
-打通「工具也能挂起等确认」这条链路，动的是结构；web 与 image 是纯增量。
+文件、目录、网络这几批都补完了，三个模式现在真的不一样。`bash` 动的是结构，
+它要打通「工具也能挂起等确认」这条链路：
+
+- `lya-tool` 加 `Tool::confirm_request(&self, args) -> Option<ConfirmRequest>`，
+  默认返回 `None`，现有工具一行不改。`ConfirmRequest` 定义在 `lya-tool` 里，
+  **不能引用 `HitlBlock`**——`lya-session → lya-mode → lya-tool`，反向依赖会成环。
+- `lya-agent` 在 `dispatch` 里先问 `confirm_request`，有则映射成
+  `HitlBlock::ToolConfirm` 走已有的 `Dispatched::AwaitHuman`。
+- **恢复流程和表单不同**：表单的答复本身就是 tool 结果；确认的「同意」意味着
+  *现在才去执行*，再把真实输出写成 tool 结果。所以 HITL 节点里要存下工具名与
+  参数，`resolve_tool_confirm(session_id, approved, note)` 批准时执行、拒绝时写
+  `[用户拒绝] …`，用户备注按 `[用户备注: "..."]` 混进结果。
+- 执行发生在 `resolve_tool_confirm` 里，所以那段时间没有流式进度。先这样。
 
 **action 侧已经做完了。** 上一代 14 个 action 里，我们只需要 `memory` / `form` /
 `transcript` 三类，其余 11 个（`delegate` / `interrupt` / `report` /

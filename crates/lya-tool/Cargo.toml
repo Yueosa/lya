@@ -8,7 +8,11 @@ description = "lya 工具定义、注册中心与 OpenAI tools / 提示词导出
 readme = "README.md"
 
 [dependencies]
+ego-tree = { workspace = true }
+lya-http = { workspace = true }
+percent-encoding = { workspace = true }
 regex = { workspace = true }
+scraper = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(MemoryStore::with_db(db));
 
     let mut tools = ToolRegistry::new();
-    register_tools(&mut tools)?;
+    register_tools(&mut tools, http.clone())?;
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, Arc::clone(&memory))?;
 
