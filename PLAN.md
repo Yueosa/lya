@@ -12,7 +12,7 @@
 |-------|------|------|
 | `lya-http` | 共享 `reqwest` 客户端、流式响应、错误分类 | 可用 |
 | `lya-llm` | OpenAI 兼容 chat/completions、SSE 解析与增量装配 | 可用 |
-| `lya-tool` | `Tool` trait、注册中心、按 RWX 与名单筛选出 prompt + schema | 可用（仅 `file_read`） |
+| `lya-tool` | `Tool` trait、注册中心、按 RWX 与名单筛选出 prompt + schema | 可用（6 个工具，缺 bash / web） |
 | `lya-prompt` | 系统认知 / 自我认知 / 人设，其余段落外部注入 | 可用 |
 | `lya-mode` | ask / edit / agent 与权限映射、模式提示词、工具筛选 | 可用 |
 | `lya-db` | 数据目录、连接、迁移、写事务 | 可用 |
@@ -60,16 +60,40 @@
 
 ### lya-tool
 
-- **只实现了 `file_read`**：`dir` / `file_write` / `bash` / `web_search` /
-  `image` 等一律待补。先用一个工具把 trait、schema 导出、权限筛选跑通，
-  剩下的按需要补，每个工具的提示词跟实现放在一起。
+已有 6 个，按权限分级（`tools::tests::builtin_tools_are_graded_by_permission`
+钉住这张表）：
+
+| 工具 | 权限 | 可见于 |
+|------|------|--------|
+| `file_read` / `dir_list` / `system_info` | `-R-` | ask 起 |
+| `file_write` / `file_edit` | `-R-W-` | edit 起 |
+| `file_manage`（删/移/拷/信息/建目录） | `-R-W-X-` | 仅 agent |
+
+删除与移动划到执行级而不是写级：它们不可逆，和「改文件内容」不是一回事。
+
+粒度上刻意比上一代粗——它文件 8 个、目录 8 个共 16 个工具，我们 5 个。读和写
+各自独立（用得最多，schema 要精确），低频的删/移/拷/信息/建目录合成一个
+`file_manage`，省提示词预算。
+
+- **`bash` 待补**，且要自带命令解析与确认，见下。
+- **`web_search` / `web_fetch` 待补**：上一代用 DuckDuckGo（Python `ddgs` 包），
+  不需要 API key，Rust 侧得自己解析 DDG 的 HTML 或找现成 crate。
+- **`image_*` 待补**：上一代那三个是本地图片文件管理（扫描目录、算 sha256 与
+  dHash、找重复图），**不是视觉能力**。图片靠工具返回路径、模型写
+  `![](path)`、前端提供一个受限的本地图片接口来渲染。
+- **不做 `text_*`**（统计/diff/正则替换那六个）和 `http_request`：前者模型自己
+  就能处理，后者与 `web_fetch` 重叠且滥用面更大。
 - **`bash` 需要自带命令解析与确认**：模型很爱返回一长串 `&&` 和 `|` 串起来的
   命令，原样丢给用户等于让人闭眼签字。这个工具要把命令拆开、逐段说明它在干
   什么，再走 `HitlBlock::ToolConfirm` 请用户放行。**确认逻辑属于 bash 自己**，
   不做成所有工具通用的风险等级，见「明确不做」。
+
+  上一代在这件事上没做成，可抄与不可抄的部分见文末「bash」一节。落地时要先解决
+  一个结构问题：**目前只有 action 能挂起，工具不能**——`dispatch` 里工具只能返回
+  `Dispatched::Result`，得先给它开一条通向 `AwaitHuman` 的出口。
 - **工具内部没有超时**：「停止本轮」已经由 `lya-agent` 的 `CancelToken` 覆盖，
   但一个卡死的工具调用本身还拦不住。等 `bash` 落地时一并设计，那才是真会卡的
-  场景。
+  场景（上一代默认 30 秒）。
 
 ### lya-memory
 
@@ -141,13 +165,17 @@
 
 ## 接下来的顺序
 
-补齐工具（`file_write` / `bash` / `dir` / `web` / `image`）→ HTTP 层与
-`SessionHub` → WebUI 与托盘
+`bash`（含命令解析与确认）→ `web_search` / `web_fetch` / `image_*`
+→ HTTP 层与 `SessionHub` → WebUI 与托盘
 
-**在补齐写类工具之前，edit 与 agent 模式实际上和 ask 没区别**——唯一的工具
-`file_read` 是只读的，两个高权限模式拿不到任何额外能力，模式系统处于空转。
-补工具是纯增量，`file_read` 已经把 trait、schema 导出、权限筛选这条路走通了，
-不会再动架构。
+文件与目录这批已经补完，三个模式现在真的不一样了。`bash` 排在最前是因为它要
+打通「工具也能挂起等确认」这条链路，动的是结构；web 与 image 是纯增量。
+
+**action 侧已经做完了。** 上一代 14 个 action 里，我们只需要 `memory` / `form` /
+`transcript` 三类，其余 11 个（`delegate` / `interrupt` / `report` /
+`spawn_worker` / `abort_plan` / `query_status` / `create_plan` / `modify_plan` /
+`done` / `failed`）全是多角色与后台任务系统的架构开销，砍了子 agent 就一个都不
+需要。而 `transcript` 的前提是上下文压缩，现在喂完整路径，用不上。
 
 `SessionHub`（core 层）要负责的事，agent 刻意没做：spawn 任务消费
 `run_turn` 的流并转发到广播（否则用户刷新页面就把对话掐了）、同会话轮次串行的
@@ -264,6 +292,31 @@ assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 �
 - **题目和选项数量没有任何上限。** lya 限制 10 题 / 20 选项。
 - **答复走 `role=tool` 而不是伪造用户消息**，`tool_call_id` 对应那次 form
   调用——这点是对的，lya 沿用，正好和 HITL 独立节点互不干扰。
+
+### bash：从 lianclaw 学到的教训
+
+它有**两套**命令检查代码：实际跑的是 `HighRiskCommandGuard`，**纯正则匹配整条
+命令字符串**（17 条规则：`rm -rf /`、`mkfs`、`dd if=/dev/zero`、fork 炸弹、
+`sudo`、`chmod 777 /`、`systemctl stop`、`kill -9` 等）。另有一个 `exec_guard/`
+模块，用 shlex 正经分词、按 `| || && ; &` 拆边界、逐段按 argv 判断，还能识别
+`curl | sh` 和 `eval`——**写完了但从未接进运行时**，是死代码。
+
+而且它的确认界面没能解决真正的问题：payload 里 `command` 字段填的是**工具名**
+`"Bash"`，真正的命令埋在 `arguments_preview` 的 JSON 里。用户看到的是
+「ExecGuard 安全审查 / Bash / 参数: {...}」，**没有任何逐段解释**。所以我们要做
+的命令拆解与人话说明，这边没有现成的可抄，那份死代码只能当规则表的起点。
+
+值得照抄的细节：
+
+- 输出上限 50 KiB，工具结果再截到 4096 字符（保头尾、省中间）
+- 默认超时 30 秒，默认 cwd 是 `$HOME`
+- 确认超时 120 秒，超时按拒绝处理
+- 拒绝回给模型的是 `[用户拒绝] 用户未确认该操作，已取消执行。`
+- **批准时用户可以附带备注**，以 `[用户备注: "..."]` 前缀混进结果——用户能说
+  「可以，但别动日志」，比单纯的是/否有用
+- 写文件类操作的确认**带 unified diff**，让用户看清改了什么再点
+
+它没有任何沙箱，子进程继承完整环境。
 
 ### 时间与工具管控：从 lianclaw 学到的教训
 
