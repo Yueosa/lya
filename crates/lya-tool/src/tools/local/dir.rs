@@ -13,6 +13,7 @@ use crate::permission::Permission;
 use crate::tools::local::file::manage::human_size;
 use crate::tools::local::file::write::describe_path_error;
 use crate::tools::local::path::resolve_path;
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 默认展开深度。
@@ -109,7 +110,7 @@ impl Tool for DirListTool {
         self.prompt_hint
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             // 不给 path 就看家目录
             let raw = args.get("path").and_then(Value::as_str).unwrap_or("~");

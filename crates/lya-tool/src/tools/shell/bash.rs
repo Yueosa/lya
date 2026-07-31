@@ -12,6 +12,7 @@ use crate::permission::Permission;
 use crate::tools::local::path::resolve_path;
 use crate::tools::shell::parse::{parse, ParsedCommand};
 use crate::tools::shell::rules::{judge, pipeline_risks};
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 默认超时秒数。
@@ -162,7 +163,7 @@ impl Tool for BashTool {
         })
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             let Some(command) = args.get("command").and_then(Value::as_str) else {
                 return ToolResult::err("缺少必填参数 `command`");
@@ -177,7 +178,7 @@ impl Tool for BashTool {
                 .map(|secs| secs.clamp(1, MAX_TIMEOUT_SECS))
                 .unwrap_or(DEFAULT_TIMEOUT_SECS);
 
-            run(command, &cwd, Duration::from_secs(timeout)).await
+            run(command, &cwd, Duration::from_secs(timeout), &ctx).await
         })
     }
 }
@@ -192,8 +193,19 @@ fn resolve_cwd(args: &Value) -> Result<PathBuf, String> {
     Ok(resolved.absolute)
 }
 
+/// 取消标志的轮询间隔。
+const CANCEL_POLL: Duration = Duration::from_millis(100);
+
 /// 真正执行。
-async fn run(command: &str, cwd: &PathBuf, timeout: Duration) -> ToolResult {
+///
+/// 超时和取消都靠丢弃执行 future 来生效——配上 `kill_on_drop`，子进程会跟着一起
+/// 收掉。轮询而不是用 channel，是因为 [`ToolCtx`] 要能被任何工具随手检查，
+/// 保持成一个原子布尔最省事。
+async fn run(command: &str, cwd: &PathBuf, timeout: Duration, ctx: &ToolCtx) -> ToolResult {
+    if ctx.is_cancelled() {
+        return ToolResult::err("已取消，命令没有执行。");
+    }
+
     let mut builder = tokio::process::Command::new("bash");
     builder
         .arg("-c")
@@ -206,15 +218,20 @@ async fn run(command: &str, cwd: &PathBuf, timeout: Duration) -> ToolResult {
         // 超时后 future 被丢弃，子进程要跟着一起收掉
         .kill_on_drop(true);
 
-    let output = match tokio::time::timeout(timeout, builder.output()).await {
-        Ok(Ok(output)) => output,
-        Ok(Err(err)) => return ToolResult::err(format!("启动命令失败：{err}")),
-        Err(_) => {
+    let output = tokio::select! {
+        result = builder.output() => match result {
+            Ok(output) => output,
+            Err(err) => return ToolResult::err(format!("启动命令失败：{err}")),
+        },
+        _ = tokio::time::sleep(timeout) => {
             return ToolResult::err(format!(
                 "命令超过 {} 秒未结束，已终止。若确实耗时，调大 timeout_secs；\
                  若是交互式程序，换成非交互写法。",
                 timeout.as_secs()
             ));
+        }
+        _ = poll_cancel(ctx) => {
+            return ToolResult::err("命令被用户中止。");
         }
     };
 
@@ -224,6 +241,13 @@ async fn run(command: &str, cwd: &PathBuf, timeout: Duration) -> ToolResult {
     ToolResult {
         success: code == Some(0),
         content: report(code, &stdout, &stderr),
+    }
+}
+
+/// 等到被取消为止；没被取消就一直等下去。
+async fn poll_cancel(ctx: &ToolCtx) {
+    while !ctx.is_cancelled() {
+        tokio::time::sleep(CANCEL_POLL).await;
     }
 }
 
@@ -343,7 +367,7 @@ mod tests {
     async fn runs_and_reports_both_streams() {
         let tool = BashTool::default();
         let result = tool
-            .call(json!({ "command": "echo 出来了; echo 错误 >&2" }))
+            .call(ToolCtx::default(), json!({ "command": "echo 出来了; echo 错误 >&2" }))
             .await;
         assert!(result.success, "{}", result.content);
         assert!(result.content.contains("退出码: 0"));
@@ -356,7 +380,7 @@ mod tests {
     #[tokio::test]
     async fn non_zero_exit_is_a_failure() {
         let tool = BashTool::default();
-        let result = tool.call(json!({ "command": "exit 3" })).await;
+        let result = tool.call(ToolCtx::default(), json!({ "command": "exit 3" })).await;
         assert!(!result.success);
         assert!(result.content.contains("退出码: 3"));
     }
@@ -365,7 +389,7 @@ mod tests {
     async fn timeout_kills_the_command() {
         let tool = BashTool::default();
         let result = tool
-            .call(json!({ "command": "sleep 30", "timeout_secs": 1 }))
+            .call(ToolCtx::default(), json!({ "command": "sleep 30", "timeout_secs": 1 }))
             .await;
         assert!(!result.success);
         assert!(result.content.contains("未结束"));
@@ -375,17 +399,49 @@ mod tests {
     async fn stdin_is_closed_so_interactive_reads_return_eof() {
         let tool = BashTool::default();
         let result = tool
-            .call(json!({ "command": "read line; echo done", "timeout_secs": 5 }))
+            .call(ToolCtx::default(), json!({ "command": "read line; echo done", "timeout_secs": 5 }))
             .await;
         // 若 stdin 没断开，这里会一直等到超时
         assert!(result.content.contains("done"), "{}", result.content);
     }
 
     #[tokio::test]
+    async fn cancel_stops_a_long_command_without_waiting_for_timeout() {
+        let tool = BashTool::default();
+        let ctx = ToolCtx::default();
+        let cancel = ctx.cancel.clone();
+
+        // 一百秒的命令，取消后应该立刻回来而不是等超时
+        let handle = tokio::spawn(async move {
+            tool.call(ctx, json!({ "command": "sleep 100", "timeout_secs": 100 }))
+                .await
+        });
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        cancel.cancel();
+
+        let result = tokio::time::timeout(Duration::from_secs(3), handle)
+            .await
+            .expect("取消后应当很快返回")
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.content.contains("中止"), "{}", result.content);
+    }
+
+    #[tokio::test]
+    async fn cancelling_before_start_skips_execution() {
+        let tool = BashTool::default();
+        let ctx = ToolCtx::default();
+        ctx.cancel.cancel();
+        let result = tool.call(ctx, json!({ "command": "echo 不该执行" })).await;
+        assert!(!result.success);
+        assert!(!result.content.contains("不该执行"));
+    }
+
+    #[tokio::test]
     async fn bad_cwd_is_reported() {
         let tool = BashTool::default();
         let result = tool
-            .call(json!({ "command": "pwd", "cwd": "/不存在的目录" }))
+            .call(ToolCtx::default(), json!({ "command": "pwd", "cwd": "/不存在的目录" }))
             .await;
         assert!(!result.success);
         assert!(result.content.contains("不存在"));

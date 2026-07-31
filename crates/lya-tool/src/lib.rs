@@ -29,6 +29,7 @@
 #![deny(missing_docs)]
 
 pub mod confirm;
+pub mod context;
 pub mod error;
 pub mod meta;
 pub mod permission;
@@ -37,6 +38,7 @@ pub mod traits;
 pub mod tools;
 
 pub use confirm::{ConfirmRequest, ConfirmStep};
+pub use context::{CancelToken, ToolCtx};
 pub use error::ToolError;
 pub use meta::{ToolMeta, ToolResult};
 pub use permission::Permission;

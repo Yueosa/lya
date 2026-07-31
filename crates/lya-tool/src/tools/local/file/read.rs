@@ -18,6 +18,7 @@ use serde_json::{json, Value};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::path::{resolve_path, PathError};
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 无范围限制时的最大返回行数。
@@ -131,7 +132,7 @@ impl Tool for FileReadTool {
         self.prompt_hint
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move { run_file_read(args) })
     }
 }

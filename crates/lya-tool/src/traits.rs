@@ -8,6 +8,7 @@ use std::pin::Pin;
 use serde_json::Value;
 
 use crate::confirm::ConfirmRequest;
+use crate::context::ToolCtx;
 use crate::meta::{ToolMeta, ToolResult};
 
 /// 异步调用返回类型（便于 `dyn Tool`）。
@@ -47,5 +48,8 @@ pub trait Tool: Send + Sync {
     ///
     /// `args` 是模型给出的参数对象（已从 `arguments` JSON 字符串解析）。
     /// Schema 校验、权限外的业务预检、后置钩子都可在此完成。
-    fn call(&self, args: Value) -> ToolCallFuture<'_>;
+    ///
+    /// 跑得久的工具应当定期检查 [`ToolCtx::is_cancelled`]，被叫停时尽快收手
+    /// 并返回一个说明性的失败结果。
+    fn call(&self, ctx: ToolCtx, args: Value) -> ToolCallFuture<'_>;
 }

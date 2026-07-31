@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// DDG 的无脚本搜索端点。
@@ -89,7 +90,7 @@ impl Tool for WebSearchTool {
         self.prompt_hint
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             let Some(query) = args.get("query").and_then(Value::as_str) else {
                 return ToolResult::err("缺少必填参数 `query`");

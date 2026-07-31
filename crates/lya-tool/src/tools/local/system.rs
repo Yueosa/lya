@@ -13,6 +13,7 @@ use serde_json::{json, Value};
 
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 要探测存在性的常用命令行工具。
@@ -76,7 +77,7 @@ impl Tool for SystemInfoTool {
         self.prompt_hint
     }
 
-    fn call(&self, _args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move { ToolResult::ok(collect()) })
     }
 }

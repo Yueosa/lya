@@ -16,6 +16,7 @@ use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::file::write::{count_lines, describe_path_error};
 use crate::tools::local::path::resolve_path;
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 可编辑文件的大小上限。
@@ -95,7 +96,7 @@ impl Tool for FileEditTool {
         self.prompt_hint
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             let path = match args.get("path").and_then(Value::as_str) {
                 Some(path) => path,

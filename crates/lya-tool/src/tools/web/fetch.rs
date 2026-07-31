@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::web::html;
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 默认返回字符数。
@@ -79,7 +80,7 @@ impl Tool for WebFetchTool {
         self.prompt_hint
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             let Some(url) = args.get("url").and_then(Value::as_str) else {
                 return ToolResult::err("缺少必填参数 `url`");

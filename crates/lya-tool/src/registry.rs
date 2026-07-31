@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use crate::error::ToolError;
 use crate::meta::ToolResult;
 use crate::permission::Permission;
+use crate::context::ToolCtx;
 use crate::traits::Tool;
 
 /// 一次筛选导出的结果：提示词段 + 供 `chat/completions` 使用的 `tools` 数组。
@@ -147,12 +148,17 @@ impl ToolRegistry {
     }
 
     /// 调用已注册工具（不做会话白名单；调用方先自己筛）。
-    pub async fn invoke(&self, name: &str, args: Value) -> Result<ToolResult, ToolError> {
+    pub async fn invoke(
+        &self,
+        name: &str,
+        ctx: ToolCtx,
+        args: Value,
+    ) -> Result<ToolResult, ToolError> {
         let tool = self
             .tools
             .get(name)
             .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
-        Ok(tool.call(args).await)
+        Ok(tool.call(ctx, args).await)
     }
 
     /// 内部筛选：名字 ∩ 权限。
@@ -225,7 +231,7 @@ mod tests {
         fn prompt_hint(&self) -> &str {
             self.hint
         }
-        fn call(&self, _args: Value) -> ToolCallFuture<'_> {
+        fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
             Box::pin(async { ToolResult::ok("ok") })
         }
     }
@@ -297,7 +303,7 @@ mod tests {
     #[tokio::test]
     async fn invoke_unknown() {
         let reg = ToolRegistry::new();
-        let err = reg.invoke("nope", json!({})).await.unwrap_err();
+        let err = reg.invoke("nope", ToolCtx::default(), json!({})).await.unwrap_err();
         assert_eq!(err, ToolError::NotFound("nope".into()));
     }
 }

@@ -143,7 +143,7 @@ mod tests {
     use std::sync::Arc;
 
     use lya_tool::traits::ToolCallFuture;
-    use lya_tool::{Tool, ToolMeta, ToolResult};
+    use lya_tool::{Tool, ToolCtx, ToolMeta, ToolResult};
     use serde_json::{Value, json};
 
     use super::*;
@@ -166,7 +166,7 @@ mod tests {
             "测试工具提示"
         }
 
-        fn call(&self, _args: Value) -> ToolCallFuture<'_> {
+        fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
             Box::pin(async { ToolResult::ok("ok") })
         }
     }

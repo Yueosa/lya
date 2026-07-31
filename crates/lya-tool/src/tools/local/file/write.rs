@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::path::{resolve_path, PathError};
+use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// 单次写入的内容上限。
@@ -91,7 +92,7 @@ impl Tool for FileWriteTool {
         self.prompt_hint
     }
 
-    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
         Box::pin(async move {
             let path = match args.get("path").and_then(Value::as_str) {
                 Some(path) => path,

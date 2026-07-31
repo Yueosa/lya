@@ -1,7 +1,10 @@
-//! 一轮对话对外抛出的事件，以及取消标志。
+//! 一轮对话对外抛出的事件。
+//!
+//! 取消标志本身定义在 [`lya_tool`]——真正需要观察它的是工具（一条跑了半天的
+//! 命令得能被叫停），而工具层看不见 agent。这里只是再导出，方便调用方少写一个
+//! 依赖。
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+pub use lya_tool::CancelToken;
 
 /// 被调用的是工具还是动作。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,27 +89,3 @@ pub enum AgentEvent {
     },
 }
 
-/// 取消标志。
-///
-/// 调用方持有一份 clone，随时 [`CancelToken::cancel`]。agent 在每轮开始和
-/// 每个流式分片之间检查；取消时会把正在写的那条助手消息标成 `Interrupted`，
-/// 而不是留一条状态为「流式中」的僵尸记录。
-#[derive(Debug, Clone, Default)]
-pub struct CancelToken(Arc<AtomicBool>);
-
-impl CancelToken {
-    /// 新建一个未取消的标志。
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// 请求取消。
-    pub fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
-    }
-
-    /// 是否已被取消。
-    pub fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
-    }
-}
