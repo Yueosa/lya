@@ -1,0 +1,23 @@
+# lya 进程级配置。改动需要重启 lya 才会生效。
+
+[server]
+host = "127.0.0.1"
+port = 51616
+# 端口被占用时向后依次尝试的最大偏移（51616 + 50 = 51666）
+port_backoff_max = 50
+
+[log]
+# error / warn / info / debug / trace
+level = "info"
+
+[db]
+# 相对 ~/.lya 的路径；也可以写绝对路径
+path = "lya.db"
+
+[http]
+# 单次请求总超时（秒）。流式对话可能很久，别设太小
+timeout_secs = 120
+connect_timeout_secs = 10
+pool_idle_timeout_secs = 90
+pool_max_idle_per_host = 4
+user_agent = "lya/0.1"

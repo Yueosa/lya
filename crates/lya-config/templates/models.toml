@@ -1,0 +1,26 @@
+# 模型清单。前端选择与实际调用共用这一份。
+#
+# ⚠️ 本文件含 API 密钥，权限已设为 0600，不要提交到任何仓库。
+#
+# 固定字段会做校验：id / name / base_url / api_key
+# 其余字段**原样透传进请求体**，所以模型特有的参数直接写在这里就行，
+# 不需要改代码（参考 https://api-docs.deepseek.com/zh-cn/ ）。
+
+[[models]]
+id = "deepseek-v4-flash"
+name = "DeepSeek V4 Flash"
+base_url = "https://api.deepseek.com"
+api_key = "<在这里填入你的 DeepSeek API Key>"
+# 以下均为透传字段
+model = "deepseek-v4-flash"
+reasoning_effort = "high"
+thinking = { type = "enabled" }
+
+[[models]]
+id = "deepseek-v4-pro"
+name = "DeepSeek V4 Pro"
+base_url = "https://api.deepseek.com"
+api_key = "<在这里填入你的 DeepSeek API Key>"
+model = "deepseek-v4-pro"
+reasoning_effort = "high"
+thinking = { type = "enabled" }

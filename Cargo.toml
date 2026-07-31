@@ -10,6 +10,7 @@ members = [
     "crates/lya-session",
     "crates/lya-memory",
     "crates/lya-action",
+    "crates/lya-config",
 ]
 
 [workspace.package]
@@ -28,6 +29,7 @@ chrono = { version = "0.4", default-features = false, features = [
 futures-core = "0.3"
 futures-util = "0.3"
 lya-action = { path = "crates/lya-action" }
+lya-config = { path = "crates/lya-config" }
 lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }
 lya-memory = { path = "crates/lya-memory" }
@@ -48,4 +50,5 @@ regex = "1"
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+toml = "1"
 uuid = { version = "1", features = ["v4"] }

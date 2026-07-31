@@ -19,9 +19,10 @@
 | `lya-session` | 会话元数据、消息树、分支、HITL 独立节点 | 可用 |
 | `lya-memory` | 跨会话笔记的仓储 + 常驻索引渲染 | 可用 |
 | `lya-action` | 元认知动作：记忆读写、表单、请求切模式 | 可用 |
+| `lya-config` | 分层配置：core / runtime / 模型清单 / 人设 | 可用 |
 
 依赖方向保持单向：`session → db`、`memory → db`、`mode → tool`、`llm → http`、
-`action → tool/memory/session/mode`，彼此不反向依赖。
+`action → tool/memory/session/mode`、`config → mode`，彼此不反向依赖。
 
 ---
 
@@ -80,6 +81,17 @@
 - **动作与工具的重名没人查**：两边的 schemas 由 agent 合并进同一个
   `tools[]`，撞名应当在合并处报错。
 
+### lya-config
+
+- **不做文件监听**：「可热改」目前等于「重新 `load_from` 一次就生效」。
+  runtime 那几个值不影响已建立的连接与监听端口，够用了；真 watcher 等 HTTP
+  层再说。
+- **只暴露了记忆索引的三个数值**：`MemoryLimits`（标题/摘要/正文长度上限）和
+  `file_read` 的行数上限仍是代码里的常量。它们是护栏不是口味，没人会调，等
+  真有人要改再往 `runtime.toml` 加。
+- **密钥明文存 `models.toml`**（权限 0600）。本地单用户场景够了，不支持
+  `env:VAR` 这类间接引用。
+
 ### lya-prompt
 
 - **`action_section` 已可用**：接 `ActionRegistry::prompt_section(mode)`。
@@ -93,21 +105,15 @@
 
 ## 接下来的顺序
 
-`lya-config` → `lya-agent`
+`lya-agent` → 补齐工具（`file_write` / `bash` / `dir` / `web` / `image`）
+→ HTTP 层与 `SessionHub` → WebUI 与托盘
 
-### lya-config
+先 agent 后工具：现在九个 crate 全是单元测试，一次真实 LLM 往返都没跑过，
+消息树转 `ChatMessage`、HITL 挂起恢复、结果回灌这些接缝只有跑起来才知道对不对。
+补工具是纯增量，`file_read` 已经把路走通了，不会再动架构。
 
-三级：
-
-1. **core**：进程级，启动读取、改了要重启。端口、日志级别、db 路径、
-   http 超时与连接池。
-2. **runtime**：各模块默认值，可热改。默认模式、默认启用工具、全局人设、
-   `max_tool_rounds`、`file_read` 行数上限等。
-3. **session**：**不在配置文件里**，已经存在 `sessions` 表。`lya-config`
-   对这一级的唯一职责是「会话没设时给什么默认值」，不重复存储。
-
-模型清单是**第四类**东西，既不是层级也不是默认值，而是带密钥的资源目录，
-单独成文件并注意文件权限。
+**注意**：在补齐写类工具之前，edit 与 agent 模式实际上和 ask 没区别——唯一的
+工具 `file_read` 是只读的，两个高权限模式拿不到任何额外能力，模式系统处于空转。
 
 ### lya-agent
 
@@ -126,6 +132,10 @@
 - 工具调用死循环——靠 `max_tool_rounds` 轮数上限兜
 - 模型返回空 `content` 且无 `tool_calls`，本轮静默结束
 - 合并 tool 与 action 的 schemas 时检测重名
+
+做完时要能**真的跟 DeepSeek 说上话**：带一个最小命令行 example，读配置、开
+会话、发一句话、看到流式输出、让它调一次 `file_read`。跑通了才算数，否则仍然
+只有单元测试。
 
 HITL 的完整链路（表单为例）：模型调 `form` → agent 追加带 `tool_calls` 的
 assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 → agent 用
@@ -156,7 +166,8 @@ assistant 节点**和**一个 `role=hitl` 的 pending 节点 → 用户提交 �
 
 ### 旧配置分层（原 `.lya-bak/`）
 
-旧实现按文件分层，和现在定的三级基本一致，可直接借鉴：
+已落实到 `lya-config`，四个文件基本照搬（旧的 `agent.toml` 只有一个
+`max_tool_rounds`，并进了 `runtime.toml`）。原始形状记录如下：
 
 - `core.toml`：`[server]` host / port（51616）/ `port_backoff_max`（端口被占
   用时向后试的最大偏移）；`[db] sqlite_path`（相对 `~/.lya`）；

@@ -1,0 +1,27 @@
+# lya 运行时默认值。改完重新加载即可生效，不必重启。
+#
+# 这一层只提供「默认」：会话自己设过的（工作模式、启用工具、人设）以会话为准，
+# 它们存在数据库里，不在这个文件里。
+
+[agent]
+# 单次用户输入内，LLM 与工具/动作最多来回几轮。防死循环用，别设太大
+max_tool_rounds = 32
+# 新会话的默认工作模式：ask 只读 / edit 可写 / agent 可执行
+default_work_mode = "agent"
+# 默认使用哪个模型，填 models.toml 里的 id
+default_model = "deepseek-v4-flash"
+
+[tools]
+# 新会话默认启用哪些工具。
+#
+# 整行注释掉 = 启用全部工具（推荐）
+# 给出数组 = 只启用列出的这些；空数组 [] = 一个都不启用
+# enabled = ["file_read"]
+
+[memory]
+# 长期记忆的索引会常驻在系统提示词里，这几个值限制它的体积。
+# 超出上限时只保留最近更新的若干条，并告知模型还有多少条没列出。
+max_index_entries = 100
+max_index_chars = 4000
+# 索引里每条摘要截断到多少字符
+index_summary_chars = 120
