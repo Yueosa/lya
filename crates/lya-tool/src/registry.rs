@@ -22,6 +22,11 @@ pub struct ToolBundle {
     pub prompt: String,
     /// OpenAI 兼容的 `tools` 数组元素列表。
     pub schemas: Vec<Value>,
+    /// 本次筛选出的工具内部名。
+    ///
+    /// 执行前的二次拦截要用**这一份**，而不是自己再算一遍筛选条件——
+    /// 两处逻辑一旦漂移，就会出现「没提供给模型却能执行」的漏洞。
+    pub names: Vec<String>,
 }
 
 impl ToolBundle {
@@ -30,7 +35,13 @@ impl ToolBundle {
         Self {
             prompt: String::new(),
             schemas: Vec::new(),
+            names: Vec::new(),
         }
+    }
+
+    /// 该工具是否在本次筛选结果内。
+    pub fn allows(&self, name: &str) -> bool {
+        self.names.iter().any(|n| n == name)
     }
 
     /// 是否没有任何工具。
@@ -102,9 +113,11 @@ impl ToolRegistry {
 
         let mut prompt = String::from("## Tools\n\n");
         let mut schemas = Vec::with_capacity(selected.len());
+        let mut names = Vec::with_capacity(selected.len());
 
         for tool in &selected {
             let meta = tool.meta();
+            names.push(meta.name.clone());
             prompt.push_str(&format!(
                 "### {} ({}) [{}]\n{}\n\n{}\n\n",
                 meta.name,
@@ -116,7 +129,11 @@ impl ToolRegistry {
             schemas.push(openai_tool_schema(tool.as_ref()));
         }
 
-        ToolBundle { prompt, schemas }
+        ToolBundle {
+            prompt,
+            schemas,
+            names,
+        }
     }
 
     /// 只导出提示词段（等价于 [`ToolRegistry::bundle`] 的 `.prompt`）。
