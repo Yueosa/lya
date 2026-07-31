@@ -683,6 +683,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-memory"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "lya-db",
+ "rusqlite",
+ "serde",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "lya-mode"
 version = "0.1.0"
 dependencies = [

@@ -56,7 +56,10 @@ impl PromptBuilder {
 
     /// 组装完整 system prompt。
     ///
-    /// 顺序：系统认知 → 自我认知 → action → tools → mode → extra → 人设。
+    /// 顺序：系统认知 → 自我认知 → action → tools → mode → memory → extra → 人设。
+    ///
+    /// 记忆排在能力三段（action / tools / mode）之后：先讲「你能做什么」，
+    /// 再讲「你已经知道什么」。
     pub fn build(&self, input: &PromptInput) -> String {
         let mut parts: Vec<String> = Vec::new();
 
@@ -66,6 +69,7 @@ impl PromptBuilder {
         push_optional(&mut parts, input.action_section.as_deref());
         push_optional(&mut parts, input.tool_section.as_deref());
         push_optional(&mut parts, input.mode_section.as_deref());
+        push_optional(&mut parts, input.memory_section.as_deref());
         push_optional(&mut parts, input.extra_section.as_deref());
 
         let persona_body = resolve_persona_body(self, input);
@@ -122,13 +126,15 @@ mod tests {
             &PromptInput::new()
                 .with_actions("=== [元认知] ===\nform / memory")
                 .with_tools("## Tools\n### file_read")
-                .with_mode("=== [模式] ask ===\n只读"),
+                .with_mode("=== [模式] ask ===\n只读")
+                .with_memory("=== [记忆] Memory ===\n#1 环境操作偏好"),
         );
         let action = text.find("=== [元认知]").unwrap();
         let tools = text.find("## Tools").unwrap();
         let mode = text.find("=== [模式]").unwrap();
+        let memory = text.find("=== [记忆]").unwrap();
         let persona = text.find("=== [人设]").unwrap();
-        assert!(action < tools && tools < mode && mode < persona);
+        assert!(action < tools && tools < mode && mode < memory && memory < persona);
     }
 
     #[test]

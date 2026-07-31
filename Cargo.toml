@@ -8,6 +8,7 @@ members = [
     "crates/lya-mode",
     "crates/lya-db",
     "crates/lya-session",
+    "crates/lya-memory",
 ]
 
 [workspace.package]
@@ -27,6 +28,7 @@ futures-core = "0.3"
 futures-util = "0.3"
 lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }
+lya-memory = { path = "crates/lya-memory" }
 lya-mode = { path = "crates/lya-mode" }
 lya-prompt = { path = "crates/lya-prompt" }
 lya-session = { path = "crates/lya-session" }

@@ -25,6 +25,11 @@ pub struct PromptInput {
     /// 工作模式说明段（未来由 `agent_mode` 生成；含 ask/edit/agent 等差异）。
     pub mode_section: Option<String>,
 
+    /// 长期记忆的常驻索引（通常来自 `lya-memory::MemoryStore::index_section`）。
+    ///
+    /// 放的是标题 / 标签 / 摘要，不含正文；模型按编号取正文。
+    pub memory_section: Option<String>,
+
     /// 其它一次性上下文（记忆召回摘要、系统状态等）；少用，优先独立 SystemMessage。
     pub extra_section: Option<String>,
 }
@@ -50,6 +55,12 @@ impl PromptInput {
     /// 设置模式段。
     pub fn with_mode(mut self, section: impl Into<String>) -> Self {
         self.mode_section = Some(section.into());
+        self
+    }
+
+    /// 设置记忆索引段。
+    pub fn with_memory(mut self, section: impl Into<String>) -> Self {
+        self.memory_section = Some(section.into());
         self
     }
 
