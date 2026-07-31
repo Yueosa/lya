@@ -34,6 +34,6 @@ pub mod input;
 
 pub use builder::PromptBuilder;
 pub use identity::{
-    DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS,
+    DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
 pub use input::PromptInput;

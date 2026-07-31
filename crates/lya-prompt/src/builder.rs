@@ -1,7 +1,7 @@
 //! [`PromptBuilder`]：按固定顺序拼接 system prompt。
 
 use crate::identity::{
-    format_persona_section, DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS,
+    format_persona_section, DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
 use crate::input::PromptInput;
 
@@ -56,15 +56,20 @@ impl PromptBuilder {
 
     /// 组装完整 system prompt。
     ///
-    /// 顺序：系统认知 → 自我认知 → action → tools → mode → memory → extra → 人设。
+    /// 顺序：系统认知 → 自我认知 → 时间锚点 → action → tools → mode → memory
+    /// → extra → 人设。
     ///
     /// 记忆排在能力三段（action / tools / mode）之后：先讲「你能做什么」，
     /// 再讲「你已经知道什么」。
+    ///
+    /// 全程**不含任何随时间变化的内容**——整段必须是逐字节确定的，否则前缀
+    /// 缓存每轮都会失效。当前时间通过消息前缀传达，见 [`TIME_ANCHOR`]。
     pub fn build(&self, input: &PromptInput) -> String {
         let mut parts: Vec<String> = Vec::new();
 
         parts.push(SYSTEM_AWARENESS.trim().to_string());
         parts.push(SELF_AWARENESS.trim().to_string());
+        parts.push(TIME_ANCHOR.trim().to_string());
 
         push_optional(&mut parts, input.action_section.as_deref());
         push_optional(&mut parts, input.tool_section.as_deref());
