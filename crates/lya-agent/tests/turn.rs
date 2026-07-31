@@ -15,7 +15,7 @@ use lya_llm::{ChatEventStream, ChatMessage, LlmEndpoint, LlmError, StreamEvent, 
 use lya_memory::MemoryStore;
 use lya_mode::Mode;
 use lya_prompt::PromptBuilder;
-use lya_session::{CreateSession, MessagePayload, MessageRole, SessionStore};
+use lya_session::{CreateSession, HitlBlock, MessagePayload, MessageRole, SessionStore};
 use lya_tool::{Permission, Tool, ToolMeta, ToolRegistry, ToolResult, traits::ToolCallFuture};
 use serde_json::{Value, json};
 use tempfile::TempDir;
@@ -835,6 +835,213 @@ async fn manual_mode_switch_leaves_a_marker() {
         .filter(|m| m.content.contains("[模式变更]"))
         .count();
     assert_eq!(count, 1);
+}
+
+/// 一个「执行前要确认」的假工具：记录自己有没有真的被执行过。
+struct GuardedTool {
+    meta: ToolMeta,
+    params: Value,
+    ran: Arc<Mutex<Vec<String>>>,
+}
+
+impl Tool for GuardedTool {
+    fn meta(&self) -> &ToolMeta {
+        &self.meta
+    }
+    fn parameters(&self) -> &Value {
+        &self.params
+    }
+    fn prompt_hint(&self) -> &str {
+        "危险"
+    }
+    fn confirm_request(&self, args: &Value) -> Option<lya_tool::ConfirmRequest> {
+        Some(lya_tool::ConfirmRequest {
+            summary: format!("执行：{}", args["command"].as_str().unwrap_or("")),
+            steps: vec![lya_tool::ConfirmStep {
+                raw: args["command"].as_str().unwrap_or("").into(),
+                explain: "删除东西".into(),
+                risk: Some("不可撤销".into()),
+                connector: String::new(),
+            }],
+            reasons: vec!["会删文件".into()],
+        })
+    }
+    fn call(&self, args: Value) -> ToolCallFuture<'_> {
+        Box::pin(async move {
+            let command = args["command"].as_str().unwrap_or("").to_string();
+            self.ran.lock().unwrap().push(command.clone());
+            ToolResult::ok(format!("已执行 {command}"))
+        })
+    }
+}
+
+/// 装一个需要确认的工具，返回执行记录。
+fn fixture_with_guarded(turns: Vec<Turn>) -> (Fixture, Arc<Mutex<Vec<String>>>) {
+    let mut fx = fixture_with(turns, Mode::Agent, 8);
+    let ran = Arc::new(Mutex::new(Vec::new()));
+
+    let mut tools = ToolRegistry::new();
+    tools.register(Arc::new(EchoTool::new())).unwrap();
+    tools
+        .register(Arc::new(GuardedTool {
+            meta: ToolMeta::new("danger", "危险", "危险操作", Permission::READ_WRITE_EXEC),
+            params: json!({
+                "type": "object",
+                "properties": { "command": { "type": "string" } },
+                "required": ["command"]
+            }),
+            ran: Arc::clone(&ran),
+        }))
+        .unwrap();
+
+    let mut actions = ActionRegistry::new();
+    register_builtins(&mut actions, Arc::new(MemoryStore::open(fx._dir.path().join("m.db")).unwrap()))
+        .unwrap();
+
+    fx.agent = Agent::new(AgentParts {
+        backend: Arc::clone(&fx.backend),
+        endpoint: LlmEndpoint::new("https://example.invalid/v1", "k"),
+        sessions: Arc::clone(&fx.sessions),
+        memory: Arc::new(MemoryStore::open(fx._dir.path().join("m2.db")).unwrap()),
+        tools: Arc::new(tools),
+        actions: Arc::new(actions),
+        prompt: PromptBuilder::new(),
+        max_tool_rounds: 8,
+    })
+    .unwrap();
+    (fx, ran)
+}
+
+#[tokio::test]
+async fn risky_tool_suspends_before_running() {
+    let (fx, ran) = fixture_with_guarded(vec![
+        Turn::Call {
+            text: "我来删一下".into(),
+            call_id: "c1".into(),
+            name: "danger".into(),
+            arguments: r#"{"command":"rm -rf build"}"#.into(),
+        },
+        Turn::Text("删完了".into()),
+    ]);
+    fx.say("清理一下");
+
+    let events = fx.run().await;
+    assert_eq!(end_reason(&events), TurnEndReason::AwaitingHuman);
+    assert!(ran.lock().unwrap().is_empty(), "放行之前一步都不能执行");
+
+    // HITL 节点里存下了工具名与参数，恢复时才照得着
+    let hitl_id = fx.sessions.pending_hitl(&fx.session_id).unwrap().unwrap();
+    let record = fx.sessions.get_message(&fx.session_id, hitl_id).unwrap();
+    let Some(HitlBlock::ToolConfirm {
+        tool_name,
+        arguments,
+        steps,
+        tool_call_id,
+        ..
+    }) = record.payload.lya.hitl.clone()
+    else {
+        panic!("应当是工具确认块");
+    };
+    assert_eq!(tool_name, "danger");
+    assert_eq!(arguments["command"], "rm -rf build");
+    assert_eq!(tool_call_id, "c1");
+    assert_eq!(steps[0].risk.as_deref(), Some("不可撤销"));
+}
+
+#[tokio::test]
+async fn approval_executes_and_feeds_the_output_back() {
+    let (fx, ran) = fixture_with_guarded(vec![
+        Turn::Call {
+            text: String::new(),
+            call_id: "c1".into(),
+            name: "danger".into(),
+            arguments: r#"{"command":"rm -rf build"}"#.into(),
+        },
+        Turn::Text("好了".into()),
+    ]);
+    fx.say("清理");
+    fx.run().await;
+
+    fx.agent
+        .resolve_tool_confirm(&fx.session_id, true, Some("可以，但别动日志"))
+        .await
+        .unwrap();
+
+    assert_eq!(ran.lock().unwrap().as_slice(), ["rm -rf build"], "放行后才执行");
+    assert_eq!(fx.sessions.pending_hitl(&fx.session_id).unwrap(), None);
+
+    let events = fx.run().await;
+    assert_eq!(end_reason(&events), TurnEndReason::Completed);
+
+    let tool_msg = fx
+        .backend
+        .last_messages()
+        .into_iter()
+        .find(|m| m.tool_call_id.as_deref() == Some("c1"))
+        .expect("执行结果要回灌");
+    assert!(tool_msg.content.contains("已执行 rm -rf build"));
+    assert!(tool_msg.content.contains("[用户备注: 可以，但别动日志]"));
+}
+
+#[tokio::test]
+async fn rejection_does_not_execute() {
+    let (fx, ran) = fixture_with_guarded(vec![
+        Turn::Call {
+            text: String::new(),
+            call_id: "c1".into(),
+            name: "danger".into(),
+            arguments: r#"{"command":"rm -rf /"}"#.into(),
+        },
+        Turn::Text("那我不删了".into()),
+    ]);
+    fx.say("清理");
+    fx.run().await;
+
+    fx.agent
+        .resolve_tool_confirm(&fx.session_id, false, Some("太危险了"))
+        .await
+        .unwrap();
+    assert!(ran.lock().unwrap().is_empty(), "拒绝就是一步都不执行");
+
+    fx.run().await;
+    let tool_msg = fx
+        .backend
+        .last_messages()
+        .into_iter()
+        .find(|m| m.tool_call_id.as_deref() == Some("c1"))
+        .unwrap();
+    assert!(tool_msg.content.contains("[用户拒绝]"));
+    assert!(tool_msg.content.contains("太危险了"));
+}
+
+#[tokio::test]
+async fn permission_is_rechecked_after_approval() {
+    let (fx, ran) = fixture_with_guarded(vec![Turn::Call {
+        text: String::new(),
+        call_id: "c1".into(),
+        name: "danger".into(),
+        arguments: r#"{"command":"rm -rf build"}"#.into(),
+    }]);
+    fx.say("清理");
+    fx.run().await;
+
+    // 挂起期间用户把会话降到 ask，放行也不该执行
+    fx.sessions.set_work_mode(&fx.session_id, Mode::Ask).unwrap();
+    fx.agent
+        .resolve_tool_confirm(&fx.session_id, true, None)
+        .await
+        .unwrap();
+
+    assert!(ran.lock().unwrap().is_empty(), "权限已经不够了，不能执行");
+    let record = fx
+        .sessions
+        .path_to_active_leaf(&fx.session_id)
+        .unwrap()
+        .into_iter()
+        .next_back()
+        .unwrap();
+    let content = &record.payload.openai.unwrap().content;
+    assert!(content.contains("重新检查权限"), "{content}");
 }
 
 #[tokio::test]

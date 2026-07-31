@@ -161,6 +161,24 @@ pub struct FormQuestion {
     pub allow_note: bool,
 }
 
+/// 工具确认里拆出的一步。
+///
+/// 对应 `lya_tool::ConfirmStep` 的持久化形状——两边分开定义是因为
+/// `lya-session → lya-mode → lya-tool`，工具层不能反过来引用会话类型。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfirmStepBlock {
+    /// 原始片段。
+    pub raw: String,
+    /// 人话说明。
+    pub explain: String,
+    /// 这一段的风险；`None` 表示看起来没问题。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub risk: Option<String>,
+    /// 与上一段的关系，如「成功后」。
+    #[serde(default)]
+    pub connector: String,
+}
+
 /// HITL 块内容。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -180,9 +198,20 @@ pub enum HitlBlock {
         tool_call_id: String,
         /// 工具名。
         tool_name: String,
-        /// 展示用预览。
+        /// 原样存下的调用参数。
+        ///
+        /// 用户放行后要照它执行，所以必须存——和表单不同，确认的「同意」不是
+        /// 答案本身，而是「现在才真正去做」。
+        arguments: Value,
+        /// 一句话概括。
         #[serde(default)]
-        preview: String,
+        summary: String,
+        /// 逐段拆解。
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        steps: Vec<ConfirmStepBlock>,
+        /// 为什么需要确认。
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        reasons: Vec<String>,
     },
     /// 模式切换。
     ModeChange {

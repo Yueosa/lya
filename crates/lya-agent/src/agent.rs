@@ -10,10 +10,10 @@ use lya_memory::MemoryStore;
 use lya_mode::Mode;
 use lya_prompt::{PromptBuilder, PromptInput};
 use lya_session::{
-    HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus, OpenAiFunction,
-    OpenAiMessage, OpenAiToolCall, SessionStore,
+    ConfirmStepBlock, HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus,
+    OpenAiFunction, OpenAiMessage, OpenAiToolCall, SessionStore,
 };
-use lya_tool::ToolRegistry;
+use lya_tool::{ConfirmRequest, ToolRegistry};
 use serde_json::{Value, json};
 
 use crate::backend::ChatBackend;
@@ -381,18 +381,18 @@ impl<B: ChatBackend> Agent<B> {
             return Dispatched::err(format!("没有名为 `{name}` 的函数，请检查可用列表。"));
         };
 
-        if !allowed.allows(name) {
-            let prmt = tool.meta().prmt;
-            return Dispatched::err(if prmt.is_subset_of(mode.permission()) {
-                // 权限够，那就是用户没在本会话启用它
-                format!("工具 `{name}` 没有在本会话启用，请让用户在工具管理里打开。")
-            } else {
-                format!(
-                    "工具 `{name}` 在当前 {mode} 模式下不可用（需要 {prmt}，本模式只授予 {}）。\
-                     请改用当前可用的工具，或用 request_mode_change 请用户切换模式。",
-                    mode.permission()
-                )
-            });
+        if let Some(reason) = deny_tool(tool.as_ref(), allowed, mode, name) {
+            return Dispatched::err(reason);
+        }
+
+        // 工具自己说要先让用户过目（目前只有 bash 会）
+        if let Some(request) = tool.confirm_request(&args) {
+            if already_awaiting {
+                return Dispatched::err(
+                    "本轮已经有一个待用户答复的请求了，等这个处理完再发下一个。",
+                );
+            }
+            return Dispatched::AwaitHuman(Box::new(confirm_block(name, &args, request)));
         }
 
         let result = tool.call(args).await;
@@ -402,6 +402,123 @@ impl<B: ChatBackend> Agent<B> {
         }
     }
 
+    /// 答复一次工具确认。
+    ///
+    /// 与表单最大的不同：表单的答复本身就是结果，而这里的「同意」意味着
+    /// **现在才真正去执行**，再把真实输出写成 tool 结果。
+    pub async fn resolve_tool_confirm(
+        &self,
+        session_id: &str,
+        approved: bool,
+        note: Option<&str>,
+    ) -> Result<(), AgentError> {
+        let (hitl_id, call_id, block) = self.pending_block(session_id)?;
+        let HitlBlock::ToolConfirm {
+            tool_name,
+            arguments,
+            ..
+        } = block
+        else {
+            return Err(AgentError::Invalid("当前待处理的不是工具确认".into()));
+        };
+
+        let content = if approved {
+            self.execute_confirmed(session_id, &tool_name, arguments, note)
+                .await?
+        } else {
+            let mut text = format!("[用户拒绝] 用户没有放行 `{tool_name}`，该操作未执行。");
+            if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
+                text.push_str(&format!("\n[用户备注: {}]", note.trim()));
+            }
+            text
+        };
+
+        self.sessions
+            .append(session_id, MessagePayload::tool_result(call_id, content), true)?;
+        self.sessions.resolve_hitl(session_id, hitl_id)?;
+        Ok(())
+    }
+
+    /// 放行后执行，并把权限重新查一遍。
+    ///
+    /// 挂起期间用户可能改过模式或工具启用列表，不能拿当初的判断直接执行。
+    async fn execute_confirmed(
+        &self,
+        session_id: &str,
+        tool_name: &str,
+        arguments: Value,
+        note: Option<&str>,
+    ) -> Result<String, AgentError> {
+        let meta = self
+            .sessions
+            .get_session(session_id)?
+            .ok_or_else(|| AgentError::Invalid(format!("会话不存在：{session_id}")))?;
+        let enabled: Option<Vec<&str>> = meta
+            .enabled_tools
+            .as_ref()
+            .map(|names| names.iter().map(String::as_str).collect());
+        let allowed = meta.work_mode.resolve(&self.tools, enabled.as_deref()).tools;
+
+        let Some(tool) = self.tools.get(tool_name) else {
+            return Ok(format!("工具 `{tool_name}` 已经不存在，操作未执行。"));
+        };
+        if let Some(reason) = deny_tool(tool.as_ref(), &allowed, meta.work_mode, tool_name) {
+            return Ok(format!("放行后重新检查权限：{reason}"));
+        }
+
+        let result = tool.call(arguments).await;
+        Ok(match note.filter(|n| !n.trim().is_empty()) {
+            Some(note) => format!("[用户备注: {}]\n{}", note.trim(), result.content),
+            None => result.content,
+        })
+    }
+}
+
+/// 执行前的权限复查；放行返回 `None`，拦下返回给模型看的原因。
+fn deny_tool(
+    tool: &dyn lya_tool::Tool,
+    allowed: &lya_tool::ToolBundle,
+    mode: Mode,
+    name: &str,
+) -> Option<String> {
+    if allowed.allows(name) {
+        return None;
+    }
+    let prmt = tool.meta().prmt;
+    Some(if prmt.is_subset_of(mode.permission()) {
+        format!("工具 `{name}` 没有在本会话启用，请让用户在工具管理里打开。")
+    } else {
+        format!(
+            "工具 `{name}` 在当前 {mode} 模式下不可用（需要 {prmt}，本模式只授予 {}）。\
+             请改用当前可用的工具，或用 request_mode_change 请用户切换模式。",
+            mode.permission()
+        )
+    })
+}
+
+/// 把工具的确认请求映射成会话里的 HITL 块。
+fn confirm_block(name: &str, args: &Value, request: ConfirmRequest) -> HitlBlock {
+    HitlBlock::ToolConfirm {
+        // 真正的 tool_call_id 由 hitl_payload 补进 meta，这里先占位
+        tool_call_id: String::new(),
+        tool_name: name.to_string(),
+        arguments: args.clone(),
+        summary: request.summary,
+        steps: request
+            .steps
+            .into_iter()
+            .map(|step| ConfirmStepBlock {
+                raw: step.raw,
+                explain: step.explain,
+                risk: step.risk,
+                connector: step.connector,
+            })
+            .collect(),
+        reasons: request.reasons,
+    }
+}
+
+impl<B: ChatBackend> Agent<B> {
     /// 用户手动切换工作模式，并在树上留一条系统消息说明这次变更。
     ///
     /// 模型自己发起的切换走 `request_mode_change` + [`Agent::resolve_mode_change`]，
@@ -578,6 +695,25 @@ fn hitl_payload(call_id: &str, block: HitlBlock) -> MessagePayload {
         HitlBlock::Form { .. } => MessageKind::Form,
         HitlBlock::ToolConfirm { .. } => MessageKind::ToolConfirm,
         HitlBlock::ModeChange { .. } => MessageKind::ModeChange,
+    };
+    // 工具确认块自带一份 tool_call_id 供界面直接用，这里补齐
+    let block = match block {
+        HitlBlock::ToolConfirm {
+            tool_name,
+            arguments,
+            summary,
+            steps,
+            reasons,
+            ..
+        } => HitlBlock::ToolConfirm {
+            tool_call_id: call_id.to_string(),
+            tool_name,
+            arguments,
+            summary,
+            steps,
+            reasons,
+        },
+        other => other,
     };
     let mut payload = MessagePayload::hitl_pending(kind, block);
     payload.lya.meta = Some(json!({ "tool_call_id": call_id }));

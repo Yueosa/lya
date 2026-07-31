@@ -30,8 +30,9 @@ pub mod types;
 
 pub use error::SessionError;
 pub use message::{
-    FormOption, FormQuestion, FormQuestionKind, HitlBlock, HitlKind, LyaExtras, MessageKind,
-    MessagePayload, MessageRole, MessageStatus, OpenAiFunction, OpenAiMessage, OpenAiToolCall,
+    ConfirmStepBlock, FormOption, FormQuestion, FormQuestionKind, HitlBlock, HitlKind, LyaExtras,
+    MessageKind, MessagePayload, MessageRole, MessageStatus, OpenAiFunction, OpenAiMessage,
+    OpenAiToolCall,
 };
 pub use store::SessionStore;
 pub use types::{CreateSession, MessageRecord, SessionMeta, SessionStatus};

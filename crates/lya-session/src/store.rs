@@ -841,8 +841,11 @@ mod tests {
                     MessageKind::ToolConfirm,
                     HitlBlock::ToolConfirm {
                         tool_call_id: "call_1".into(),
-                        tool_name: "file_write".into(),
-                        preview: "rm a.txt".into(),
+                        tool_name: "bash".into(),
+                        arguments: serde_json::json!({ "command": "rm a.txt" }),
+                        summary: "执行：rm a.txt".into(),
+                        steps: Vec::new(),
+                        reasons: vec!["会删文件".into()],
                     },
                 ),
                 false,
