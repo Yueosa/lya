@@ -40,6 +40,11 @@ function visible(blocks: Block[]): Block[] {
   })
 }
 
+/** 这条消息有没有正文可显示。 */
+function hasText(blocks: Block[]): boolean {
+  return blocks.some((block) => block.type === 'text')
+}
+
 /** 工具卡片的标题：名字加一句参数摘要，折起来时也知道它干了什么。 */
 function toolLabel(block: Extract<Block, { type: 'tool' }>): string {
   const args = block.call.arguments
@@ -105,20 +110,27 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
           {{ reasonLabel(item.reason) }}
         </div>
 
-        <div v-else class="chat__row" :class="`chat__row--${item.message.role}`">
-          <div class="bubble" :class="`bubble--${item.message.role}`">
-            <template v-for="(block, at) in visible(item.message.blocks)" :key="at">
+        <!--
+          一条消息拆成若干行，而不是全塞进一个气泡。
+
+          气泡是「说出来的话」，思考和工具调用不是——它们是过程。挤在一起的话，
+          展开一段长输出会把气泡撑宽、上面的正文跟着重排；工具输出又是等宽的、
+          常常很宽，压在 76% 里也难读。
+        -->
+        <template v-else>
+          <template v-for="(block, at) in visible(item.message.blocks)" :key="at">
+            <div v-if="block.type === 'reasoning'" class="chat__aside-row">
               <CollapsibleBlock
-                v-if="block.type === 'reasoning'"
                 icon="💭"
                 label="思考"
                 :busy="item.message.status === 'streaming'"
               >
                 {{ block.text }}
               </CollapsibleBlock>
+            </div>
 
+            <div v-else-if="block.type === 'tool'" class="chat__aside-row">
               <CollapsibleBlock
-                v-else-if="block.type === 'tool'"
                 icon="🔧"
                 :label="toolLabel(block)"
                 :busy="!block.call.result"
@@ -126,24 +138,37 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
               >
                 {{ block.call.result?.content ?? '执行中…' }}
               </CollapsibleBlock>
+            </div>
 
-              <div v-else-if="block.type === 'hitl'" class="chat__aside">
-                ✋ 需要你决定（{{ block.hitl.type }}），界面还没做
-              </div>
+            <div v-else-if="block.type === 'hitl'" class="chat__aside-row">
+              <div class="chat__todo">✋ 需要你决定（{{ block.hitl.type }}），界面还没做</div>
+            </div>
 
-              <!-- 用户消息不走 Markdown：你打的字应当原样显示，
-                   不该因为随手用了 * 或 # 就变了样 -->
-              <div v-else-if="item.message.role === 'user'" class="chat__text">
-                {{ block.text }}
+            <div v-else class="chat__row" :class="`chat__row--${item.message.role}`">
+              <div class="bubble" :class="`bubble--${item.message.role}`">
+                <!-- 用户消息不走 Markdown：你打的字应当原样显示，
+                     不该因为随手用了 * 或 # 就变了样 -->
+                <div v-if="item.message.role === 'user'" class="chat__text">{{ block.text }}</div>
+                <MarkdownBody v-else :text="block.text" />
+                <span v-if="item.message.status === 'streaming'" class="chat__caret" />
+                <span v-if="item.message.status === 'interrupted'" class="chat__interrupted">
+                  （已中断）
+                </span>
               </div>
-              <MarkdownBody v-else :text="block.text" />
-            </template>
-            <span v-if="item.message.status === 'streaming'" class="chat__caret" />
-            <span v-if="item.message.status === 'interrupted'" class="chat__interrupted">
-              （已中断）
-            </span>
+            </div>
+          </template>
+
+          <!-- 刚开始生成、还没有一个字的时候也要有个东西转着，
+               否则从发出到第一个 token 之间界面是空的 -->
+          <div
+            v-if="item.message.status === 'streaming' && !hasText(item.message.blocks)"
+            class="chat__row"
+          >
+            <div class="bubble bubble--assistant">
+              <span class="chat__caret" />
+            </div>
           </div>
-        </div>
+        </template>
       </template>
     </div>
 
@@ -228,16 +253,18 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
   word-break: break-word;
 }
 
-.chat__aside {
-  margin: 4px 0;
-  padding: 6px 8px;
-  border-left: 3px solid var(--info);
-  background: var(--bg-sunken);
+/* 过程类的块占整宽，这样展开时不会去挤气泡，长输出也有地方摊开 */
+.chat__aside-row {
+  width: 100%;
+  min-width: 0;
+}
+
+.chat__todo {
+  padding: 6px 10px;
+  border: var(--border-width) dashed var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 /* 流式中的光标，让人知道还在写 */
