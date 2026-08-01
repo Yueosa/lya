@@ -12,6 +12,7 @@ members = [
     "crates/lya-action",
     "crates/lya-config",
     "crates/lya-agent",
+    "crates/lya-core",
 ]
 
 [workspace.package]
@@ -21,6 +22,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 async-stream = "0.3"
+axum = "0.8"
 bytes = "1"
 ego-tree = "0.11"
 chrono = { version = "0.4", default-features = false, features = [
@@ -33,6 +35,7 @@ futures-util = "0.3"
 lya-action = { path = "crates/lya-action" }
 lya-agent = { path = "crates/lya-agent" }
 lya-config = { path = "crates/lya-config" }
+lya-core = { path = "crates/lya-core" }
 lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }
 lya-llm = { path = "crates/lya-llm" }
