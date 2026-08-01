@@ -10,10 +10,12 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 
-import { canSend, running, send, stop, timeline } from '../app/useChat'
+import { canSend, pendingHitl, running, send, stop, timeline } from '../app/useChat'
 import { prefs } from '../app/usePrefs'
 import type { Block } from '../model/timeline'
 import CollapsibleBlock from './CollapsibleBlock.vue'
+import HitlRecord from './HitlRecord.vue'
+import HitlTray from './HitlTray.vue'
 import MarkdownBody from './MarkdownBody.vue'
 
 const draft = ref('')
@@ -140,8 +142,9 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
               </CollapsibleBlock>
             </div>
 
+            <!-- 未决的那条由底部托盘接管，历史里只留一条已答复的记录 -->
             <div v-else-if="block.type === 'hitl'" class="chat__aside-row">
-              <div class="chat__todo">✋ 需要你决定（{{ block.hitl.type }}），界面还没做</div>
+              <HitlRecord :hitl="block.hitl" :answer="block.answer" />
             </div>
 
             <div v-else class="chat__row" :class="`chat__row--${item.message.role}`">
@@ -172,12 +175,15 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
       </template>
     </div>
 
+    <HitlTray />
+
     <form class="chat__composer" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="input chat__input"
         rows="2"
-        placeholder="说点什么…（回车发送，Shift+回车换行）"
+        :placeholder="pendingHitl ? '先答复上面那个再继续' : '说点什么…（回车发送，Shift+回车换行）'"
+        :disabled="!!pendingHitl"
         @keydown="onKeydown"
       />
       <button v-if="running" type="button" class="btn btn--danger" @click="stop">停止</button>

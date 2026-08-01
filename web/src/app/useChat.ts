@@ -11,8 +11,8 @@
 
 import { computed, ref, shallowRef } from 'vue'
 
-import { ApiError, LyaClient } from '../api/client'
-import type { SessionMeta } from '../api/wire'
+import { ApiError, LyaClient, type HitlReply } from '../api/client'
+import type { HitlBlock, SessionMeta } from '../api/wire'
 import { buildTimeline, type TimelineItem } from '../model/timeline'
 import {
   applyEvent,
@@ -73,6 +73,29 @@ export const running = computed(() => isRunning(state.value))
 export const canSend = computed(() => currentId.value !== null && canSendTo(state.value))
 /** 正等用户答复的 HITL 节点 id。 */
 export const pendingHitlId = computed(() => state.value.pendingHitlId)
+
+/** 正等答复的那个 HITL 块；没有则为 `null`。 */
+export const pendingHitl = computed<HitlBlock | null>(() => {
+  const id = state.value.pendingHitlId
+  if (id === null) return null
+  const record = state.value.messages.find((message) => message.id === id)
+  return record?.payload.lya.hitl ?? null
+})
+
+/**
+ * 答复当前挂起。
+ *
+ * 后端结清之后会自己接着跑下一轮，所以这里不用再调一次发送——事件流会继续。
+ */
+export async function replyHitl(reply: HitlReply): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    await client.replyHitl(id, reply)
+  } catch (error) {
+    report(error, '提交')
+  }
+}
 
 /** 把后端报的错说给用户听。 */
 function report(error: unknown, what: string): void {
