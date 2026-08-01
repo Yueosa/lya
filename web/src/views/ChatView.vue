@@ -10,7 +10,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 
-import { canSend, pendingHitl, running, send, stop, timeline } from '../app/useChat'
+import { canSend, pendingHitl, readOnly, running, send, stop, timeline } from '../app/useChat'
 import { prefs } from '../app/usePrefs'
 import type { Block } from '../model/timeline'
 import CollapsibleBlock from './CollapsibleBlock.vue'
@@ -177,7 +177,12 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
 
     <HitlTray />
 
-    <form class="chat__composer" @submit.prevent="submit">
+    <!-- 归档的会话只能回看。后端也会拒绝写入，这里收掉输入框是为了不让人白打字 -->
+    <div v-if="readOnly" class="chat__archived">
+      这个会话已归档，只能回看。想继续聊的话先在列表里把它取回。
+    </div>
+
+    <form v-else class="chat__composer" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="input chat__input"
@@ -292,6 +297,15 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
 .chat__interrupted {
   color: var(--text-faint);
   font-size: var(--text-sm);
+}
+
+.chat__archived {
+  padding: 14px 5%;
+  border-top: var(--border-width) solid var(--border);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-align: center;
 }
 
 .chat__composer {

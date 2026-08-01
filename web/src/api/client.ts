@@ -52,6 +52,8 @@ export interface PatchSession {
   model_id?: string | null
   /** 显式给 null 表示启用全部工具。 */
   enabled_tools?: string[] | null
+  /** 归档或取回。归档后只能回看，后端会拒绝一切写入。 */
+  status?: 'active' | 'archived'
 }
 
 /** 一道题的作答。 */
@@ -122,6 +124,20 @@ export class LyaClient {
 
   patchSession(id: string, body: PatchSession): Promise<SessionMeta> {
     return this.request('PATCH', `/api/sessions/${id}`, body)
+  }
+
+  /** 已归档的会话。 */
+  listArchived(): Promise<SessionMeta[]> {
+    return this.request('GET', '/api/sessions/archived')
+  }
+
+  /**
+   * 真删一个会话，连同它的全部消息，不可恢复。
+   *
+   * 和归档是两回事：归档只是收起来、仍能回看。调用前必须问一句。
+   */
+  deleteSession(id: string): Promise<void> {
+    return this.request('DELETE', `/api/sessions/${id}`)
   }
 
   /**

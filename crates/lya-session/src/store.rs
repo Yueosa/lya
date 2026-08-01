@@ -123,16 +123,20 @@ impl SessionStore {
 
     /// 列出活跃会话，按更新时间倒序。
     pub fn list_sessions(&self) -> Result<Vec<SessionMeta>, SessionError> {
+        self.list_by_status(SessionStatus::Active)
+    }
+
+    fn list_by_status(&self, status: SessionStatus) -> Result<Vec<SessionMeta>, SessionError> {
         self.db.read(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
                         enabled_tools_json, created_at, updated_at
                  FROM sessions
-                 WHERE status = 'active'
+                 WHERE status = ?1
                  ORDER BY updated_at DESC",
             )?;
             let rows = stmt
-                .query_map([], RawSession::from_row)?
+                .query_map([status.as_str()], RawSession::from_row)?
                 .collect::<Result<Vec<_>, _>>()?;
             rows.into_iter().map(RawSession::into_meta).collect()
         })
@@ -140,13 +144,51 @@ impl SessionStore {
 
     /// 归档会话（不删除消息）。
     pub fn archive_session(&self, session_id: &str) -> Result<(), SessionError> {
-        self.set_field(session_id, |conn, now| {
+        self.set_status(session_id, SessionStatus::Archived)
+    }
+
+    /// 取消归档，让会话回到可继续对话的状态。
+    pub fn unarchive_session(&self, session_id: &str) -> Result<(), SessionError> {
+        self.set_status(session_id, SessionStatus::Active)
+    }
+
+    fn set_status(&self, session_id: &str, status: SessionStatus) -> Result<(), SessionError> {
+        let status = status.as_str();
+        self.set_field(session_id, move |conn, now| {
             conn.execute(
-                "UPDATE sessions SET status = 'archived', updated_at = ?1 WHERE id = ?2",
-                params![now, session_id],
+                "UPDATE sessions SET status = ?1, updated_at = ?2 WHERE id = ?3",
+                params![status, now, session_id],
             )?;
             Ok(())
         })
+    }
+
+    /// 真删：会话连同它的消息一起从库里去掉，不可恢复。
+    ///
+    /// 和归档是两回事——归档只是收起来、仍可回看，删除是真没了。消息靠外键
+    /// 级联清理，所以这里只删会话行。
+    pub fn delete_session(&self, session_id: &str) -> Result<(), SessionError> {
+        self.db.write(|conn| {
+            ensure_session(conn, session_id)?;
+
+            // 光靠 sessions → messages 的级联删不掉：messages.parent_id 上挂着
+            // ON DELETE RESTRICT，删到一个还有子节点的消息就会被拦，于是只有
+            // 「只有一条消息」的会话删得动。
+            //
+            // 想靠「先删叶子再往上」绕过去也不行——一条 DELETE 语句里的删除顺序
+            // 不受 ORDER BY 控制。正解是把外键检查推迟到提交时统一做：中间态
+            // 允许暂时不一致，只要提交那一刻整棵树都没了就行。这个 pragma 只在
+            // 当前事务内有效。
+            conn.execute_batch("PRAGMA defer_foreign_keys = ON;")?;
+            conn.execute("DELETE FROM messages WHERE session_id = ?1", [session_id])?;
+            conn.execute("DELETE FROM sessions WHERE id = ?1", [session_id])?;
+            Ok(())
+        })
+    }
+
+    /// 已归档的会话。
+    pub fn list_archived(&self) -> Result<Vec<SessionMeta>, SessionError> {
+        self.list_by_status(SessionStatus::Archived)
     }
 
     /// 设置工作模式。
@@ -222,6 +264,10 @@ impl SessionStore {
     ///
     /// 当前 leaf 是未决 HITL 时默认拒绝追加（返回 [`SessionError::PendingHitl`]），
     /// 避免绕过用户确认继续跑；写入 HITL 应答时把 `allow_while_hitl` 置 true。
+    ///
+    /// 已归档的会话一律拒绝。**只读必须在这里保证**——界面藏掉输入框只能挡住
+    /// 走界面的人，绕过去直接调接口照样能写。所有新内容都从这个口进来，
+    /// 守住这一个就够了。
     pub fn append(
         &self,
         session_id: &str,
@@ -233,6 +279,10 @@ impl SessionStore {
         self.db.write(|conn| {
             let meta = load_session(conn, session_id)?
                 .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+
+            if meta.status == SessionStatus::Archived {
+                return Err(SessionError::Archived(session_id.to_string()));
+            }
 
             if !allow_while_hitl && let Some(leaf_id) = meta.active_leaf_id {
                 let leaf = load_message(conn, session_id, leaf_id)?;
@@ -783,6 +833,79 @@ mod tests {
         assert_eq!(store.list_sessions().unwrap().len(), 1);
         store.archive_session(&id).unwrap();
         assert!(store.list_sessions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn archived_sessions_reject_writes() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+        store
+            .append(&id, MessagePayload::user_text("归档前"), false)
+            .unwrap();
+
+        store.archive_session(&id).unwrap();
+
+        // 只读要在这里保证：界面藏掉输入框只挡得住走界面的人，
+        // 绕过去直接调接口照样能写
+        let err = store
+            .append(&id, MessagePayload::user_text("归档后"), false)
+            .unwrap_err();
+        assert!(matches!(err, SessionError::Archived(_)));
+
+        // 但回看不受影响
+        assert_eq!(store.path_to_active_leaf(&id).unwrap().len(), 1);
+        assert_eq!(store.get_session(&id).unwrap().unwrap().status, SessionStatus::Archived);
+    }
+
+    #[test]
+    fn archiving_is_reversible() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+
+        store.archive_session(&id).unwrap();
+        assert!(store.list_sessions().unwrap().is_empty());
+        assert_eq!(store.list_archived().unwrap().len(), 1);
+
+        // 取不回来的话，误点一下会话就凭空消失——比删除还糟，
+        // 因为删除至少你知道它没了
+        store.unarchive_session(&id).unwrap();
+        assert_eq!(store.list_sessions().unwrap().len(), 1);
+        assert!(store.list_archived().unwrap().is_empty());
+        store
+            .append(&id, MessagePayload::user_text("又能说话了"), false)
+            .unwrap();
+    }
+
+    #[test]
+    fn delete_removes_session_and_its_messages() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+        let msg = store
+            .append(&id, MessagePayload::user_text("待删"), false)
+            .unwrap();
+
+        // 再追两条，构成一条父子链。messages.parent_id 上挂的是 ON DELETE
+        // RESTRICT，删父节点时若还有子节点引用它就会被拦——真删整个会话时
+        // 必须确认这条链能一起清掉，否则会话删了、消息还在库里够不着
+        store
+            .append(&id, MessagePayload::assistant_text("回", MessageStatus::Complete), false)
+            .unwrap();
+        store
+            .append(&id, MessagePayload::user_text("再问"), false)
+            .unwrap();
+
+        store.delete_session(&id).unwrap();
+
+        assert!(store.get_session(&id).unwrap().is_none());
+        // 消息靠外键级联清掉，别在库里留一堆够不着的行
+        assert!(matches!(
+            store.get_message(&id, msg.id),
+            Err(SessionError::NotFound(_) | SessionError::MessageNotFound(_))
+        ));
+        assert!(matches!(
+            store.delete_session(&id),
+            Err(SessionError::NotFound(_))
+        ));
     }
 
     #[test]

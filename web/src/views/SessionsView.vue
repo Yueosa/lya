@@ -9,9 +9,19 @@
 import { onMounted } from 'vue'
 
 import type { SessionMeta } from '../api/wire'
-import { createSession, currentId, loading, openSession, refreshSessions, rename, sessions } from '../app/useChat'
+import {
+  createSession,
+  currentId,
+  loading,
+  openSession,
+  refreshSessions,
+  removeSession,
+  rename,
+  sessions,
+  setArchived,
+} from '../app/useChat'
 import { openContextMenu } from '../ui/useContextMenu'
-import { confirm, prompt } from '../ui/useDialog'
+import { confirm, confirmAsync, prompt } from '../ui/useDialog'
 import { toast } from '../ui/useToast'
 
 const emit = defineEmits<{ opened: [] }>()
@@ -47,15 +57,33 @@ function onContextMenu(event: MouseEvent, session: SessionMeta): void {
     {
       label: '归档',
       icon: '📦',
-      danger: true,
       onSelect: async () => {
         const ok = await confirm({
           title: '归档这个会话？',
-          message: '归档之后它不再出现在列表里。',
-          danger: true,
+          message: '归档之后它从列表里收起来，仍然可以回看，但不能再发消息。随时能取回。',
         })
-        // 归档接口还没接上，先老实说清楚，别假装成功
-        if (ok) toast('归档还没做', 'info')
+        if (!ok) return
+        try {
+          await setArchived(session.id, true)
+          toast('已归档', 'success')
+        } catch {
+          toast('归档失败', 'error')
+        }
+      },
+    },
+    {
+      label: '删除',
+      icon: '✕',
+      danger: true,
+      onSelect: async () => {
+        // 用 confirmAsync：删完才关弹窗，失败就地报错，不用重走一遍
+        await confirmAsync({
+          title: `删除「${session.title || '未命名会话'}」？`,
+          message: '连同全部消息一起从库里去掉，不可恢复。只想收起来的话用「归档」。',
+          confirmText: '删除',
+          danger: true,
+          run: () => removeSession(session.id),
+        })
       },
     },
   ])

@@ -25,6 +25,10 @@ pub enum SessionError {
     #[error("session blocked by pending HITL on message {0}")]
     PendingHitl(i64),
 
+    /// 会话已归档，只能回看不能再写。
+    #[error("session {0} is archived and read-only")]
+    Archived(String),
+
     /// JSON 编解码失败。
     #[error("message json error: {0}")]
     Json(#[from] serde_json::Error),

@@ -22,9 +22,10 @@ use crate::hub::SessionHub;
 pub fn router(hub: Arc<SessionHub>) -> Router {
     Router::new()
         .route("/api/sessions", get(sessions::list).post(sessions::create))
+        .route("/api/sessions/archived", get(sessions::archived))
         .route(
             "/api/sessions/{id}",
-            get(sessions::snapshot).patch(sessions::patch),
+            get(sessions::snapshot).patch(sessions::patch).delete(sessions::remove),
         )
         .route("/api/sessions/{id}/messages", post(sessions::send))
         .route(

@@ -11,7 +11,7 @@ use axum::response::{IntoResponse, Response};
 use futures_util::stream::Stream;
 use lya_action::FormAnswer;
 use lya_agent::CancelToken;
-use lya_session::{CreateSession, SessionMeta};
+use lya_session::{CreateSession, SessionMeta, SessionStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
@@ -72,6 +72,8 @@ pub struct PatchBody {
     /// 启用的工具；显式给 `null` 表示启用全部。
     #[serde(default, deserialize_with = "double_option")]
     pub enabled_tools: Option<Option<Vec<String>>>,
+    /// 归档或取回。归档后会话只能回看，不能再发消息。
+    pub status: Option<SessionStatus>,
 }
 
 /// 区分「没给这个字段」和「给了 null」。
@@ -105,6 +107,18 @@ pub async fn patch(
     if let Some(tools) = body.enabled_tools {
         sessions.set_enabled_tools(&id, tools.as_deref())?;
     }
+    if let Some(status) = body.status {
+        // 归档中途不该有轮次在跑，否则那一轮写回结果时会撞上只读
+        if status == SessionStatus::Archived && hub.is_running(&id) {
+            return Err(ApiError::bad_request("这个会话正在生成中，先停下再归档"));
+        }
+        match status {
+            SessionStatus::Archived => sessions.archive_session(&id)?,
+            SessionStatus::Active => sessions.unarchive_session(&id)?,
+        }
+        // 会话列表变了，别的页面也要跟着更新
+        hub.broadcast_global("sessions_changed", serde_json::json!({ "id": id }));
+    }
 
     sessions
         .get_session(&id)?
@@ -136,6 +150,25 @@ pub async fn send(
     hub.push_user_message(&id, body.text)?;
     hub.start_turn(&id)?;
     Ok(StatusCode::ACCEPTED)
+}
+
+/// 真删一个会话。
+///
+/// 和归档是两回事：归档只是收起来、仍可回看，这个是从库里去掉，不可恢复。
+/// 界面上必须先问一句再调。
+pub async fn remove(State(hub): Hub, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    // 正在跑的时候删掉，那一轮还会往一张不存在的表里写
+    if hub.is_running(&id) {
+        return Err(ApiError::bad_request("这个会话正在生成中，先停下再删除"));
+    }
+    hub.agent().sessions().delete_session(&id)?;
+    hub.broadcast_global("sessions_changed", serde_json::json!({ "id": id }));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 已归档的会话。
+pub async fn archived(State(hub): Hub) -> Result<Json<Vec<SessionMeta>>, ApiError> {
+    Ok(Json(hub.agent().sessions().list_archived()?))
 }
 
 /// 整棵消息树，供分叉图与逐节点回看。
@@ -369,6 +402,11 @@ impl From<HubError> for ApiError {
                 | lya_session::SessionError::MessageNotFound(_)
                 | lya_session::SessionError::Invalid(_),
             ) => StatusCode::BAD_REQUEST,
+            // 归档与未决 HITL 都是「现在这个会话不接受写入」，属于状态冲突而不是
+            // 请求写错了——前端据此提示「先取回归档」或「先答复上面那个」
+            HubError::Session(
+                lya_session::SessionError::Archived(_) | lya_session::SessionError::PendingHitl(_),
+            ) => StatusCode::CONFLICT,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {

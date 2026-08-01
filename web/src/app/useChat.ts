@@ -188,6 +188,27 @@ export async function stop(): Promise<void> {
   }
 }
 
+/** 这个会话是不是只读的。 */
+export const readOnly = computed(() => state.value.meta?.status === 'archived')
+
+/** 归档或取回。归档后后端会拒绝一切写入，界面也收掉输入框。 */
+export async function setArchived(id: string, archived: boolean): Promise<void> {
+  const updated = await client.patchSession(id, { status: archived ? 'archived' : 'active' })
+  sessions.value = archived
+    ? sessions.value.filter((item) => item.id !== id)
+    : [updated, ...sessions.value]
+  if (state.value.meta?.id === id) {
+    state.value = { ...state.value, meta: updated }
+  }
+}
+
+/** 真删，不可恢复。调用方必须先问过用户。 */
+export async function removeSession(id: string): Promise<void> {
+  await client.deleteSession(id)
+  sessions.value = sessions.value.filter((item) => item.id !== id)
+  if (currentId.value === id) closeSession()
+}
+
 /** 改标题。 */
 export async function rename(id: string, title: string): Promise<void> {
   const updated = await client.patchSession(id, { title })
