@@ -510,9 +510,16 @@ impl<B: ChatBackend> Agent<B> {
             text
         };
 
-        self.sessions
-            .append(session_id, MessagePayload::tool_result(call_id, content), true)?;
-        self.sessions.resolve_hitl(session_id, hitl_id)?;
+        self.sessions.append(
+            session_id,
+            MessagePayload::tool_result(call_id, content),
+            true,
+        )?;
+        self.sessions.resolve_hitl(
+            session_id,
+            hitl_id,
+            Some(json!({ "approved": approved, "note": note })),
+        )?;
         Ok(())
     }
 
@@ -535,7 +542,10 @@ impl<B: ChatBackend> Agent<B> {
         let enabled: Option<Vec<&str>> = enabled
             .as_ref()
             .map(|names| names.iter().map(String::as_str).collect());
-        let allowed = meta.work_mode.resolve(&self.tools, enabled.as_deref()).tools;
+        let allowed = meta
+            .work_mode
+            .resolve(&self.tools, enabled.as_deref())
+            .tools;
 
         let Some(tool) = self.tools.get(tool_name) else {
             return Ok(format!("工具 `{tool_name}` 已经不存在，操作未执行。"));
@@ -648,7 +658,10 @@ impl<B: ChatBackend> Agent<B> {
         let text = render_form_answer(&title, &questions, answer);
         self.sessions
             .append(session_id, MessagePayload::tool_result(call_id, text), true)?;
-        self.sessions.resolve_hitl(session_id, hitl_id)?;
+        // 原始作答一并留档：界面回看时才能把当时勾选的选项原样回显，
+        // 而不是从渲染后的中文里反解
+        self.sessions
+            .resolve_hitl(session_id, hitl_id, serde_json::to_value(answer).ok())?;
         Ok(())
     }
 
@@ -671,7 +684,8 @@ impl<B: ChatBackend> Agent<B> {
 
         self.sessions
             .append(session_id, MessagePayload::tool_result(call_id, text), true)?;
-        self.sessions.resolve_hitl(session_id, hitl_id)?;
+        self.sessions
+            .resolve_hitl(session_id, hitl_id, Some(json!({ "approved": approved })))?;
         Ok(())
     }
 

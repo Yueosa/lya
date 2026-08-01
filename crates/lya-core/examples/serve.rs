@@ -51,10 +51,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db.migrate()?;
     let db = Arc::new(db);
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
+
+    // 崩溃留下的「流式中」残留清掉，否则界面会渲染成永远转圈的消息
+    match sessions.mark_stale_streaming() {
+        Ok(0) => {}
+        Ok(n) => println!("清理了 {n} 条上次没写完的消息"),
+        Err(err) => eprintln!("清理残留失败：{err}"),
+    }
     let memory = Arc::new(MemoryStore::with_db(db));
 
     let mut tools = ToolRegistry::new();
-    register_tools(&mut tools, http.clone(), shell_policy(config.runtime.shell.confirm))?;
+    register_tools(
+        &mut tools,
+        http.clone(),
+        shell_policy(config.runtime.shell.confirm),
+    )?;
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, Arc::clone(&memory))?;
 

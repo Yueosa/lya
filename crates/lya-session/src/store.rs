@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use lya_db::Db;
 use lya_mode::Mode;
 use rusqlite::{Connection, OptionalExtension, params};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::MIGRATION_SQL;
@@ -381,6 +382,45 @@ impl SessionStore {
         })
     }
 
+    /// 把残留的「流式中」消息标成中断，返回改了几条。
+    ///
+    /// 进程崩在生成中途会留下 `status=Streaming` 的记录。启动时不扫一遍的话，
+    /// 界面会把它渲染成一条永远转圈的消息，而它其实早就不会再更新了。
+    pub fn mark_stale_streaming(&self) -> Result<usize, SessionError> {
+        self.db.write(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, session_id, parent_id, sort_key, message_json, created_at
+                 FROM messages WHERE message_json LIKE '%\"status\":\"streaming\"%'",
+            )?;
+            let rows = stmt
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(4)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            drop(stmt);
+
+            let mut changed = 0;
+            for (id, _session, json) in rows {
+                let mut payload: MessagePayload = serde_json::from_str(&json)?;
+                if payload.status != MessageStatus::Streaming {
+                    continue;
+                }
+                payload.status = MessageStatus::Interrupted;
+                let updated = serde_json::to_string(&payload)?;
+                conn.execute(
+                    "UPDATE messages SET message_json = ?1 WHERE id = ?2",
+                    params![updated, id],
+                )?;
+                changed += 1;
+            }
+            Ok(changed)
+        })
+    }
+
     /// 会话内**全部**消息，按 `sort_key` 正序。
     ///
     /// 与 `path_to_active_leaf` 不同：那个只给当前分支，这个给整棵树，
@@ -434,11 +474,18 @@ impl SessionStore {
 
     // ── HITL ─────────────────────────────────────────────────────
 
-    /// 把某个 HITL 节点标记为已解决。
+    /// 把某个 HITL 节点标记为已解决，并留下用户的原始答复。
     ///
     /// 用户的答复本身是另一个独立节点（`append(..., allow_while_hitl = true)`），
-    /// 这里只翻转状态，让 [`SessionStore::append`] 不再拦截后续消息。
-    pub fn resolve_hitl(&self, session_id: &str, hitl_msg_id: i64) -> Result<(), SessionError> {
+    /// 但那条只有渲染后的文本。`answer` 把结构化的原始答复存进 `lya.meta`，
+    /// 界面回看这段对话时才能把当时勾选的选项**原样回显**，而不是从一段中文里
+    /// 反解。传 `None` 表示没有可留档的答复（如模式切换只有是/否）。
+    pub fn resolve_hitl(
+        &self,
+        session_id: &str,
+        hitl_msg_id: i64,
+        answer: Option<Value>,
+    ) -> Result<(), SessionError> {
         self.db.write(|conn| {
             let mut msg = load_message(conn, session_id, hitl_msg_id)?;
             if msg.payload.role != MessageRole::Hitl {
@@ -447,6 +494,16 @@ impl SessionStore {
                 )));
             }
             msg.payload.status = MessageStatus::Resolved;
+            if let Some(answer) = answer {
+                let meta = msg
+                    .payload
+                    .lya
+                    .meta
+                    .get_or_insert_with(|| Value::Object(Default::default()));
+                if let Some(object) = meta.as_object_mut() {
+                    object.insert("answer".into(), answer);
+                }
+            }
             let json = serde_json::to_string(&msg.payload)?;
             conn.execute(
                 "UPDATE messages SET message_json = ?1 WHERE id = ?2",
@@ -902,7 +959,7 @@ mod tests {
         store
             .append(&id, MessagePayload::user_text("同意"), true)
             .unwrap();
-        store.resolve_hitl(&id, hitl.id).unwrap();
+        store.resolve_hitl(&id, hitl.id, None).unwrap();
         assert_eq!(store.pending_hitl(&id).unwrap(), None);
         assert_eq!(
             store.get_message(&id, hitl.id).unwrap().payload.status,
@@ -914,6 +971,65 @@ mod tests {
     }
 
     #[test]
+    fn stale_streaming_messages_are_marked_interrupted() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+        store
+            .append(&id, MessagePayload::user_text("你好"), false)
+            .unwrap();
+        let draft = store
+            .append(
+                &id,
+                MessagePayload::assistant_text("说到一半", MessageStatus::Streaming),
+                false,
+            )
+            .unwrap();
+
+        assert_eq!(store.mark_stale_streaming().unwrap(), 1);
+        assert_eq!(
+            store.get_message(&id, draft.id).unwrap().payload.status,
+            MessageStatus::Interrupted,
+            "崩溃留下的残留不清理，界面会渲染成一条永远转圈的消息"
+        );
+        // 已经清过的不会重复计数
+        assert_eq!(store.mark_stale_streaming().unwrap(), 0);
+    }
+
+    #[test]
+    fn resolving_hitl_can_archive_the_raw_answer() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+        let hitl = store
+            .append(
+                &id,
+                MessagePayload::hitl_pending(
+                    MessageKind::Form,
+                    HitlBlock::Form {
+                        form_id: "f".into(),
+                        title: "t".into(),
+                        questions: Vec::new(),
+                    },
+                ),
+                false,
+            )
+            .unwrap();
+
+        store
+            .resolve_hitl(
+                &id,
+                hitl.id,
+                Some(serde_json::json!({ "items": [{ "question_id": "q", "values": ["a"] }] })),
+            )
+            .unwrap();
+
+        let record = store.get_message(&id, hitl.id).unwrap();
+        assert_eq!(record.payload.status, MessageStatus::Resolved);
+        // 界面回看时要能原样回显当时勾了什么，而不是从渲染后的中文里反解
+        let answer = &record.payload.lya.meta.unwrap()["answer"];
+        assert_eq!(answer["items"][0]["values"][0], "a");
+    }
+
+    #[test]
     fn resolve_hitl_rejects_non_hitl_node() {
         let (_dir, store) = store();
         let id = new_session(&store);
@@ -921,7 +1037,7 @@ mod tests {
             .append(&id, MessagePayload::user_text("hi"), false)
             .unwrap();
         assert!(matches!(
-            store.resolve_hitl(&id, u1.id),
+            store.resolve_hitl(&id, u1.id, None),
             Err(SessionError::Invalid(_))
         ));
     }
