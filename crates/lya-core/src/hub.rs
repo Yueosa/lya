@@ -498,11 +498,14 @@ fn apply(buffer: &mut TurnBuffer, event: &AgentEvent) {
         }
         AgentEvent::Delta(text) => buffer.content.push_str(text),
         AgentEvent::Reasoning(text) => buffer.reasoning.push_str(text),
-        AgentEvent::MessageCommitted { id } => {
+        AgentEvent::MessageCommitted { record } => {
             if buffer.message_id.is_none() {
-                buffer.message_id = Some(*id);
+                buffer.message_id = Some(record.id);
             }
         }
+        // 这两个不进缓冲：缓冲存的是「本轮还没落库的部分」，而它们说的正是
+        // 库里发生了什么，订阅者拿事件直接改自己的消息列表即可
+        AgentEvent::MessageUpdated { .. } | AgentEvent::MessageDeleted { .. } => {}
         AgentEvent::CallStarted {
             call_id,
             name,
@@ -539,11 +542,28 @@ mod tests {
         buffer
     }
 
+    /// 缓冲只关心 id，其余字段随便填。
+    fn fake_record(id: i64) -> lya_session::MessageRecord {
+        lya_session::MessageRecord {
+            id,
+            session_id: "s".into(),
+            parent_id: None,
+            sort_key: id,
+            payload: lya_session::MessagePayload::assistant_text(
+                "",
+                lya_session::MessageStatus::Streaming,
+            ),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
     #[test]
     fn deltas_accumulate() {
         let buffer = buffer_after(&[
             AgentEvent::RoundStarted { round: 1 },
-            AgentEvent::MessageCommitted { id: 7 },
+            AgentEvent::MessageCommitted {
+                record: Box::new(fake_record(7)),
+            },
             AgentEvent::Reasoning("想".into()),
             AgentEvent::Delta("喵".into()),
             AgentEvent::Delta("~".into()),

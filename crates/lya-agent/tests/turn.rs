@@ -415,6 +415,34 @@ async fn empty_response_leaves_no_stray_message() {
     assert_eq!(end_reason(&events), TurnEndReason::EmptyResponse);
     let path = fx.sessions.path_to_active_leaf(&fx.session_id).unwrap();
     assert_eq!(path.len(), 1, "空回复不该在树上留下空壳");
+
+    // 占位消息的 MessageCommitted 已经发出去了，删掉它必须也说一声，
+    // 否则订阅者那边会留一个永远抹不掉的幽灵
+    let committed = committed_ids(&events);
+    let deleted = deleted_ids(&events);
+    assert_eq!(committed, deleted, "落库过又被删掉的消息要成对出现");
+}
+
+/// 事件流里落库过的消息 id。
+fn committed_ids(events: &[AgentEvent]) -> Vec<i64> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::MessageCommitted { record } => Some(record.id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 事件流里被删掉的消息 id。
+fn deleted_ids(events: &[AgentEvent]) -> Vec<i64> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            AgentEvent::MessageDeleted { id } => Some(*id),
+            _ => None,
+        })
+        .collect()
 }
 
 #[tokio::test]
@@ -424,6 +452,11 @@ async fn request_failure_removes_the_placeholder() {
     let events = fx.run().await;
 
     assert!(matches!(end_reason(&events), TurnEndReason::Failed(msg) if msg.contains("401")));
+    assert_eq!(
+        committed_ids(&events),
+        deleted_ids(&events),
+        "请求失败清掉占位消息时也要通知订阅者"
+    );
     let path = fx.sessions.path_to_active_leaf(&fx.session_id).unwrap();
     assert_eq!(path.len(), 1);
 }
@@ -901,8 +934,11 @@ fn fixture_with_guarded(turns: Vec<Turn>) -> (Fixture, Arc<Mutex<Vec<String>>>) 
         .unwrap();
 
     let mut actions = ActionRegistry::new();
-    register_builtins(&mut actions, Arc::new(MemoryStore::open(fx._dir.path().join("m.db")).unwrap()))
-        .unwrap();
+    register_builtins(
+        &mut actions,
+        Arc::new(MemoryStore::open(fx._dir.path().join("m.db")).unwrap()),
+    )
+    .unwrap();
 
     fx.agent = Agent::new(AgentParts {
         backend: Arc::clone(&fx.backend),
@@ -971,11 +1007,20 @@ async fn approval_executes_and_feeds_the_output_back() {
     fx.run().await;
 
     fx.agent
-        .resolve_tool_confirm(&fx.session_id, true, Some("可以，但别动日志"), CancelToken::new())
+        .resolve_tool_confirm(
+            &fx.session_id,
+            true,
+            Some("可以，但别动日志"),
+            CancelToken::new(),
+        )
         .await
         .unwrap();
 
-    assert_eq!(ran.lock().unwrap().as_slice(), ["rm -rf build"], "放行后才执行");
+    assert_eq!(
+        ran.lock().unwrap().as_slice(),
+        ["rm -rf build"],
+        "放行后才执行"
+    );
     assert_eq!(fx.sessions.pending_hitl(&fx.session_id).unwrap(), None);
 
     let events = fx.run().await;
@@ -1034,7 +1079,9 @@ async fn permission_is_rechecked_after_approval() {
     fx.run().await;
 
     // 挂起期间用户把会话降到 ask，放行也不该执行
-    fx.sessions.set_work_mode(&fx.session_id, Mode::Ask).unwrap();
+    fx.sessions
+        .set_work_mode(&fx.session_id, Mode::Ask)
+        .unwrap();
     fx.agent
         .resolve_tool_confirm(&fx.session_id, true, None, CancelToken::new())
         .await
@@ -1086,7 +1133,10 @@ async fn session_model_selection_is_honoured() {
     })
     .unwrap();
 
-    let id = sessions.create_session(CreateSession::default()).unwrap().id;
+    let id = sessions
+        .create_session(CreateSession::default())
+        .unwrap()
+        .id;
     sessions
         .append(&id, MessagePayload::user_text("hi"), false)
         .unwrap();
@@ -1148,7 +1198,10 @@ async fn default_model_must_exist() {
         max_tool_rounds: 4,
         default_enabled_tools: None,
     });
-    assert!(matches!(result.err(), Some(lya_agent::AgentError::Invalid(_))));
+    assert!(matches!(
+        result.err(),
+        Some(lya_agent::AgentError::Invalid(_))
+    ));
 }
 
 #[tokio::test]

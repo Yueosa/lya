@@ -247,12 +247,13 @@ impl<B: ChatBackend> Agent<B> {
                     MessagePayload::assistant_text("", MessageStatus::Streaming),
                     false,
                 ));
-                yield AgentEvent::MessageCommitted { id: draft.id };
+                yield AgentEvent::MessageCommitted { record: Box::new(draft.clone()) };
 
                 let endpoint = match self.endpoint_for(meta.model_id.as_deref()) {
                     Ok(endpoint) => endpoint,
                     Err(msg) => {
                         let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                        yield AgentEvent::MessageDeleted { id: draft.id };
                         yield AgentEvent::TurnEnd { reason: TurnEndReason::Failed(msg) };
                         return;
                     }
@@ -263,6 +264,7 @@ impl<B: ChatBackend> Agent<B> {
                     Err(err) => {
                         // 一个字都没产出，别在历史里留个空壳
                         let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                        yield AgentEvent::MessageDeleted { id: draft.id };
                         yield AgentEvent::TurnEnd {
                             reason: TurnEndReason::Failed(err.to_string()),
                         };
@@ -311,9 +313,12 @@ impl<B: ChatBackend> Agent<B> {
                     if produced {
                         let mut payload = assistant_payload(&completion);
                         payload.status = MessageStatus::Interrupted;
-                        let _ = self.sessions.update_payload(&session_id, draft.id, &payload);
+                        if let Ok(record) = self.sessions.update_payload(&session_id, draft.id, &payload) {
+                            yield AgentEvent::MessageUpdated { record: Box::new(record) };
+                        }
                     } else {
                         let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                        yield AgentEvent::MessageDeleted { id: draft.id };
                     }
                     yield AgentEvent::TurnEnd {
                         reason: match failure {
@@ -326,12 +331,14 @@ impl<B: ChatBackend> Agent<B> {
 
                 if completion.content.trim().is_empty() && completion.tool_calls.is_empty() {
                     let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                    yield AgentEvent::MessageDeleted { id: draft.id };
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::EmptyResponse };
                     return;
                 }
 
                 let payload = assistant_payload(&completion);
-                bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
+                let finalized = bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
+                yield AgentEvent::MessageUpdated { record: Box::new(finalized) };
 
                 // 不带 tool_calls 就是本轮说完了
                 if completion.tool_calls.is_empty() {
@@ -377,7 +384,7 @@ impl<B: ChatBackend> Agent<B> {
                     };
 
                     let record = bail!(self.sessions.append(&session_id, payload, true));
-                    yield AgentEvent::MessageCommitted { id: record.id };
+                    yield AgentEvent::MessageCommitted { record: Box::new(record.clone()) };
                     yield AgentEvent::CallFinished {
                         call_id: call.id.clone(),
                         name: call.name.clone(),

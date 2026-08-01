@@ -7,9 +7,11 @@
 //! cargo run -p lya-core --example wire
 //! ```
 
+use chrono::{DateTime, Utc};
+use lya_agent::{AgentEvent, CallKind, TurnEndReason};
 use lya_session::{
     ConfirmStepBlock, FormOption, FormQuestion, FormQuestionKind, HitlBlock, MessageKind,
-    MessagePayload, MessageStatus, OpenAiFunction, OpenAiToolCall,
+    MessagePayload, MessageRecord, MessageStatus, OpenAiFunction, OpenAiToolCall,
 };
 
 fn dump(label: &str, payload: &MessagePayload) {
@@ -18,21 +20,24 @@ fn dump(label: &str, payload: &MessagePayload) {
 }
 
 fn main() {
-    dump("用户消息", &MessagePayload::user_text("帮我看看家目录有多少图片"));
+    dump(
+        "用户消息",
+        &MessagePayload::user_text("帮我看看家目录有多少图片"),
+    );
 
     dump(
         "助手正文（流式中）",
         &MessagePayload::assistant_text("我来看看。", MessageStatus::Streaming),
     );
 
-    let mut with_reasoning =
-        MessagePayload::assistant_text("我来看看。", MessageStatus::Complete);
+    let mut with_reasoning = MessagePayload::assistant_text("我来看看。", MessageStatus::Complete);
     with_reasoning.lya.reasoning = Some("用户想知道图片数量，先扫一下目录".into());
     dump("助手正文 + 思考", &with_reasoning);
 
     // 没有现成的构造器：助手带调用的消息由 agent 从 ChatCompletion 拼出来，
     // 这里照它的形状手搓一个
-    let mut calling = MessagePayload::assistant_text("先扫一下你的图片目录。", MessageStatus::Complete);
+    let mut calling =
+        MessagePayload::assistant_text("先扫一下你的图片目录。", MessageStatus::Complete);
     calling.kind = MessageKind::ToolCall;
     if let Some(openai) = calling.openai.as_mut() {
         openai.tool_calls = Some(vec![OpenAiToolCall {
@@ -112,4 +117,56 @@ fn main() {
         MessagePayload::assistant_text("说到一半就被", MessageStatus::Interrupted);
     interrupted.lya.meta = Some(serde_json::json!({ "reason": "cancelled" }));
     dump("被中断的助手消息", &interrupted);
+
+    dump_events();
+}
+
+/// SSE 推出去的信封长什么样。
+fn dump_events() {
+    println!("\n\n// ── SSE 事件 ──────────────────────────────────────");
+
+    let record = MessageRecord {
+        id: 7,
+        session_id: "s1".into(),
+        parent_id: Some(6),
+        sort_key: 7,
+        payload: MessagePayload::assistant_text("", MessageStatus::Streaming),
+        created_at: DateTime::parse_from_rfc3339("2026-08-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc),
+    };
+
+    let events = [
+        AgentEvent::RoundStarted { round: 1 },
+        AgentEvent::MessageCommitted {
+            record: Box::new(record.clone()),
+        },
+        AgentEvent::Reasoning("先想想".into()),
+        AgentEvent::Delta("好的".into()),
+        AgentEvent::CallStarted {
+            call_id: "call_1".into(),
+            name: "image_scan".into(),
+            kind: CallKind::Tool,
+        },
+        AgentEvent::CallFinished {
+            call_id: "call_1".into(),
+            name: "image_scan".into(),
+            success: true,
+        },
+        AgentEvent::MessageUpdated {
+            record: Box::new(record),
+        },
+        AgentEvent::MessageDeleted { id: 7 },
+        AgentEvent::AwaitHuman { message_id: 8 },
+        AgentEvent::TurnEnd {
+            reason: TurnEndReason::Failed("HTTP 401".into()),
+        },
+    ];
+
+    for (seq, event) in events.iter().enumerate() {
+        if let Some(envelope) = lya_core::event::from_agent("s1", seq as u64, event) {
+            println!("\n// event: {}", envelope.kind);
+            println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
+        }
+    }
 }

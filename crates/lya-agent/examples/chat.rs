@@ -208,7 +208,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     println!();
                 }
-                AgentEvent::RoundStarted { .. } | AgentEvent::MessageCommitted { .. } => {}
+                // 命令行只管把正文打出来，消息树的增删改留给界面
+                AgentEvent::RoundStarted { .. }
+                | AgentEvent::MessageCommitted { .. }
+                | AgentEvent::MessageUpdated { .. }
+                | AgentEvent::MessageDeleted { .. } => {}
             }
         }
     }

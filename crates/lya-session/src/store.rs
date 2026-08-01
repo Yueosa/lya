@@ -451,24 +451,28 @@ impl SessionStore {
         self.db.read(|conn| load_message(conn, session_id, msg_id))
     }
 
-    /// 整体替换某条消息的 payload。
+    /// 整体替换某条消息的 payload，返回改写后的记录。
     ///
-    /// 流式生成时用它把 `streaming` 的助手消息落成 `complete`。
+    /// 流式生成时用它把 `streaming` 的助手消息落成 `complete`。返回记录是为了
+    /// 让调用方能把「消息变了」这件事原样推给订阅者，不必再回查一次。
     pub fn update_payload(
         &self,
         session_id: &str,
         msg_id: i64,
         payload: &MessagePayload,
-    ) -> Result<(), SessionError> {
+    ) -> Result<MessageRecord, SessionError> {
         let json = serde_json::to_string(payload)?;
         self.db.write(|conn| {
-            load_message(conn, session_id, msg_id)?;
+            let existing = load_message(conn, session_id, msg_id)?;
             conn.execute(
                 "UPDATE messages SET message_json = ?1 WHERE id = ?2",
                 params![json, msg_id],
             )?;
             touch_session(conn, session_id)?;
-            Ok(())
+            Ok(MessageRecord {
+                payload: payload.clone(),
+                ..existing
+            })
         })
     }
 

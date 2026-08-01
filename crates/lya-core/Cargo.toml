@@ -17,6 +17,7 @@ lya-config = { workspace = true }
 lya-llm = { workspace = true }
 lya-memory = { workspace = true }
 lya-mode = { workspace = true }
+chrono = { workspace = true }
 lya-session = { workspace = true }
 uuid = { workspace = true }
 lya-tool = { workspace = true }

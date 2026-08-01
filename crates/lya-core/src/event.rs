@@ -74,7 +74,12 @@ pub fn from_agent(session_id: &str, seq: u64, event: &AgentEvent) -> Option<Enve
         AgentEvent::RoundStarted { round } => ("round_started", json!({ "round": round })),
         AgentEvent::Delta(text) => ("message_delta", json!({ "text": text })),
         AgentEvent::Reasoning(text) => ("reasoning_delta", json!({ "text": text })),
-        AgentEvent::MessageCommitted { id } => ("message_committed", json!({ "id": id })),
+        // 带完整记录，让订阅者拿快照起步之后光靠事件流就能维护完整状态
+        AgentEvent::MessageCommitted { record } => {
+            ("message_committed", json!({ "record": record }))
+        }
+        AgentEvent::MessageUpdated { record } => ("message_updated", json!({ "record": record })),
+        AgentEvent::MessageDeleted { id } => ("message_deleted", json!({ "id": id })),
         AgentEvent::CallStarted {
             call_id,
             name,

@@ -4,6 +4,7 @@
 //! 命令得能被叫停），而工具层看不见 agent。这里只是再导出，方便调用方少写一个
 //! 依赖。
 
+pub use lya_session::MessageRecord;
 pub use lya_tool::CancelToken;
 
 /// 被调用的是工具还是动作。
@@ -50,9 +51,33 @@ pub enum AgentEvent {
     /// 助手正文增量。
     Delta(String),
 
-    /// 某条消息已经落库；界面可据此定位到具体节点。
+    /// 新消息已落库。
+    ///
+    /// 带完整记录而不只是 id，这样订阅者拿快照起步之后，光靠事件流就能维护
+    /// 一份完整状态，不必每次落库都回拉一遍。回拉除了多一次往返，还会引入
+    /// 竞态：拉取在路上时新的增量到了，就可能被回来的旧快照覆盖掉。
     MessageCommitted {
-        /// 消息节点 id。
+        /// 落库后的完整记录。
+        record: Box<MessageRecord>,
+    },
+
+    /// 已有消息的内容被改写。
+    ///
+    /// 流式的助手消息先落一条空占位（好让界面有 id 可挂增量），说完之后才把
+    /// 正文写回去；中断时也走这里，把状态改成 `interrupted`。少了这个事件，
+    /// 订阅者手里就一直是那条空占位。
+    MessageUpdated {
+        /// 改写后的完整记录。
+        record: Box<MessageRecord>,
+    },
+
+    /// 消息被删掉了。
+    ///
+    /// 模型一个字都没产出时，占位消息会被清掉，免得历史里留个空壳。而它的
+    /// `MessageCommitted` 已经发出去了——不补这条，界面上就会留下一个永远
+    /// 抹不掉的幽灵。
+    MessageDeleted {
+        /// 被删节点的 id。
         id: i64,
     },
 
@@ -88,4 +113,3 @@ pub enum AgentEvent {
         reason: TurnEndReason,
     },
 }
-
