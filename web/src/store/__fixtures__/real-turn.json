@@ -1,0 +1,728 @@
+[
+  {
+    "event": "snapshot",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "snapshot",
+      "seq": 0,
+      "payload": {
+        "messages": [],
+        "running": null,
+        "session": {
+          "active_leaf_id": null,
+          "created_at": "2026-08-01T19:16:21.995130127Z",
+          "enabled_tools": null,
+          "id": "159eeba8-cb30-4376-8913-e42d3b9d7027",
+          "model_id": null,
+          "persona": null,
+          "status": "active",
+          "title": "联调2",
+          "updated_at": "2026-08-01T19:16:21.995137972Z",
+          "work_mode": "ask"
+        }
+      }
+    }
+  },
+  {
+    "event": "message_committed",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_committed",
+      "seq": 0,
+      "payload": {
+        "record": {
+          "created_at": "2026-08-01T19:16:23.019403561Z",
+          "id": 13,
+          "parent_id": null,
+          "payload": {
+            "kind": "chat",
+            "lya": {
+              "blocks": [
+                {
+                  "text": "说三个字",
+                  "type": "text"
+                }
+              ]
+            },
+            "openai": {
+              "content": "说三个字",
+              "role": "user"
+            },
+            "role": "user",
+            "status": "complete",
+            "v": 1
+          },
+          "session_id": "159eeba8-cb30-4376-8913-e42d3b9d7027",
+          "sort_key": 0
+        }
+      }
+    }
+  },
+  {
+    "event": "round_started",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "round_started",
+      "seq": 1,
+      "payload": {
+        "round": 1
+      }
+    }
+  },
+  {
+    "event": "message_committed",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_committed",
+      "seq": 2,
+      "payload": {
+        "record": {
+          "created_at": "2026-08-01T19:16:23.021078377Z",
+          "id": 14,
+          "parent_id": 13,
+          "payload": {
+            "kind": "chat",
+            "lya": {
+              "blocks": [
+                {
+                  "text": "",
+                  "type": "text"
+                }
+              ]
+            },
+            "openai": {
+              "content": "",
+              "role": "assistant"
+            },
+            "role": "assistant",
+            "status": "streaming",
+            "v": 1
+          },
+          "session_id": "159eeba8-cb30-4376-8913-e42d3b9d7027",
+          "sort_key": 1
+        }
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 3,
+      "payload": {
+        "text": "用户"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 4,
+      "payload": {
+        "text": "说"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 5,
+      "payload": {
+        "text": "\""
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 6,
+      "payload": {
+        "text": "说"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 7,
+      "payload": {
+        "text": "三个"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 8,
+      "payload": {
+        "text": "字"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 9,
+      "payload": {
+        "text": "\"。"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 10,
+      "payload": {
+        "text": "这是在"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 11,
+      "payload": {
+        "text": "开玩笑"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 12,
+      "payload": {
+        "text": "或者"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 13,
+      "payload": {
+        "text": "测试"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 14,
+      "payload": {
+        "text": "我"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 15,
+      "payload": {
+        "text": "。"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 16,
+      "payload": {
+        "text": "三个"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 17,
+      "payload": {
+        "text": "字"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 18,
+      "payload": {
+        "text": "可以是"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 19,
+      "payload": {
+        "text": "\""
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 20,
+      "payload": {
+        "text": "我爱你"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 21,
+      "payload": {
+        "text": "\""
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 22,
+      "payload": {
+        "text": "之类"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 23,
+      "payload": {
+        "text": "。"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 24,
+      "payload": {
+        "text": "作为"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 25,
+      "payload": {
+        "text": "猫"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 26,
+      "payload": {
+        "text": "娘"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 27,
+      "payload": {
+        "text": "人"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 28,
+      "payload": {
+        "text": "设"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 29,
+      "payload": {
+        "text": "，"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 30,
+      "payload": {
+        "text": "可以"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 31,
+      "payload": {
+        "text": "俏"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 32,
+      "payload": {
+        "text": "皮"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 33,
+      "payload": {
+        "text": "回应"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 34,
+      "payload": {
+        "text": "。"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 35,
+      "payload": {
+        "text": "比如"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 36,
+      "payload": {
+        "text": "\""
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 37,
+      "payload": {
+        "text": "我爱你"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 38,
+      "payload": {
+        "text": "\""
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 39,
+      "payload": {
+        "text": "正好"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 40,
+      "payload": {
+        "text": "三个"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 41,
+      "payload": {
+        "text": "字"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 42,
+      "payload": {
+        "text": "。"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 43,
+      "payload": {
+        "text": "喵"
+      }
+    }
+  },
+  {
+    "event": "reasoning_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "reasoning_delta",
+      "seq": 44,
+      "payload": {
+        "text": "~"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 45,
+      "payload": {
+        "text": "我爱你"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 46,
+      "payload": {
+        "text": "喵"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 47,
+      "payload": {
+        "text": "~"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 48,
+      "payload": {
+        "text": " 💕"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 49,
+      "payload": {
+        "text": " ("
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 50,
+      "payload": {
+        "text": "✿"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 51,
+      "payload": {
+        "text": "◡"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 52,
+      "payload": {
+        "text": "‿"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 53,
+      "payload": {
+        "text": "◡"
+      }
+    }
+  },
+  {
+    "event": "message_delta",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_delta",
+      "seq": 54,
+      "payload": {
+        "text": ")"
+      }
+    }
+  },
+  {
+    "event": "message_updated",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "message_updated",
+      "seq": 55,
+      "payload": {
+        "record": {
+          "created_at": "2026-08-01T19:16:23.021078377Z",
+          "id": 14,
+          "parent_id": 13,
+          "payload": {
+            "kind": "chat",
+            "lya": {
+              "blocks": [
+                {
+                  "text": "我爱你喵~ 💕 (✿◡‿◡)",
+                  "type": "text"
+                }
+              ],
+              "reasoning": "用户说\"说三个字\"。这是在开玩笑或者测试我。三个字可以是\"我爱你\"之类。作为猫娘人设，可以俏皮回应。比如\"我爱你\"正好三个字。喵~"
+            },
+            "openai": {
+              "content": "我爱你喵~ 💕 (✿◡‿◡)",
+              "role": "assistant"
+            },
+            "role": "assistant",
+            "status": "complete",
+            "v": 1
+          },
+          "session_id": "159eeba8-cb30-4376-8913-e42d3b9d7027",
+          "sort_key": 1
+        }
+      }
+    }
+  },
+  {
+    "event": "turn_end",
+    "data": {
+      "scope": "session:159eeba8-cb30-4376-8913-e42d3b9d7027",
+      "type": "turn_end",
+      "seq": 56,
+      "payload": {
+        "reason": {
+          "kind": "completed"
+        }
+      }
+    }
+  }
+]
