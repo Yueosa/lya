@@ -17,8 +17,8 @@ use lya_llm::LlmClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::hub::{HubError, SessionHub};
 use crate::http::sessions::ApiError;
+use crate::hub::{HubError, SessionHub};
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 
@@ -56,6 +56,26 @@ pub struct MaskedModel {
     pub capabilities: Vec<String>,
     /// 透传进请求体的其余参数。
     pub params: serde_json::Map<String, Value>,
+}
+
+/// 前端启动时要拿的一次性信息。
+#[derive(Debug, Serialize)]
+pub struct Bootstrap {
+    /// 访问 `/api/local-image` 所需的令牌。
+    ///
+    /// 只能从这里拿：跨域 `fetch` 一定带 `Origin`、会被守卫挡掉，跨域
+    /// `<script>` / `<img>` 又读不到 JSON，所以恶意页面拿不到它。
+    pub image_token: String,
+    /// 家目录，前端据此判断一个路径是否属于本机可显示的图片。
+    pub home: Option<String>,
+}
+
+/// 前端启动握手。
+pub async fn bootstrap(State(hub): Hub) -> Json<Bootstrap> {
+    Json(Bootstrap {
+        image_token: hub.image_token().to_string(),
+        home: std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned()),
+    })
 }
 
 /// 读取全部配置。

@@ -4,8 +4,9 @@
 //! 前端。** 所以发消息返回 202 就走了，正文从 SSE 出来——这样同一个会话在网页和
 //! 手机上看到的是同一份流，而不是各自请求各自的响应。
 
-pub mod guard;
 mod config;
+pub mod guard;
+mod image;
 mod introspect;
 mod memories;
 mod sessions;
@@ -47,19 +48,25 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         .route("/api/tools", get(introspect::tools))
         .route("/api/actions", get(introspect::actions))
         // 配置：core 只读，其余可写；写入会广播 global 事件
+        .route("/api/bootstrap", get(config::bootstrap))
         .route("/api/config", get(config::read))
-        .route("/api/config/runtime", axum::routing::put(config::write_runtime))
-        .route("/api/config/persona", axum::routing::put(config::write_persona))
+        .route(
+            "/api/config/runtime",
+            axum::routing::put(config::write_runtime),
+        )
+        .route(
+            "/api/config/persona",
+            axum::routing::put(config::write_persona),
+        )
         .route("/api/config/raw/{file}", get(config::raw))
         .route("/api/models", get(config::models))
         .route("/api/models/probe", post(config::probe))
+        // 本地图片：家目录内 + 令牌校验
+        .route("/api/local-image", get(image::local_image))
         // 全局事件：配置变更，以后还有桌面通知、会话列表变化
         .route("/api/events", get(sessions::subscribe_global))
         // 记忆：模型只能读写，删除只走这里
-        .route(
-            "/api/memories",
-            get(memories::list).post(memories::create),
-        )
+        .route("/api/memories", get(memories::list).post(memories::create))
         .route("/api/memories/search", get(memories::search))
         .route(
             "/api/memories/{id}",

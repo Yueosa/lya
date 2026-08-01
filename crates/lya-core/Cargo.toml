@@ -18,6 +18,7 @@ lya-llm = { workspace = true }
 lya-memory = { workspace = true }
 lya-mode = { workspace = true }
 lya-session = { workspace = true }
+uuid = { workspace = true }
 lya-tool = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

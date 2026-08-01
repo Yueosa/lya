@@ -161,6 +161,8 @@ pub struct SessionHub<B: ChatBackend = LlmClient> {
     channels: Mutex<HashMap<String, Arc<Mutex<SessionChannel>>>>,
     /// 全局作用域的广播；桌面通知、配置变更等走这里。
     global: broadcast::Sender<Envelope>,
+    /// 本地图片端点的令牌，进程启动时随机生成。
+    image_token: String,
     seq: AtomicU64,
 }
 
@@ -173,6 +175,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             http,
             channels: Mutex::new(HashMap::new()),
             global,
+            image_token: uuid::Uuid::new_v4().to_string(),
             seq: AtomicU64::new(0),
         })
     }
@@ -180,6 +183,14 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 共享 HTTP 客户端。
     pub fn http(&self) -> &HttpClient {
         &self.http
+    }
+
+    /// 本地图片端点的令牌。
+    ///
+    /// 每次启动重新生成，所以旧页面上的图片链接在重启后会失效——重新加载即可。
+    /// 这点不便换来的是：泄露出去的链接活不过一次重启。
+    pub fn image_token(&self) -> &str {
+        &self.image_token
     }
 
     /// 订阅全局事件。
