@@ -63,6 +63,8 @@ function copyButton(block: HTMLElement): HTMLButtonElement {
 
 <style scoped>
 .md {
+  min-width: 0;
+  max-width: 100%;
   word-break: break-word;
 }
 
@@ -100,6 +102,8 @@ function copyButton(block: HTMLElement): HTMLButtonElement {
 
 .md :deep(pre) {
   position: relative;
+  /* 长代码在块内横向滚动，而不是把气泡撑破 */
+  max-width: 100%;
   margin: 0.6em 0;
   padding: 10px 12px;
   border-radius: var(--radius-sm);

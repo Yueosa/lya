@@ -172,8 +172,12 @@ export async function openSession(id: string): Promise<void> {
     },
     onEvent: (event) => {
       state.value = applyEvent(state.value, event)
-      // 一轮结束才可能多出分叉，没必要每个增量都去拉整棵树
-      if (event.type === 'turn_end') void refreshTree()
+      if (event.type === 'round_started' && round.value === 0) startClock()
+      if (event.type === 'turn_end') {
+        stopClock()
+        // 一轮结束才可能多出分叉，没必要每个增量都去拉整棵树
+        void refreshTree()
+      }
     },
     onError: () => {
       // EventSource 自己会重连，重连后收到的快照会把状态对齐，
@@ -190,6 +194,7 @@ export function closeSession(): void {
   currentId.value = null
   state.value = emptyState()
   tree.value = null
+  stopClock()
 }
 
 /**
@@ -218,6 +223,48 @@ export async function stop(): Promise<void> {
     report(error, '停止')
   }
 }
+
+// ── 本轮状态 ──────────────────────────────────────────────────
+
+/** 本轮从什么时候开始跑。 */
+const turnStartedAt = ref<number | null>(null)
+/** 已经跑了多久，每 100ms 走一格。 */
+export const elapsed = ref(0)
+let ticker: ReturnType<typeof setInterval> | null = null
+
+function startClock(): void {
+  turnStartedAt.value = Date.now()
+  elapsed.value = 0
+  ticker ??= setInterval(() => {
+    if (turnStartedAt.value) elapsed.value = Date.now() - turnStartedAt.value
+  }, 100)
+}
+
+function stopClock(): void {
+  if (ticker) clearInterval(ticker)
+  ticker = null
+  turnStartedAt.value = null
+}
+
+/**
+ * 现在在干什么。
+ *
+ * 从缓冲反推而不是让后端多发一种事件：有没在跑的调用就是在跑工具，有正文就是
+ * 在说，只有思考就是在想。少一种事件类型，也少一处可能对不上的状态。
+ */
+export const phase = computed<{ icon: string; text: string } | null>(() => {
+  const buffer = state.value.running
+  if (!buffer) return null
+
+  const active = buffer.calls.find((call) => call.ok === null)
+  if (active) return { icon: '🔧', text: `${active.name} 执行中` }
+  if (buffer.content) return { icon: '✍️', text: '正在回复' }
+  if (buffer.reasoning) return { icon: '💭', text: '正在思考' }
+  return { icon: '⏳', text: '等待模型' }
+})
+
+/** 本轮是第几轮 LLM 调用。工具用得多时会跑好几轮。 */
+export const round = computed(() => state.value.running?.round ?? 0)
 
 // ── 分支操作 ──────────────────────────────────────────────────
 //

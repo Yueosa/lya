@@ -11,7 +11,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { THEMES } from './index'
-import { TOKENS, TOKEN_NAMES } from './tokens'
+import { LOCAL_PREFIX, TOKENS, TOKEN_NAMES } from './tokens'
 
 const SRC = join(import.meta.dirname, '..')
 const THEME_DIR = import.meta.dirname
@@ -68,6 +68,8 @@ describe('token 契约', () => {
       const content = readFileSync(file, 'utf8')
       for (const match of content.matchAll(/var\(\s*--([\w-]+)/g)) {
         const name = match[1]!
+        // 组件自己的变量按约定带前缀，不该拿去和主题 token 比对
+        if (name.startsWith(LOCAL_PREFIX)) continue
         if (!TOKEN_NAMES.includes(name)) unknown.set(name, file)
       }
     }

@@ -12,7 +12,6 @@ import { shellFor } from '../shell/registry'
 import type { View } from '../shell/types'
 import { applyTheme, currentTheme, THEMES } from '../themes'
 import UiHost from '../ui/UiHost.vue'
-import BranchTree from '../views/BranchTree.vue'
 import ChatView from '../views/ChatView.vue'
 import ConfigView from '../views/ConfigView.vue'
 import MemoryView from '../views/MemoryView.vue'
@@ -41,7 +40,7 @@ onMounted(() => {
 
 function navigate(next: View): void {
   // 「开始对话」没有会话可开时先去列表，免得进到一个空白的聊天页
-  const needsSession = next === 'chat' || next === 'tree' || next === 'settings'
+  const needsSession = next === 'chat' || next === 'settings'
   view.value = needsSession && !currentId.value ? 'sessions' : next
 }
 
@@ -55,7 +54,6 @@ function switchTheme(id: string): void {
   <component :is="shell" :view="view" @navigate="navigate">
     <ChatView v-if="view === 'chat'" />
     <SessionsView v-else-if="view === 'sessions'" @opened="view = 'chat'" />
-    <BranchTree v-else-if="view === 'tree' && currentId" :key="currentId" />
     <SessionSettings v-else-if="view === 'settings' && currentId" :key="currentId" />
     <MemoryView v-else-if="view === 'memory'" />
     <ConfigView v-else-if="view === 'config'" />

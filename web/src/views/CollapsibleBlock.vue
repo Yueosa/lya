@@ -53,6 +53,7 @@ function toggle(): void {
 
 <style scoped>
 .fold {
+  min-width: 0;
   margin: 4px 0;
   border: var(--border-width) solid var(--border);
   border-left: 3px solid var(--info);
