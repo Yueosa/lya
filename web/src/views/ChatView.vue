@@ -1,32 +1,54 @@
 <!--
   聊天视图。
 
-  这一版**只渲染纯文本**，没有 Markdown、没有折叠块、没有 HITL。目的不是好看，
-  是先把管道跑通：store 和时间线模型此前只对着 wire dump 写过，从没跑过真实的
-  SSE 流。事件到达顺序、流式节奏、落库时机这些只有连上真后端才知道，那里有偏差
-  的话，建立在上面的渲染工作全得返工。
+  **视图只有一份实现**（见 shell/types.ts 的边界说明）——外壳可以三套，这里不行：
+  消息树、折叠块、以后的 HITL 表单占了整个界面九成的复杂度，写三遍必然有两份是残的。
 
-  **视图只有一份实现**（见 shell/types.ts 的边界说明）——外壳可以三套，这里不行。
+  显示偏好（不看思考、不看工具）只在这里生效，数据层始终保留全部块，见 usePrefs。
 -->
 
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 
 import { canSend, running, send, stop, timeline } from '../app/useChat'
+import { prefs } from '../app/usePrefs'
+import type { Block } from '../model/timeline'
+import CollapsibleBlock from './CollapsibleBlock.vue'
+import MarkdownBody from './MarkdownBody.vue'
 
 const draft = ref('')
 const scroller = ref<HTMLElement | null>(null)
 
-// 有新内容就滚到底。真正的「是否跟随」逻辑等做那个跳到最新的按钮时再补
 watch(
   timeline,
   async () => {
+    if (!prefs.followStream) return
     await nextTick()
     const el = scroller.value
     if (el) el.scrollTop = el.scrollHeight
   },
   { deep: true },
 )
+
+/** 按显示偏好过滤块。数据里始终是全的，这里只决定画不画。 */
+function visible(blocks: Block[]): Block[] {
+  return blocks.filter((block) => {
+    if (block.type === 'reasoning') return !prefs.hideReasoning
+    if (block.type === 'tool') return !prefs.hideTools
+    if (block.type === 'hitl') return !(prefs.hideResolvedHitl && block.answer !== undefined)
+    return true
+  })
+}
+
+/** 工具卡片的标题：名字加一句参数摘要，折起来时也知道它干了什么。 */
+function toolLabel(block: Extract<Block, { type: 'tool' }>): string {
+  const args = block.call.arguments
+  if (args && typeof args === 'object') {
+    const first = Object.values(args as Record<string, unknown>)[0]
+    if (typeof first === 'string' && first) return `${block.call.name}  ${first.slice(0, 60)}`
+  }
+  return block.call.name
+}
 
 async function submit(): Promise<void> {
   const text = draft.value
@@ -85,22 +107,36 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
 
         <div v-else class="chat__row" :class="`chat__row--${item.message.role}`">
           <div class="bubble" :class="`bubble--${item.message.role}`">
-            <template v-for="(block, at) in item.message.blocks" :key="at">
-              <!-- 思考与工具先原样摊开，折叠留到下一轮 -->
-              <div v-if="block.type === 'reasoning'" class="chat__aside">
-                💭 {{ block.text }}
-              </div>
-              <div v-else-if="block.type === 'tool'" class="chat__aside">
-                🔧 {{ block.call.name }}
-                <template v-if="block.call.result">
-                  → {{ block.call.result.content.slice(0, 200) }}
-                </template>
-                <template v-else>执行中…</template>
-              </div>
+            <template v-for="(block, at) in visible(item.message.blocks)" :key="at">
+              <CollapsibleBlock
+                v-if="block.type === 'reasoning'"
+                icon="💭"
+                label="思考"
+                :busy="item.message.status === 'streaming'"
+              >
+                {{ block.text }}
+              </CollapsibleBlock>
+
+              <CollapsibleBlock
+                v-else-if="block.type === 'tool'"
+                icon="🔧"
+                :label="toolLabel(block)"
+                :busy="!block.call.result"
+                :failed="block.call.result?.ok === false"
+              >
+                {{ block.call.result?.content ?? '执行中…' }}
+              </CollapsibleBlock>
+
               <div v-else-if="block.type === 'hitl'" class="chat__aside">
                 ✋ 需要你决定（{{ block.hitl.type }}），界面还没做
               </div>
-              <div v-else class="chat__text">{{ block.text }}</div>
+
+              <!-- 用户消息不走 Markdown：你打的字应当原样显示，
+                   不该因为随手用了 * 或 # 就变了样 -->
+              <div v-else-if="item.message.role === 'user'" class="chat__text">
+                {{ block.text }}
+              </div>
+              <MarkdownBody v-else :text="block.text" />
             </template>
             <span v-if="item.message.status === 'streaming'" class="chat__caret" />
             <span v-if="item.message.status === 'interrupted'" class="chat__interrupted">

@@ -26,6 +26,24 @@ import { toast } from '../ui/useToast'
 
 export const client = new LyaClient()
 
+/**
+ * 本地图片渲染要的令牌与家目录。
+ *
+ * 拿不到就为 `null`——那时本地图片会渲染成坏图，比拼一个不带令牌、必然 403 的
+ * 地址要诚实。
+ */
+export const imageContext = ref<{ token: string; home: string } | null>(null)
+
+/** 启动握手。失败不阻塞，只是本地图片显示不出来。 */
+export async function bootstrap(): Promise<void> {
+  try {
+    const info = await client.bootstrap()
+    if (info.home) imageContext.value = { token: info.image_token, home: info.home }
+  } catch {
+    toast('拿不到图片令牌，本地图片将无法显示', 'error')
+  }
+}
+
 /** 会话列表。 */
 export const sessions = ref<SessionMeta[]>([])
 /** 当前打开的会话 id。 */

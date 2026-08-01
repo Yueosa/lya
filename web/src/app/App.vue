@@ -14,12 +14,16 @@ import { applyTheme, currentTheme, THEMES } from '../themes'
 import UiHost from '../ui/UiHost.vue'
 import ChatView from '../views/ChatView.vue'
 import SessionsView from '../views/SessionsView.vue'
-import { currentId, meta } from './useChat'
+import { prefs } from './usePrefs'
+import { bootstrap, currentId, meta } from './useChat'
 
 const theme = ref(currentTheme())
 const view = ref<View>('sessions')
 
 const shell = computed(() => shellFor(theme.value))
+
+// 图片令牌要尽早拿，否则先渲染出来的本地图片会是坏的
+void bootstrap()
 
 function navigate(next: View): void {
   // 「开始对话」没有会话可开时先去列表，免得进到一个空白的聊天页
@@ -42,7 +46,7 @@ function switchTheme(id: string): void {
     </div>
   </component>
 
-  <!-- 主题切换先挂在角上，等设置页做好再收进去 -->
+  <!-- 主题与显示偏好先挂在角上，等设置页做好再收进去 -->
   <div class="app__themes panel">
     <button
       v-for="item in THEMES"
@@ -52,6 +56,21 @@ function switchTheme(id: string): void {
       @click="switchTheme(item.id)"
     >
       {{ item.label }}
+    </button>
+    <span class="app__sep" />
+    <button
+      class="btn btn--sm"
+      :class="{ 'btn--primary': !prefs.hideReasoning }"
+      @click="prefs.hideReasoning = !prefs.hideReasoning"
+    >
+      思考
+    </button>
+    <button
+      class="btn btn--sm"
+      :class="{ 'btn--primary': !prefs.hideTools }"
+      @click="prefs.hideTools = !prefs.hideTools"
+    >
+      工具
     </button>
   </div>
 
@@ -66,6 +85,12 @@ function switchTheme(id: string): void {
 .app__hint {
   color: var(--text-muted);
   font-size: var(--text-sm);
+}
+
+.app__sep {
+  width: var(--border-width);
+  align-self: stretch;
+  background: var(--border);
 }
 
 .app__themes {
