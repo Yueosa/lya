@@ -201,3 +201,38 @@ export type TurnEndReason =
   | { kind: 'cancelled' }
   | { kind: 'empty_response' }
   | { kind: 'failed'; message: string }
+
+/**
+ * SSE 推过来的事件。
+ *
+ * `message_committed` / `message_updated` / `message_deleted` 三个带着库里发生的
+ * 事实，其余是本轮的增量。有了这三个，拿快照起步之后光靠事件流就能维护完整
+ * 状态，不必回拉——回拉除了多一次往返，还会让「拉取在路上时新增量到达」变成
+ * 一个要处理的竞态。
+ */
+export type LyaEvent =
+  | { type: 'round_started'; round: number }
+  | { type: 'reasoning_delta'; text: string }
+  | { type: 'message_delta'; text: string }
+  | { type: 'message_committed'; record: MessageRecord }
+  | { type: 'message_updated'; record: MessageRecord }
+  | { type: 'message_deleted'; id: number }
+  | { type: 'call_started'; call_id: string; name: string; kind: 'tool' | 'action' }
+  | { type: 'call_finished'; call_id: string; name: string; success: boolean }
+  | { type: 'await_human'; message_id: number }
+  | { type: 'turn_end'; reason: TurnEndReason }
+
+/** 事件信封。 */
+export interface Envelope {
+  /** `session:<id>` 或 `global`。 */
+  scope: string
+  type: LyaEvent['type']
+  /**
+   * 递增序号。
+   *
+   * 只用于排查问题，**不要依赖它对齐**——快照本身幂等，重连和首次连接走同一
+   * 条路，不需要事件重放。
+   */
+  seq: number
+  payload: Record<string, unknown>
+}

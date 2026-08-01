@@ -1,0 +1,314 @@
+/**
+ * HTTP 传输层。
+ *
+ * 这里**只做解析**：把请求发出去、把响应变成带类型的对象。事件怎么改变状态是
+ * `store/session.ts` 的事。两者看起来都叫「处理事件」，其实一个是传输、一个是
+ * 领域逻辑，混在一起这层就会长成一个挂了 `fetch` 的 store。
+ *
+ * 路径和请求体都照着 `crates/lya-core/src/http/mod.rs` 的路由表写，形状照着
+ * `cargo run -p lya-core --example wire` 打出的真实 JSON 写。
+ */
+
+import type {
+  Envelope,
+  LyaEvent,
+  MessageRecord,
+  Mode,
+  SessionMeta,
+  SessionTree,
+  Snapshot,
+  TurnEndReason,
+} from './wire'
+
+/** 后端返回的错误。 */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
+/** 前端启动握手。 */
+export interface Bootstrap {
+  image_token: string
+  home: string | null
+}
+
+/** 创建会话时可给的字段。 */
+export interface CreateSession {
+  title?: string
+  work_mode?: Mode
+  model_id?: string | null
+}
+
+/** 会话可改字段；不给的字段保持不变。 */
+export interface PatchSession {
+  title?: string
+  work_mode?: Mode
+  /** 显式给 null 表示回退到默认模型。 */
+  model_id?: string | null
+  /** 显式给 null 表示启用全部工具。 */
+  enabled_tools?: string[] | null
+}
+
+/** 一道题的作答。 */
+export interface FormAnswerItem {
+  question_id: string
+  /** 单选一个、多选多个，文本题放内容。 */
+  values: string[]
+  /** 题目开了 `allow_note` 时才有。 */
+  note?: string
+}
+
+/** 一次表单作答。 */
+export interface FormAnswer {
+  form_id: string
+  items: FormAnswerItem[]
+  /** 表单级补充说明。 */
+  freetext?: string
+}
+
+/**
+ * HITL 答复。
+ *
+ * 三种打断合用一个端点，因为它们共享「结清当前挂起、让本轮接着跑」这个语义。
+ */
+export type HitlReply =
+  | { kind: 'form'; answer: FormAnswer }
+  | { kind: 'confirm'; approved: boolean; note?: string }
+  | { kind: 'mode_change'; approved: boolean }
+
+/** 一个分支端点。 */
+export interface BranchInfo {
+  leaf_id: number
+  is_active: boolean
+  role: string
+  preview: string
+  created_at: string
+}
+
+export class LyaClient {
+  constructor(private readonly base = '') {}
+
+  // ── 启动 ──────────────────────────────────────────────────────
+
+  /**
+   * 拿图片令牌与家目录。
+   *
+   * 令牌只能从这类 JSON 端点拿：跨域 `fetch` 一定带 `Origin`，会被后端的跨站
+   * 守卫挡掉，所以恶意页面偷不走。
+   */
+  bootstrap(): Promise<Bootstrap> {
+    return this.request('GET', '/api/bootstrap')
+  }
+
+  // ── 会话 ──────────────────────────────────────────────────────
+
+  listSessions(): Promise<SessionMeta[]> {
+    return this.request('GET', '/api/sessions')
+  }
+
+  createSession(body: CreateSession = {}): Promise<SessionMeta> {
+    return this.request('POST', '/api/sessions', body)
+  }
+
+  /** 当前分支 + 正在跑的那一轮。 */
+  snapshot(id: string): Promise<Snapshot> {
+    return this.request('GET', `/api/sessions/${id}`)
+  }
+
+  patchSession(id: string, body: PatchSession): Promise<SessionMeta> {
+    return this.request('PATCH', `/api/sessions/${id}`, body)
+  }
+
+  /**
+   * 整棵树。
+   *
+   * 只在要画分叉图或算分支切换器时拉——分支只在重新生成、编辑重发之后才出现，
+   * 那都是明确的用户操作，不需要跟着事件流实时更新。
+   */
+  tree(id: string): Promise<SessionTree> {
+    return this.request('GET', `/api/sessions/${id}/tree`)
+  }
+
+  /**
+   * 发一条用户消息。
+   *
+   * **返回 202 就走了，正文从订阅流出来**——这样同一个会话在网页和手机上看到的
+   * 是同一条流，而不是「谁发的谁才看得到响应」。
+   */
+  sendMessage(id: string, text: string): Promise<void> {
+    return this.request('POST', `/api/sessions/${id}/messages`, { text })
+  }
+
+  /** 停掉正在跑的这一轮。 */
+  stop(id: string): Promise<void> {
+    return this.request('POST', `/api/sessions/${id}/stop`)
+  }
+
+  // ── 分支 ──────────────────────────────────────────────────────
+
+  regenerate(id: string): Promise<void> {
+    return this.request('POST', `/api/sessions/${id}/regenerate`)
+  }
+
+  /** 改掉某条消息并从那里重新开跑，旧分支原样保留。 */
+  editAndResend(id: string, messageId: number, text: string): Promise<void> {
+    return this.request('POST', `/api/sessions/${id}/messages/${messageId}`, { text })
+  }
+
+  deleteMessage(id: string, messageId: number): Promise<void> {
+    return this.request('DELETE', `/api/sessions/${id}/messages/${messageId}`)
+  }
+
+  branches(id: string): Promise<BranchInfo[]> {
+    return this.request('GET', `/api/sessions/${id}/branches`)
+  }
+
+  /** 切到另一个分支，返回切换后的快照。 */
+  switchBranch(id: string, leafId: number): Promise<Snapshot> {
+    return this.request('POST', `/api/sessions/${id}/branches`, { leaf_id: leafId })
+  }
+
+  // ── HITL ─────────────────────────────────────────────────────
+
+  /** 答复当前挂起，后端会自动接着跑下一轮。 */
+  replyHitl(id: string, reply: HitlReply): Promise<void> {
+    return this.request('POST', `/api/sessions/${id}/hitl`, reply)
+  }
+
+  // ── 工具开关 ──────────────────────────────────────────────────
+
+  toggleTool(id: string, tool: string, enabled: boolean): Promise<void> {
+    return this.request('PUT', `/api/sessions/${id}/tools/${tool}`, { enabled })
+  }
+
+  // ── 图片 ──────────────────────────────────────────────────────
+
+  /**
+   * 拼一个能给 `<img src>` 用的地址。
+   *
+   * 必须带令牌：`<img>` 请求按规范不带 `Origin`，跨站守卫拦不住它，所以这个
+   * 端点靠令牌把关。
+   */
+  localImageUrl(path: string, token: string): string {
+    const query = new URLSearchParams({ path, token })
+    return `${this.base}/api/local-image?${query}`
+  }
+
+  // ── 订阅 ──────────────────────────────────────────────────────
+
+  /**
+   * 订阅一个会话。
+   *
+   * 连上先收一份 `snapshot`，之后是增量。**订阅者跟不上时后端会再补一份快照**，
+   * 所以 `onSnapshot` 可能被调用多次，每次都应当整体替换而不是合并。
+   *
+   * 返回一个断开函数。
+   */
+  subscribe(
+    id: string,
+    handlers: {
+      onSnapshot: (snapshot: Snapshot) => void
+      onEvent: (event: LyaEvent) => void
+      onError?: (error: Event) => void
+    },
+  ): () => void {
+    const source = new EventSource(`${this.base}/api/sessions/${id}/subscribe`)
+
+    source.addEventListener('snapshot', (message) => {
+      const envelope = JSON.parse((message as MessageEvent<string>).data) as Envelope
+      handlers.onSnapshot(envelope.payload as unknown as Snapshot)
+    })
+
+    // 每种事件都是独立的 SSE event 类型，逐个挂上
+    for (const type of EVENT_TYPES) {
+      source.addEventListener(type, (message) => {
+        const envelope = JSON.parse((message as MessageEvent<string>).data) as Envelope
+        const event = toEvent(envelope)
+        if (event) handlers.onEvent(event)
+      })
+    }
+
+    if (handlers.onError) source.onerror = handlers.onError
+    return () => source.close()
+  }
+
+  // ── 底层 ──────────────────────────────────────────────────────
+
+  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const response = await fetch(`${this.base}${path}`, {
+      method,
+      headers: body === undefined ? {} : { 'content-type': 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })
+    if (!response.ok) {
+      throw new ApiError(response.status, await response.text())
+    }
+    // 202 / 204 没有正文
+    const text = await response.text()
+    return (text ? JSON.parse(text) : undefined) as T
+  }
+}
+
+/** 所有会话级事件类型，用来逐个挂监听。 */
+const EVENT_TYPES = [
+  'round_started',
+  'reasoning_delta',
+  'message_delta',
+  'message_committed',
+  'message_updated',
+  'message_deleted',
+  'call_started',
+  'call_finished',
+  'await_human',
+  'turn_end',
+] as const satisfies readonly LyaEvent['type'][]
+
+/**
+ * 把信封摊平成带类型的事件。
+ *
+ * 线上格式是「`type` + 松散的 `payload`」，好让后端加字段不破坏老客户端；界面
+ * 要的是可辨识联合，这里做这一次转换。认不出的类型返回 `null` 而不是抛错——
+ * 后端加了新事件，老页面应该忽略它继续跑，而不是整条流断掉。
+ */
+export function toEvent(envelope: Envelope): LyaEvent | null {
+  const p = envelope.payload
+  switch (envelope.type) {
+    case 'round_started':
+      return { type: 'round_started', round: p['round'] as number }
+    case 'message_delta':
+      return { type: 'message_delta', text: p['text'] as string }
+    case 'reasoning_delta':
+      return { type: 'reasoning_delta', text: p['text'] as string }
+    case 'message_committed':
+      return { type: 'message_committed', record: p['record'] as MessageRecord }
+    case 'message_updated':
+      return { type: 'message_updated', record: p['record'] as MessageRecord }
+    case 'message_deleted':
+      return { type: 'message_deleted', id: p['id'] as number }
+    case 'call_started':
+      return {
+        type: 'call_started',
+        call_id: p['call_id'] as string,
+        name: p['name'] as string,
+        kind: p['kind'] as 'tool' | 'action',
+      }
+    case 'call_finished':
+      return {
+        type: 'call_finished',
+        call_id: p['call_id'] as string,
+        name: p['name'] as string,
+        success: p['success'] as boolean,
+      }
+    case 'await_human':
+      return { type: 'await_human', message_id: p['message_id'] as number }
+    case 'turn_end':
+      return { type: 'turn_end', reason: p['reason'] as TurnEndReason }
+    default:
+      return null
+  }
+}
