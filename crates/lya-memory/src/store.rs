@@ -12,7 +12,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::MIGRATION_SQL;
 use crate::error::MemoryError;
 use crate::index::{IndexBudget, render_index};
-use crate::types::{Memory, MemoryLimits, MemoryPatch, NewMemory};
+use crate::types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};
 
 /// 长期记忆仓储。
 pub struct MemoryStore {
@@ -226,6 +226,54 @@ impl MemoryStore {
         self.db.read(load_all)
     }
 
+    /// 全文检索。
+    ///
+    /// 常驻索引只有标题、摘要和标签，**搜不到正文**；而且索引有体积上限，
+    /// 超出的条目模型根本看不见——索引会说「另有 N 条未列出」，却没有任何手段
+    /// 够到它们。这两点让检索成为必需，而不是「以后可能要」。
+    ///
+    /// 用 `LIKE` 而不是 FTS：这个量级下没必要，也免了维护索引表。
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<MemoryHit>, MemoryError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(MemoryError::Invalid("检索词不能为空".into()));
+        }
+        let pattern = format!("%{}%", escape_like(query));
+
+        let ids: Vec<i64> = self.db.read(|conn| -> Result<Vec<i64>, MemoryError> {
+            let mut stmt = conn.prepare(
+                "SELECT m.id FROM memories m
+                 LEFT JOIN memory_tags t ON t.memory_id = m.id
+                 WHERE m.title LIKE ?1 ESCAPE '\\'
+                    OR m.summary LIKE ?1 ESCAPE '\\'
+                    OR m.body LIKE ?1 ESCAPE '\\'
+                    OR t.tag LIKE ?1 ESCAPE '\\'
+                 GROUP BY m.id
+                 ORDER BY m.updated_at DESC
+                 LIMIT ?2",
+            )?;
+            let ids = stmt
+                .query_map(params![pattern, limit as i64], |row| row.get(0))?
+                .collect::<Result<Vec<i64>, _>>()?;
+            Ok(ids)
+        })?;
+
+        let mut hits = Vec::with_capacity(ids.len());
+        for id in ids {
+            let memory = self.get(id)?;
+            let (matched_in, snippet) = locate(&memory, query);
+            hits.push(MemoryHit {
+                id: memory.id,
+                title: memory.title,
+                summary: memory.summary,
+                tags: memory.tags,
+                matched_in,
+                snippet,
+            });
+        }
+        Ok(hits)
+    }
+
     /// 记忆条数。
     pub fn count(&self) -> Result<i64, MemoryError> {
         self.db
@@ -367,6 +415,59 @@ fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Memory, Mem
             updated_at: parse_time(&updated)?,
         })
     })())
+}
+
+/// 转义 `LIKE` 的通配符，免得用户搜 `%` 时匹配到全部。
+fn escape_like(query: &str) -> String {
+    query
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// 找出命中在哪个字段，并摘一段上下文。
+fn locate(memory: &Memory, query: &str) -> (MatchField, String) {
+    let needle = query.to_lowercase();
+    if memory.title.to_lowercase().contains(&needle) {
+        return (MatchField::Title, memory.title.clone());
+    }
+    if let Some(tag) = memory
+        .tags
+        .iter()
+        .find(|tag| tag.to_lowercase().contains(&needle))
+    {
+        return (MatchField::Tag, tag.clone());
+    }
+    if memory.summary.to_lowercase().contains(&needle) {
+        return (MatchField::Summary, memory.summary.clone());
+    }
+    (MatchField::Body, excerpt(&memory.body, query))
+}
+
+/// 摘出正文里命中处前后一小段。
+fn excerpt(body: &str, query: &str) -> String {
+    const CONTEXT: usize = 60;
+    let chars: Vec<char> = body.chars().collect();
+    let lower: String = body.to_lowercase();
+    let needle = query.to_lowercase();
+
+    let Some(byte_pos) = lower.find(&needle) else {
+        return chars.iter().take(CONTEXT * 2).collect();
+    };
+    // 字节位置换成字符位置，中文才不会切碎
+    let hit = lower[..byte_pos].chars().count();
+    let start = hit.saturating_sub(CONTEXT);
+    let end = (hit + needle.chars().count() + CONTEXT).min(chars.len());
+
+    let mut out = String::new();
+    if start > 0 {
+        out.push('…');
+    }
+    out.extend(&chars[start..end]);
+    if end < chars.len() {
+        out.push('…');
+    }
+    out
 }
 
 fn parse_time(s: &str) -> Result<DateTime<Utc>, MemoryError> {
@@ -554,6 +655,85 @@ mod tests {
             store.create(NewMemory::new("标题", "太长了一点")),
             Err(MemoryError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn search_reaches_into_the_body() {
+        let (_dir, store) = store();
+        store
+            .create(
+                NewMemory::new("NetworkManager 高 CPU", "根因是 qshell 泄漏了 nmcli monitor 进程")
+                    .with_summary("NM 吃满 CPU")
+                    .with_tags(["NetworkManager", "bug"]),
+            )
+            .unwrap();
+
+        // 常驻索引里没有 nmcli，只有正文里有——这正是检索存在的理由
+        let hits = store.search("nmcli", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].matched_in, MatchField::Body);
+        assert!(hits[0].snippet.contains("nmcli"));
+        assert_eq!(hits[0].title, "NetworkManager 高 CPU");
+    }
+
+    #[test]
+    fn search_reports_which_field_matched() {
+        let (_dir, store) = store();
+        store
+            .create(
+                NewMemory::new("Hyprland 崩溃", "正文提到 aquamarine")
+                    .with_summary("多显示器下崩溃")
+                    .with_tags(["drm", "troubleshooting"]),
+            )
+            .unwrap();
+
+        assert_eq!(
+            store.search("Hyprland", 10).unwrap()[0].matched_in,
+            MatchField::Title
+        );
+        assert_eq!(store.search("drm", 10).unwrap()[0].matched_in, MatchField::Tag);
+        assert_eq!(
+            store.search("多显示器", 10).unwrap()[0].matched_in,
+            MatchField::Summary
+        );
+        assert_eq!(
+            store.search("aquamarine", 10).unwrap()[0].matched_in,
+            MatchField::Body
+        );
+    }
+
+    #[test]
+    fn search_respects_limit_and_rejects_empty() {
+        let (_dir, store) = store();
+        for i in 0..5 {
+            store
+                .create(NewMemory::new(format!("条目 {i}"), "共同关键词 zebra"))
+                .unwrap();
+        }
+        assert_eq!(store.search("zebra", 3).unwrap().len(), 3);
+        assert!(store.search("   ", 3).is_err());
+        assert!(store.search("查不到的词", 3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn wildcards_do_not_match_everything() {
+        let (_dir, store) = store();
+        store.create(NewMemory::new("普通条目", "正文")).unwrap();
+        // 不转义的话 % 会匹配到所有记录
+        assert!(store.search("%", 10).unwrap().is_empty());
+        assert!(store.search("_", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn body_excerpt_is_trimmed_around_the_hit() {
+        let (_dir, store) = store();
+        let long = format!("{}关键词{}", "前".repeat(200), "后".repeat(200));
+        store.create(NewMemory::new("长正文", long)).unwrap();
+
+        let snippet = &store.search("关键词", 10).unwrap()[0].snippet;
+        assert!(snippet.contains("关键词"));
+        assert!(snippet.starts_with('…') && snippet.ends_with('…'));
+        assert!(snippet.chars().count() < 200, "只给命中处附近，不是整篇");
     }
 
     #[test]

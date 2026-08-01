@@ -74,6 +74,39 @@ impl NewMemory {
     }
 }
 
+/// 命中出现在哪个字段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchField {
+    /// 标题。
+    Title,
+    /// 摘要。
+    Summary,
+    /// 标签。
+    Tag,
+    /// 正文。
+    Body,
+}
+
+/// 一条检索命中。
+///
+/// 不带完整正文——检索是为了「找到哪一条」，看内容用 `memory_read` 按编号取。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemoryHit {
+    /// 记忆编号。
+    pub id: i64,
+    /// 标题。
+    pub title: String,
+    /// 摘要。
+    pub summary: String,
+    /// 标签。
+    pub tags: Vec<String>,
+    /// 命中在哪个字段。
+    pub matched_in: MatchField,
+    /// 命中处的上下文片段。
+    pub snippet: String,
+}
+
 /// 局部更新：`None` 的字段保持原值。
 #[derive(Debug, Clone, Default)]
 pub struct MemoryPatch {

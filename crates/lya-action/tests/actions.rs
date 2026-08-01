@@ -346,14 +346,14 @@ fn registry_filters_by_mode_and_exports_consistently() {
     let (_dir, store) = memory();
     let mut registry = ActionRegistry::new();
     register_builtins(&mut registry, store).unwrap();
-    assert_eq!(registry.len(), 4);
+    assert_eq!(registry.len(), 5);
 
     let ask = registry.bundle(Mode::Ask);
     let agent = registry.bundle(Mode::Agent);
-    assert_eq!(ask.schemas.len(), 4);
+    assert_eq!(ask.schemas.len(), 5);
     assert_eq!(
         agent.schemas.len(),
-        3,
+        4,
         "agent 模式下隐藏 request_mode_change"
     );
     assert!(ask.prompt.contains("request_mode_change"));

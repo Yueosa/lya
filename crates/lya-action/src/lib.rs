@@ -35,7 +35,8 @@ pub mod registry;
 pub mod traits;
 
 pub use actions::{
-    FormAction, FormAnswer, FormAnswerItem, MemoryReadAction, MemoryWriteAction,
+    FormAction, FormAnswer, FormAnswerItem, MemoryReadAction, MemorySearchAction,
+    MemoryWriteAction,
     RequestModeChangeAction, register_builtins, render_form_answer,
 };
 pub use error::ActionError;

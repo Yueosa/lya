@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use lya_memory::{MemoryStore, NewMemory};
+use lya_memory::{MatchField, MemoryStore, NewMemory};
 use serde_json::{Value, json};
 
 use crate::args::{opt_str, opt_str_array, req_i64, req_str};
@@ -30,11 +30,22 @@ tags 放具体名词（工具名、项目名、报错关键字），把最具体
 记忆是长期资产，宁可少写几条扎实的，也不要攒一堆流水账。";
 
 const READ_HINT: &str = "\
-系统提示词里已经列出了**全部**记忆的索引（编号、标题、标签、摘要），需要某条\
-完整正文时用这个动作按编号读。
+系统提示词里的记忆索引给了编号、标题、标签和摘要，要看某条的完整正文就用这个\
+动作按编号读。
 
-索引里没有的东西就是不存在，不要反复换关键词试探，也不用先「查一下有没有」\
-——你已经全看见了。";
+索引里已经能看到标题和摘要，不要为了确认「这条讲的是不是我要的」而挨个读一遍；\
+先看摘要，真需要细节再读。";
+
+const SEARCH_HINT: &str = "\
+索引里只有标题、标签和摘要，**搜不到正文**；条目多的时候索引还会截断，末尾会\
+写明「另有 N 条未列出」。这两种情况下用检索。
+
+什么时候用：
+- 想找的关键词可能只出现在正文里（某个命令、某个报错、某个人名）。
+- 索引提示还有未列出的条目，而你要找的可能在里面。
+
+索引里明明白白列着的条目，直接用 memory_read 按编号读，不用先搜一遍。
+检索只返回命中片段，要完整内容仍需按编号读。";
 
 /// `memory_write`：写入或覆盖一条长期记忆。
 pub struct MemoryWriteAction {
@@ -118,6 +129,102 @@ impl Action for MemoryWriteAction {
                 Err(err) => ActionOutcome::err(format!("写入记忆失败：{err}")),
             }
         })
+    }
+}
+
+/// `memory_search`：按关键词检索记忆，含正文。
+pub struct MemorySearchAction {
+    meta: ActionMeta,
+    params: Value,
+    store: Arc<MemoryStore>,
+}
+
+impl MemorySearchAction {
+    /// 绑定记忆仓储。
+    pub fn new(store: Arc<MemoryStore>) -> Self {
+        Self {
+            meta: ActionMeta::new(
+                "memory_search",
+                "检索记忆",
+                "按关键词检索长期记忆，能搜到索引里看不见的正文内容",
+                ActionFlow::Continue,
+            ),
+            params: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "关键词。会在标题、标签、摘要和正文里找。"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "最多返回几条，默认 5。"
+                    }
+                },
+                "required": ["query"]
+            }),
+            store,
+        }
+    }
+}
+
+impl Action for MemorySearchAction {
+    fn meta(&self) -> &ActionMeta {
+        &self.meta
+    }
+
+    fn parameters(&self) -> &Value {
+        &self.params
+    }
+
+    fn prompt_hint(&self) -> &str {
+        SEARCH_HINT
+    }
+
+    fn call<'a>(&'a self, _ctx: ActionCtx<'a>, args: Value) -> ActionCallFuture<'a> {
+        Box::pin(async move {
+            let query = match req_str(&args, "query") {
+                Ok(query) => query,
+                Err(msg) => return ActionOutcome::err(msg),
+            };
+            let limit = args
+                .get("limit")
+                .and_then(Value::as_u64)
+                .map(|n| (n as usize).clamp(1, 20))
+                .unwrap_or(5);
+
+            match self.store.search(&query, limit) {
+                Ok(hits) if hits.is_empty() => {
+                    ActionOutcome::ok(format!("没有记忆命中「{query}」。"))
+                }
+                Ok(hits) => {
+                    let mut out = format!("命中 {} 条：\n", hits.len());
+                    for hit in hits {
+                        out.push_str(&format!(
+                            "\n#{} {}（命中于{}）\n   {}\n",
+                            hit.id,
+                            hit.title,
+                            field_label(hit.matched_in),
+                            hit.snippet
+                        ));
+                    }
+                    out.push_str("\n要看完整正文用 memory_read 按编号读。");
+                    ActionOutcome::ok(out)
+                }
+                Err(err) => ActionOutcome::err(format!("检索失败：{err}")),
+            }
+        })
+    }
+}
+
+/// 命中字段的中文说法。
+fn field_label(field: MatchField) -> &'static str {
+    match field {
+        MatchField::Title => "标题",
+        MatchField::Summary => "摘要",
+        MatchField::Tag => "标签",
+        MatchField::Body => "正文",
     }
 }
 

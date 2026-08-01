@@ -12,7 +12,7 @@ use crate::error::ActionError;
 use crate::registry::ActionRegistry;
 
 pub use form::{FormAction, FormAnswer, FormAnswerItem, render_form_answer};
-pub use memory::{MemoryReadAction, MemoryWriteAction};
+pub use memory::{MemoryReadAction, MemorySearchAction, MemoryWriteAction};
 pub use mode_change::RequestModeChangeAction;
 
 /// 注册全部内置动作。
@@ -23,6 +23,7 @@ pub fn register_builtins(
     memory: Arc<MemoryStore>,
 ) -> Result<(), ActionError> {
     registry.register(Arc::new(MemoryReadAction::new(Arc::clone(&memory))))?;
+    registry.register(Arc::new(MemorySearchAction::new(Arc::clone(&memory))))?;
     registry.register(Arc::new(MemoryWriteAction::new(memory)))?;
     registry.register(Arc::new(FormAction::new()))?;
     registry.register(Arc::new(RequestModeChangeAction::new()))?;
