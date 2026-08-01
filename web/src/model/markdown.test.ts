@@ -47,6 +47,38 @@ describe('renderMarkdown', () => {
     expect(styled).toContain('还在')
   })
 
+  it('挡住换了花样的注入', () => {
+    // 正文是模型生成的，而模型读过的网页里可能藏着这些。挨个试一遍，别只测
+    // 最直白的那种 <script>
+    const attempts = [
+      '[点我](javascript:alert(1))',
+      '<a href="javascript:alert(1)">点我</a>',
+      '<svg onload="alert(1)"></svg>',
+      '<iframe src="https://evil.example"></iframe>',
+      '<object data="evil.swf"></object>',
+      '<img src="x" onmouseover="alert(1)">',
+      '<a href="data:text/html,<script>alert(1)</script>">点我</a>',
+      '<form action="https://evil.example"><input name="a"></form>',
+    ]
+    for (const attempt of attempts) {
+      const html = renderMarkdown(attempt)
+      expect(html, attempt).not.toMatch(/javascript:/i)
+      expect(html, attempt).not.toMatch(/\son\w+=/i)
+      expect(html, attempt).not.toMatch(/<(script|iframe|object|embed|form)\b/i)
+    }
+  })
+
+  it('本地图片端点的令牌不会被别的地址顺走', () => {
+    // 令牌只该出现在指向 /api/local-image 的地址里。要是它跟着一个外部地址
+    // 出去了，等于把访问家目录图片的钥匙发给了别人
+    const html = renderMarkdown(
+      '![](https://evil.example/x.png)\n\n![](/home/me/a.png)',
+      IMAGES,
+    )
+    const withToken = [...html.matchAll(/src="([^"]*tok[^"]*)"/g)].map((m) => m[1]!)
+    expect(withToken.every((src) => src.startsWith('/api/local-image?'))).toBe(true)
+  })
+
   it('把家目录内的图片改写成后端接口', () => {
     const html = renderMarkdown('![猫](/home/me/图片/猫.png)', IMAGES)
     expect(html).toContain('/api/local-image?')
