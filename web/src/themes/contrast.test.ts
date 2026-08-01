@@ -63,10 +63,23 @@ function contrast(a: string, b: string): number {
 const PAIRS: { fg: string; bg: string; min: number; where: string }[] = [
   { fg: 'text', bg: 'bg', min: 4.5, where: '正文压在页面上' },
   { fg: 'text', bg: 'surface', min: 4.5, where: '正文压在面板上' },
+  // 输入框与代码块都坐在 bg-sunken 上。第一版方块主题就漏在这里：
+  // 深字压在中灰上，输入的字几乎看不见，而当时的检查没覆盖这一对
+  { fg: 'text', bg: 'bg-sunken', min: 4.5, where: '输入框里的字' },
+  { fg: 'text-faint', bg: 'bg-sunken', min: 3, where: '输入框占位符' },
   { fg: 'on-accent', bg: 'accent', min: 4.5, where: '主按钮与用户气泡' },
   { fg: 'on-accent', bg: 'danger', min: 4.5, where: '危险按钮' },
   { fg: 'text-muted', bg: 'bg', min: 3, where: '次要文字' },
   { fg: 'text-muted', bg: 'surface', min: 3, where: '面板上的次要文字' },
+  // 代码里的每一种颜色都是要读的字，注释也不例外——按惯例把注释调得很淡，
+  // 淡到读不出来就不是风格问题而是缺陷了
+  { fg: 'code-keyword', bg: 'bg-sunken', min: 4.5, where: '代码关键字' },
+  { fg: 'code-string', bg: 'bg-sunken', min: 4.5, where: '代码字符串' },
+  { fg: 'code-number', bg: 'bg-sunken', min: 4.5, where: '代码数字' },
+  { fg: 'code-comment', bg: 'bg-sunken', min: 4.5, where: '代码注释' },
+  { fg: 'code-function', bg: 'bg-sunken', min: 4.5, where: '代码函数名' },
+  { fg: 'code-type', bg: 'bg-sunken', min: 4.5, where: '代码类型名' },
+  { fg: 'code-variable', bg: 'bg-sunken', min: 4.5, where: '代码变量名' },
 ]
 
 describe('对比度', () => {

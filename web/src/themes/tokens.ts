@@ -115,6 +115,9 @@ const fonts = group('字体', {
   'text-md': '正文',
   'text-lg': '标题',
   leading: '正文行高',
+  // Minecraft 的招牌是白字加一圈硬投影，那既不是颜色也不是字号，但少了它整个
+  // 风格就不成立。另外两套主题给 none
+  'text-shadow': '文字投影',
 })
 
 /**

@@ -16,7 +16,7 @@
 
   --text: #c0caf5;
   --text-muted: #a9b1d6;
-  --text-faint: #565f89;
+  --text-faint: #6b76a8;
   /* 压在薰衣草底上的文字要用深色，原来这里是写死的 #1a1b26 */
   --on-accent: #1a1b26;
 
@@ -59,12 +59,13 @@
   --ctl-pad-x-md: 14px;
   --ctl-pad-x-lg: 18px;
 
+  --text-shadow: none;
   --transition: 0.15s ease;
 
   --code-keyword: #bb9af7;
   --code-string: #9ece6a;
   --code-number: #ff9e64;
-  --code-comment: #565f89;
+  --code-comment: #7f8ab8;
   --code-function: #7aa2f7;
   --code-type: #2ac3de;
   --code-variable: #c0caf5;

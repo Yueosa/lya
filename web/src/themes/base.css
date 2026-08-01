@@ -24,6 +24,7 @@ body {
   font-family: var(--font-ui);
   font-size: var(--text-md);
   line-height: var(--leading);
+  text-shadow: var(--text-shadow);
   -webkit-font-smoothing: antialiased;
 }
 

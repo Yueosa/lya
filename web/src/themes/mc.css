@@ -1,44 +1,61 @@
 /**
  * 方块世界。
  *
- * 这套是 token 层最狠的一次考验：它的标志性外观——按钮那圈**内斜角**（左上白、
- * 右下深灰，看着像凸起来的一块石头）——既不是颜色也不是普通阴影，而是两层
- * `inset` 投影。能塞进 `--shadow-card` 就说明抽象没跑偏；塞不进就得给它开特例。
+ * 照着游戏真实界面来：**深灰按钮、白字、一圈硬黑投影**。那圈投影是它的招牌，
+ * 少了它怎么调配色都不像。第一版我做反了——浅灰底配深字，既不像也不好看，
+ * 代码注释和输入框几乎读不出来。
  *
- * 结果是塞得进：整条 CSS 值都由主题给，所以「柔和模糊」「硬偏移」「内斜角」
- * 可以共存于同一个变量。
+ * 这套是 token 层最狠的一次考验：按钮那圈**内斜角**（左上亮、右下暗，看着像
+ * 凸起的一格）既不是颜色也不是普通阴影，而是两层 `inset` 投影。它装进了
+ * `--shadow-card` ——整条 CSS 值由主题给，所以「柔和模糊」「硬偏移」「内斜角」
+ * 能共存于同一个变量，没有为它新增 token。
  *
- * 配色取自游戏界面：石灰按钮 #C6C6C6、深灰描边、草绿强调、砖红危险。
- * 圆角全部为 0，描边 3px——比另外两套都粗，方块感就靠它。
+ * 代码配色直接用游戏自带的那 16 色（`§` 颜色码），既地道又都是亮色，压在
+ * 近黑的代码块上很清楚。
  */
 
-[data-theme='mc'] {
-  /* 石头灰打底，面板是更亮的石灰，两者都偏亮，所以正文用同一个深色就够 */
-  --bg: #8b8b8b;
-  --bg-sunken: #6e6e6e;
-  --surface: #c6c6c6;
-  --surface-hover: #d4d4d4;
-  --surface-active: #a0a0a0;
-  --overlay: rgba(0, 0, 0, 0.6);
+/*
+ * 中文点阵字。
+ *
+ * 只在这套主题的 `--font-ui` 里引用，所以用另外两套主题的人根本不会下载它——
+ * 浏览器只在字体真被用到时才拉。6.9 MB 从 localhost 读是瞬间的事，真正的代价
+ * 是将来嵌进二进制会大这么多。
+ */
+@font-face {
+  font-family: 'Zpix';
+  src: url('../assets/fonts/zpix.ttf') format('truetype');
+  font-display: swap;
+}
 
-  --text: #1a1a1a;
-  --text-muted: #3f3f3f;
-  --text-faint: #5a5a5a;
+[data-theme='mc'] {
+  /* 暗底，像游戏里被压暗的菜单背景 */
+  --bg: #313131;
+  /* 代码块与输入框：游戏里的文本框就是近黑的 */
+  --bg-sunken: #1a1a1a;
+  /* 按钮与面板的石灰面 */
+  --surface: #6e6e6e;
+  --surface-hover: #8a8a8a;
+  --surface-active: #5a5a5a;
+  --overlay: rgba(0, 0, 0, 0.7);
+
+  --text: #ffffff;
+  --text-muted: #d0d0d0;
+  --text-faint: #a0a0a0;
   --on-accent: #ffffff;
 
-  --border: #555555;
-  --border-strong: #1a1a1a;
-  /* 三套主题里最粗的一档 */
+  /* 游戏里的按钮描一圈黑边，选中时变白 */
+  --border: #000000;
+  --border-strong: #ffffff;
   --border-width: 3px;
 
-  /* 草绿比游戏里的略深一点：原色配白字只有 3.3:1，读不清 */
+  /* 草绿比游戏原色深一档：原色配白字只有 3.3:1，读不清 */
   --accent: #3e7a28;
-  --accent-soft: rgba(62, 122, 40, 0.2);
+  --accent-soft: rgba(62, 122, 40, 0.28);
   --danger: #aa0000;
-  --danger-soft: rgba(170, 0, 0, 0.18);
-  --success: #3e7a28;
+  --danger-soft: rgba(170, 0, 0, 0.28);
+  --success: #55aa55;
   --warning: #ffaa00;
-  --info: #4a4ad4;
+  --info: #55ffff;
 
   /* 方块世界里没有圆角 */
   --radius-sm: 0;
@@ -49,28 +66,25 @@
   --bubble-tail-radius: 0;
 
   /* 内斜角：左上高光、右下阴影，就是那种「凸起的一格」 */
-  --shadow-card: inset -3px -3px 0 #565656, inset 3px 3px 0 #ffffff;
-  --shadow-float: 6px 6px 0 rgba(0, 0, 0, 0.55);
-  /* 游戏里选中的按钮是描一圈白边 */
+  --shadow-card: inset -3px -3px 0 rgba(0, 0, 0, 0.45), inset 3px 3px 0 rgba(255, 255, 255, 0.28);
+  --shadow-float: 6px 6px 0 rgba(0, 0, 0, 0.6);
   --shadow-focus: 0 0 0 3px #ffffff;
 
-  /*
-   * 本机没装中文像素字体，所以中文这部分只能落到等宽字体上。真要像素感得
-   * 打包一份支持中文的点阵字（比如 Zpix，约 1.6 MB）——那是笔实打实的体积，
-   * 值不值得由用户定。在那之前，方块感主要靠斜角、直角和配色撑着。
-   */
-  --font-ui: 'Minecraft', 'Zpix', 'Press Start 2P', 'Fusion Pixel', ui-monospace, monospace;
-  --font-mono: 'Minecraft', 'Zpix', ui-monospace, 'Cascadia Code', monospace;
-  --text-xs: 11px;
+  --font-ui: 'Zpix', ui-monospace, monospace;
+  --font-mono: 'Zpix', ui-monospace, 'Cascadia Code', monospace;
+  /* 点阵字要落在整数倍字号上才不糊，Zpix 的字身是 12px */
+  --text-xs: 12px;
   --text-sm: 12px;
-  --text-md: 14px;
-  --text-lg: 17px;
-  --leading: 1.7;
+  --text-md: 12px;
+  --text-lg: 24px;
+  --leading: 1.8;
+  /* 招牌的那圈硬投影 */
+  --text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.65);
 
-  /* 按钮比另外两套敦实一些，方块感的一部分 */
+  /* 按钮比另外两套敦实，方块感的一部分 */
   --ctl-h-sm: 28px;
-  --ctl-h-md: 36px;
-  --ctl-h-lg: 44px;
+  --ctl-h-md: 38px;
+  --ctl-h-lg: 46px;
   --ctl-pad-x-sm: 12px;
   --ctl-pad-x-md: 18px;
   --ctl-pad-x-lg: 24px;
@@ -78,37 +92,50 @@
   /* 像素风不该有平滑过渡，一格是一格 */
   --transition: 0s;
 
-  --code-keyword: #aa00aa;
-  --code-string: #2d7a2d;
-  --code-number: #aa5500;
-  --code-comment: #5a5a5a;
-  --code-function: #0000aa;
-  --code-type: #00707a;
-  --code-variable: #1a1a1a;
+  /* 游戏自带的 16 色，压在近黑代码块上正合适 */
+  --code-keyword: #ff55ff;
+  --code-string: #55ff55;
+  --code-number: #ffaa00;
+  --code-comment: #aaaaaa;
+  --code-function: #55ffff;
+  --code-type: #ffff55;
+  --code-variable: #ffffff;
 }
 
 /*
  * ── 逃生舱 ──────────────────────────────────────────────────────
  *
- * 以下是 token 表达不了、只有这套主题需要的东西。它们针对**语义类名**，
- * 所以类名是主题的公开接口，改名字会悄悄破坏这里。
+ * token 表达不了、只有这套主题需要的东西。它们针对**语义类名**——所以类名是
+ * 主题的公开接口，改名字会悄悄破坏这里。
  */
 
-/* 按下去往下陷一格，像真的把按钮摁了进去 */
+/* 点阵字不能抗锯齿，糊了就没有像素感了 */
+[data-theme='mc'] {
+  -webkit-font-smoothing: none;
+  font-smooth: never;
+}
+
+/* 代码块不加投影：等宽小字本来就密，再糊一层就读不动了 */
+[data-theme='mc'] pre,
+[data-theme='mc'] code {
+  text-shadow: none;
+}
+
+/* 按下去往下陷一格，斜角同时翻个面，像真把按钮摁了进去 */
 [data-theme='mc'] .btn:active:not(:disabled) {
   transform: translate(1px, 1px);
-  box-shadow: inset 3px 3px 0 #565656, inset -3px -3px 0 #ffffff;
+  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.45), inset -3px -3px 0 rgba(255, 255, 255, 0.2);
 }
 
-/* 主按钮和危险按钮是纯色，白色高光压上去会脏，只留暗侧 */
+/* 主按钮与危险按钮是纯色，白高光压上去会脏，只留暗侧 */
 [data-theme='mc'] .btn--primary,
 [data-theme='mc'] .btn--danger {
-  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.35);
+  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.4);
 }
 
-/* 输入框是凹进去的，斜角方向和按钮相反 */
+/* 输入框是凹进去的，斜角与按钮相反 */
 [data-theme='mc'] .input {
-  box-shadow: inset 3px 3px 0 #565656, inset -3px -3px 0 #ffffff;
+  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.55), inset -3px -3px 0 rgba(255, 255, 255, 0.15);
 }
 
 /* 缩放图片不插值，保住像素边缘 */

@@ -18,7 +18,7 @@
 
   --text: #2d2d3f;
   --text-muted: #8b8b9e;
-  --text-faint: #b0b0c0;
+  --text-faint: #85859a;
   /* 粉底上要用深字。白字看着「干净」，实测对比度只有 1.87:1，远低于可读
      标准的 4.5:1；换成正文色是 7.16:1。contrast.test.ts 钉着这条 */
   --on-accent: #2d2d3f;
@@ -63,13 +63,14 @@
   --ctl-pad-x-md: 14px;
   --ctl-pad-x-lg: 18px;
 
+  --text-shadow: none;
   --transition: 0.2s ease;
 
-  --code-keyword: #d05f8c;
-  --code-string: #4a9b6e;
-  --code-number: #c96a3b;
-  --code-comment: #a8a8bb;
-  --code-function: #3d87c9;
-  --code-type: #8a6fc4;
+  --code-keyword: #a8306a;
+  --code-string: #24704a;
+  --code-number: #9c4413;
+  --code-comment: #6f6f85;
+  --code-function: #1f5e94;
+  --code-type: #5b3f9c;
   --code-variable: #2d2d3f;
 }
