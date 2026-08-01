@@ -297,6 +297,28 @@ pub async fn subscribe(
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
+/// 订阅全局事件流。
+///
+/// 与会话流分开是眼下最简单的做法；因为信封自带 `scope`，将来若要合并成一条
+/// 连接同时承载两者，客户端的分发逻辑不用改。
+pub async fn subscribe_global(
+    State(hub): Hub,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut rx = hub.subscribe_global();
+    let stream = async_stream_helper(async_stream::stream! {
+        loop {
+            match rx.recv().await {
+                Ok(envelope) => yield sse_event(&envelope.kind.clone(), &envelope),
+                // 全局事件都是「有变化，去重新拉一下」的通知，漏几条不影响，
+                // 客户端下次收到照常处理
+                Err(RecvError::Lagged(_)) => continue,
+                Err(RecvError::Closed) => break,
+            }
+        }
+    });
+    Sse::new(stream).keep_alive(KeepAlive::default())
+}
+
 /// 让类型推断看清返回的是什么流。
 fn async_stream_helper<S>(stream: S) -> S
 where

@@ -31,10 +31,13 @@ pub mod core;
 pub mod error;
 pub mod models;
 pub mod runtime;
+pub mod write;
 
 pub use core::{CoreConfig, DbConfig, HttpSettings, LogConfig, LogLevel, ServerConfig};
 pub use error::ConfigError;
+pub use write::{edit_file, merge_table, write_persona, write_runtime};
 pub use models::{ModelCatalog, ModelEntry};
+pub use models::{CAPABILITY_TEXT, CAPABILITY_VISION};
 pub use runtime::{
     AgentSettings, MemorySettings, RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings,
 };

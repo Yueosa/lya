@@ -96,7 +96,7 @@ fn fixture() -> Fixture {
         .id;
     Fixture {
         _dir: dir,
-        hub: SessionHub::new(agent),
+        hub: SessionHub::new(agent, lya_http::HttpClient::with_defaults().unwrap()),
         sessions,
         stop,
         session_id,
@@ -452,6 +452,23 @@ async fn session_without_custom_tools_follows_the_global_default() {
         .unwrap();
     let meta = sessions.get_session(&meta.id).unwrap().unwrap();
     assert_eq!(agent.effective_tools(&meta), Some(vec!["bash".to_string()]));
+}
+
+#[tokio::test]
+async fn global_events_reach_their_own_subscribers() {
+    let fx = fixture();
+    let mut rx = fx.hub.subscribe_global();
+
+    fx.hub
+        .broadcast_global("config_changed", serde_json::json!({ "file": "runtime" }));
+
+    let event = tokio::time::timeout(Duration::from_secs(1), rx.recv())
+        .await
+        .expect("应当很快收到")
+        .unwrap();
+    assert_eq!(event.scope, "global", "全局事件不属于任何会话");
+    assert_eq!(event.kind, "config_changed");
+    assert_eq!(event.payload["file"], "runtime");
 }
 
 #[tokio::test]

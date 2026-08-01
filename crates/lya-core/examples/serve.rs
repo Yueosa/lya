@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .clone();
 
     let agent = Arc::new(Agent::new(AgentParts {
-        backend: LlmClient::new(http),
+        backend: LlmClient::new(http.clone()),
         endpoints,
         default_model,
         sessions,
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         default_enabled_tools: config.runtime.tools.enabled.clone(),
     })?);
 
-    let hub = SessionHub::new(agent);
+    let hub = SessionHub::new(agent, http);
     let app = router(hub);
 
     // 端口被占用就依次往后试，和配置里的 port_backoff_max 对应

@@ -100,6 +100,43 @@ max_tokens = 4096
 }
 
 #[test]
+fn capabilities_default_to_text_only() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        MODELS_FILE,
+        r#"
+[[models]]
+id = "plain"
+name = "只会说话的"
+base_url = "https://a"
+api_key = "k"
+
+[[models]]
+id = "eyes"
+name = "会看图的"
+base_url = "https://b"
+api_key = "k"
+capabilities = ["text", "vision"]
+"#,
+    );
+
+    let config = Config::load_from(dir.path()).unwrap();
+    let plain = config.models.get("plain").unwrap();
+    // 没写 capabilities 就按纯文本算，老配置不用改也能跑
+    assert!(plain.can("text"));
+    assert!(!plain.can("vision"));
+    assert_eq!(plain.effective_capabilities(), vec!["text".to_string()]);
+
+    let eyes = config.models.get("eyes").unwrap();
+    assert!(eyes.can("vision"));
+
+    // 视觉工具靠它挑「谁能看图」，不用让用户再配一遍
+    assert_eq!(config.models.first_with("vision").unwrap().id, "eyes");
+    assert!(config.models.first_with("video").is_none());
+}
+
+#[test]
 fn dangling_default_model_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     write(

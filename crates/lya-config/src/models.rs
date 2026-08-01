@@ -8,6 +8,11 @@ use serde_json::{Map, Value};
 
 use crate::error::ConfigError;
 
+/// 文本生成，缺省能力。
+pub const CAPABILITY_TEXT: &str = "text";
+/// 原生看图。
+pub const CAPABILITY_VISION: &str = "vision";
+
 /// `models.toml` 的内容。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -30,6 +35,13 @@ impl ModelCatalog {
     /// 全部 id。
     pub fn ids(&self) -> Vec<&str> {
         self.models.iter().map(|entry| entry.id.as_str()).collect()
+    }
+
+    /// 找一个具备某项能力的模型。
+    ///
+    /// 视觉工具靠它挑「谁能看图」，而不必让用户再配一遍。
+    pub fn first_with(&self, capability: &str) -> Option<&ModelEntry> {
+        self.models.iter().find(|entry| entry.can(capability))
     }
 
     /// 结构性校验：字段非空、id 不重复。
@@ -61,6 +73,15 @@ pub struct ModelEntry {
     pub base_url: String,
     /// API 密钥。
     pub api_key: String,
+    /// 这个模型会干什么，如 `text` / `vision`。
+    ///
+    /// 用自由字符串而不是固定枚举：供应商冒出新能力时（视频、语音、embedding）
+    /// 加个标签就行，不用改代码。缺省视作 `["text"]`。
+    ///
+    /// 它让「让文本模型看图」这类错配能在发请求之前就被挡下来，也让界面能标出
+    /// 每个模型的本事。
+    #[serde(default)]
+    pub capabilities: Vec<String>,
     /// 透传字段，直接作为请求体的一部分（应包含 `model`）。
     #[serde(flatten)]
     pub params: Map<String, Value>,
@@ -83,6 +104,23 @@ impl ModelEntry {
             }
         }
         Ok(())
+    }
+
+    /// 是否具备某项能力；没写 `capabilities` 时按纯文本模型算。
+    pub fn can(&self, capability: &str) -> bool {
+        if self.capabilities.is_empty() {
+            return capability == CAPABILITY_TEXT;
+        }
+        self.capabilities.iter().any(|item| item == capability)
+    }
+
+    /// 生效的能力清单（补上缺省值）。
+    pub fn effective_capabilities(&self) -> Vec<String> {
+        if self.capabilities.is_empty() {
+            vec![CAPABILITY_TEXT.to_string()]
+        } else {
+            self.capabilities.clone()
+        }
     }
 
     /// `api_key` 是否还是模板里的占位符。

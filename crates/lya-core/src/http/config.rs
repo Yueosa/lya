@@ -1,0 +1,243 @@
+//! 配置读写与模型探测。
+//!
+//! `core.toml` 只读展示——端口、日志、库路径这些改了要重启进程才生效，界面上能改
+//! 却不生效比不给改更让人困惑。其余三个文件可写，写回时由 `lya-config` 用
+//! `toml_edit` 保住注释与字段顺序。
+//!
+//! 每次写入都广播一条 `global` 事件：多端场景下，手机改了默认模型，网页端的设置页
+//! 得跟着变。这也是 LyaSSE 里 `global` 作用域的第一个真实产出方。
+
+use std::sync::Arc;
+
+use axum::Json;
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use lya_config::{Config, CoreConfig, ModelEntry, RuntimeConfig};
+use lya_llm::LlmClient;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+
+use crate::hub::{HubError, SessionHub};
+use crate::http::sessions::ApiError;
+
+type Hub = State<Arc<SessionHub<LlmClient>>>;
+
+/// 配置总览。
+#[derive(Debug, Serialize)]
+pub struct ConfigView {
+    /// 进程级配置。
+    pub core: CoreConfig,
+    /// 运行时默认值。
+    pub runtime: RuntimeConfig,
+    /// 模型清单；密钥已打码。
+    pub models: Vec<MaskedModel>,
+    /// 全局人设。
+    pub persona: Option<String>,
+    /// 告诉界面 core 那一段不可改。
+    pub core_readonly: bool,
+}
+
+/// 打码后的模型条目。
+///
+/// 界面需要知道「配没配密钥」，但没必要把密钥本身发进浏览器。
+#[derive(Debug, Serialize)]
+pub struct MaskedModel {
+    /// 内部 id。
+    pub id: String,
+    /// 展示名。
+    pub name: String,
+    /// API 基地址。
+    pub base_url: String,
+    /// 打码后的密钥。
+    pub api_key_masked: String,
+    /// 密钥是否还是模板占位符。
+    pub api_key_placeholder: bool,
+    /// 能力标签。
+    pub capabilities: Vec<String>,
+    /// 透传进请求体的其余参数。
+    pub params: serde_json::Map<String, Value>,
+}
+
+/// 读取全部配置。
+pub async fn read(State(_hub): Hub) -> Result<Json<ConfigView>, ApiError> {
+    let config = load()?;
+    Ok(Json(ConfigView {
+        core: config.core,
+        runtime: config.runtime,
+        models: config.models.models.iter().map(mask).collect(),
+        persona: config.persona,
+        core_readonly: true,
+    }))
+}
+
+/// 模型清单（供界面选择）。
+pub async fn models(State(_hub): Hub) -> Result<Json<Vec<MaskedModel>>, ApiError> {
+    Ok(Json(load()?.models.models.iter().map(mask).collect()))
+}
+
+/// 要改的表名与键值。
+#[derive(Debug, Deserialize)]
+pub struct RuntimeBody {
+    /// 形如 `{"agent": {"max_tool_rounds": 8}}`，只覆盖提到的键。
+    #[serde(flatten)]
+    pub tables: serde_json::Map<String, Value>,
+}
+
+/// 改 `runtime.toml`。
+pub async fn write_runtime(
+    State(hub): Hub,
+    Json(body): Json<RuntimeBody>,
+) -> Result<Json<RuntimeConfig>, ApiError> {
+    let dir = lya_config::data_root().map_err(invalid)?;
+    lya_config::write_runtime(&dir, &body.tables).map_err(invalid)?;
+
+    // 立刻回读：既验证写出去的东西还解析得通，也拿到生效后的值
+    let config = load()?;
+    hub.broadcast_global("config_changed", json!({ "file": "runtime" }));
+    Ok(Json(config.runtime))
+}
+
+/// 人设正文。
+#[derive(Debug, Deserialize)]
+pub struct PersonaBody {
+    /// 空字符串表示回退到内置默认人设。
+    pub text: String,
+}
+
+/// 改 `persona.toml`。
+pub async fn write_persona(
+    State(hub): Hub,
+    Json(body): Json<PersonaBody>,
+) -> Result<StatusCode, ApiError> {
+    let dir = lya_config::data_root().map_err(invalid)?;
+    lya_config::write_persona(&dir, &body.text).map_err(invalid)?;
+    hub.broadcast_global("config_changed", json!({ "file": "persona" }));
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// 取某个配置文件的原文，供「高级编辑」直接看 TOML。
+pub async fn raw(Path(file): Path<String>) -> Result<String, ApiError> {
+    let name = match file.as_str() {
+        "core" => lya_config::CORE_FILE,
+        "runtime" => lya_config::RUNTIME_FILE,
+        "models" => lya_config::MODELS_FILE,
+        "persona" => lya_config::PERSONA_FILE,
+        other => return Err(HubError::Invalid(format!("没有名为 {other} 的配置文件")).into()),
+    };
+    let path = lya_config::data_root().map_err(invalid)?.join(name);
+    std::fs::read_to_string(&path)
+        .map_err(|err| HubError::Invalid(format!("{} 读取失败：{err}", path.display())).into())
+}
+
+/// 探测入参。
+#[derive(Debug, Deserialize)]
+pub struct ProbeBody {
+    /// API 基地址。
+    pub base_url: String,
+    /// API 密钥。
+    pub api_key: String,
+}
+
+/// 探测结果。
+#[derive(Debug, Serialize)]
+pub struct ProbeResult {
+    /// 是否连通。
+    pub ok: bool,
+    /// 该供应商声明支持的模型 id。
+    pub models: Vec<String>,
+    /// 失败原因。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// 用 base_url + key 打一次 `GET /models`。
+///
+/// 选 `/models` 而不是发一次试探性对话：它不花 token，而且几乎所有 OpenAI 兼容
+/// 服务都实现了。这把「手填模型 id 猜对不对」变成「点一下看列表」。
+///
+/// 连不通不算服务器错误——那是探测的正常结果之一，所以照常返回 200，用 `ok`
+/// 字段表达成败，界面才好显示原因。
+pub async fn probe(State(hub): Hub, Json(body): Json<ProbeBody>) -> Json<ProbeResult> {
+    let url = format!("{}/models", body.base_url.trim_end_matches('/'));
+    let http = hub.http();
+    let request = http
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", body.api_key));
+
+    let response = match http.send(request).await {
+        Ok(response) => response,
+        Err(err) => return Json(ProbeResult::failed(format!("连不上：{err}"))),
+    };
+    if !response.is_success() {
+        let status = response.status();
+        return Json(ProbeResult::failed(format!("对端返回 HTTP {status}")));
+    }
+    let payload: Value = match response.json().await {
+        Ok(payload) => payload,
+        Err(err) => return Json(ProbeResult::failed(format!("响应不是合法 JSON：{err}"))),
+    };
+
+    let mut models: Vec<String> = payload["data"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item["id"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    models.sort();
+    Json(ProbeResult {
+        ok: true,
+        models,
+        error: None,
+    })
+}
+
+impl ProbeResult {
+    fn failed(reason: String) -> Self {
+        Self {
+            ok: false,
+            models: Vec::new(),
+            error: Some(reason),
+        }
+    }
+}
+
+fn load() -> Result<Config, ApiError> {
+    Config::load().map_err(invalid).map_err(Into::into)
+}
+
+fn invalid(err: lya_config::ConfigError) -> HubError {
+    HubError::Invalid(err.to_string())
+}
+
+/// 打码：留前三位和后四位，够辨认是哪一个就行。
+fn mask(entry: &ModelEntry) -> MaskedModel {
+    let key = entry.api_key.trim();
+    let masked = if entry.api_key_is_placeholder() {
+        "（未填写）".to_string()
+    } else if key.chars().count() <= 8 {
+        "…".to_string()
+    } else {
+        let head: String = key.chars().take(3).collect();
+        let tail: String = key
+            .chars()
+            .rev()
+            .take(4)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!("{head}…{tail}")
+    };
+    MaskedModel {
+        id: entry.id.clone(),
+        name: entry.name.clone(),
+        base_url: entry.base_url.clone(),
+        api_key_masked: masked,
+        api_key_placeholder: entry.api_key_is_placeholder(),
+        capabilities: entry.effective_capabilities(),
+        params: entry.params.clone(),
+    }
+}

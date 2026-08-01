@@ -5,6 +5,7 @@
 //! 手机上看到的是同一份流，而不是各自请求各自的响应。
 
 pub mod guard;
+mod config;
 mod introspect;
 mod memories;
 mod sessions;
@@ -45,6 +46,15 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         // 白盒：模型手里有什么，用户看得见
         .route("/api/tools", get(introspect::tools))
         .route("/api/actions", get(introspect::actions))
+        // 配置：core 只读，其余可写；写入会广播 global 事件
+        .route("/api/config", get(config::read))
+        .route("/api/config/runtime", axum::routing::put(config::write_runtime))
+        .route("/api/config/persona", axum::routing::put(config::write_persona))
+        .route("/api/config/raw/{file}", get(config::raw))
+        .route("/api/models", get(config::models))
+        .route("/api/models/probe", post(config::probe))
+        // 全局事件：配置变更，以后还有桌面通知、会话列表变化
+        .route("/api/events", get(sessions::subscribe_global))
         // 记忆：模型只能读写，删除只走这里
         .route(
             "/api/memories",

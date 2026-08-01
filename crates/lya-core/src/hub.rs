@@ -15,12 +15,13 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::StreamExt;
 use lya_agent::{Agent, AgentError, AgentEvent, CallKind, CancelToken, ChatBackend};
+use lya_http::HttpClient;
 use lya_llm::LlmClient;
 use lya_session::{MessagePayload, MessageRecord, MessageRole, SessionError, SessionMeta};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
-use crate::event::{self, Envelope};
+use crate::event::{self, Envelope, Scope};
 
 /// 广播通道容量。订阅者落后超过这么多条就会收到 `Lagged`，
 /// 届时重发一次快照即可对齐。
@@ -153,20 +154,51 @@ struct SessionChannel {
 /// 这样轮次串行、取消、缓冲这些逻辑不必联网也能验。
 pub struct SessionHub<B: ChatBackend = LlmClient> {
     agent: Arc<Agent<B>>,
+    /// 共享出站客户端，供探测模型可用性之类的杂事使用。
+    http: HttpClient,
     /// 每个会话一个通道；外层锁只在增删会话时争用，
     /// 高频的事件转发只锁内层。
     channels: Mutex<HashMap<String, Arc<Mutex<SessionChannel>>>>,
+    /// 全局作用域的广播；桌面通知、配置变更等走这里。
+    global: broadcast::Sender<Envelope>,
     seq: AtomicU64,
 }
 
 impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 用组装好的 agent 构造。
-    pub fn new(agent: Arc<Agent<B>>) -> Arc<Self> {
+    pub fn new(agent: Arc<Agent<B>>, http: HttpClient) -> Arc<Self> {
+        let (global, _) = broadcast::channel(BROADCAST_CAPACITY);
         Arc::new(Self {
             agent,
+            http,
             channels: Mutex::new(HashMap::new()),
+            global,
             seq: AtomicU64::new(0),
         })
+    }
+
+    /// 共享 HTTP 客户端。
+    pub fn http(&self) -> &HttpClient {
+        &self.http
+    }
+
+    /// 订阅全局事件。
+    pub fn subscribe_global(&self) -> broadcast::Receiver<Envelope> {
+        self.global.subscribe()
+    }
+
+    /// 广播一条全局事件。
+    ///
+    /// 目前的产出方是配置变更；桌面通知、会话列表变化将来也走这里——事件信封
+    /// 从一开始就带 `scope`，加新来源不用改客户端的分发逻辑。
+    pub fn broadcast_global(&self, kind: &str, payload: serde_json::Value) {
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+        let _ = self.global.send(Envelope {
+            scope: Scope::Global.as_wire(),
+            kind: kind.to_string(),
+            seq,
+            payload,
+        });
     }
 
     /// 底层 agent，供 HTTP 层做会话 CRUD 与 HITL 答复。
