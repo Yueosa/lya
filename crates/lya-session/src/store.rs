@@ -381,6 +381,27 @@ impl SessionStore {
         })
     }
 
+    /// 会话内**全部**消息，按 `sort_key` 正序。
+    ///
+    /// 与 `path_to_active_leaf` 不同：那个只给当前分支，这个给整棵树，
+    /// 用于画分叉图与逐节点回看（每条消息本身就带着思考、工具调用、耗时，
+    /// 所以「调用追踪」不需要另建一套记录）。
+    pub fn list_messages(&self, session_id: &str) -> Result<Vec<MessageRecord>, SessionError> {
+        self.db.read(|conn| {
+            ensure_session(conn, session_id)?;
+            let mut stmt = conn.prepare(
+                "SELECT id, parent_id, sort_key, message_json, created_at
+                 FROM messages WHERE session_id = ?1 ORDER BY sort_key ASC",
+            )?;
+            let raws = stmt
+                .query_map([session_id], RawMessage::from_row)?
+                .collect::<Result<Vec<_>, _>>()?;
+            raws.into_iter()
+                .map(|raw| raw.into_record(session_id))
+                .collect()
+        })
+    }
+
     /// 读取单条消息。
     pub fn get_message(
         &self,

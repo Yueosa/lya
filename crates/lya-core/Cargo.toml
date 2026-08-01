@@ -14,8 +14,10 @@ lya-action = { workspace = true }
 lya-agent = { workspace = true }
 lya-config = { workspace = true }
 lya-llm = { workspace = true }
+lya-memory = { workspace = true }
 lya-mode = { workspace = true }
 lya-session = { workspace = true }
+lya-tool = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -23,11 +25,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal"] }
 
 [dev-dependencies]
 async-stream = { workspace = true }
-lya-action = { workspace = true }
 lya-db = { workspace = true }
 lya-http = { workspace = true }
-lya-memory = { workspace = true }
-lya-mode = { workspace = true }
 lya-prompt = { workspace = true }
-lya-tool = { workspace = true }
 tempfile = { workspace = true }

@@ -220,6 +220,7 @@ fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: max_rounds,
+        default_enabled_tools: None,
     })
     .unwrap();
 
@@ -725,6 +726,7 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        default_enabled_tools: None,
     })
     .unwrap();
 
@@ -912,6 +914,7 @@ fn fixture_with_guarded(turns: Vec<Turn>) -> (Fixture, Arc<Mutex<Vec<String>>>) 
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        default_enabled_tools: None,
     })
     .unwrap();
     (fx, ran)
@@ -1079,6 +1082,7 @@ async fn session_model_selection_is_honoured() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        default_enabled_tools: None,
     })
     .unwrap();
 
@@ -1142,6 +1146,7 @@ async fn default_model_must_exist() {
         actions: Arc::new(ActionRegistry::new()),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        default_enabled_tools: None,
     });
     assert!(matches!(result.err(), Some(lya_agent::AgentError::Invalid(_))));
 }
@@ -1195,6 +1200,7 @@ async fn name_collision_is_rejected_at_construction() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        default_enabled_tools: None,
     });
     assert!(matches!(
         result.err(),

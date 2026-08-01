@@ -17,7 +17,7 @@ use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::event::Envelope;
-use crate::hub::{BranchInfo, HubError, SessionHub, Snapshot};
+use crate::hub::{BranchInfo, HubError, SessionHub, SessionTree, Snapshot};
 
 type Hub = State<Arc<SessionHub>>;
 
@@ -136,6 +136,11 @@ pub async fn send(
         .append(&id, MessagePayload::user_text(body.text), false)?;
     hub.start_turn(&id)?;
     Ok(StatusCode::ACCEPTED)
+}
+
+/// 整棵消息树，供分叉图与逐节点回看。
+pub async fn tree(State(hub): Hub, Path(id): Path<String>) -> Result<Json<SessionTree>, ApiError> {
+    Ok(Json(hub.tree(&id)?))
 }
 
 /// 列出分支端点。
@@ -309,6 +314,7 @@ fn sse_event(kind: &str, envelope: &Envelope) -> Result<Event, Infallible> {
 /// HTTP 层错误。
 #[derive(Debug)]
 pub struct ApiError {
+    /// HTTP 状态码。
     status: StatusCode,
     message: String,
 }

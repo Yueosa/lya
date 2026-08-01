@@ -85,6 +85,7 @@ fn fixture() -> Fixture {
             actions: Arc::new(ActionRegistry::new()),
             prompt: PromptBuilder::new(),
             max_tool_rounds: 4,
+            default_enabled_tools: None,
         })
         .unwrap(),
     );
@@ -379,6 +380,78 @@ async fn regenerate_needs_a_user_message() {
         fx.hub.regenerate(&fx.session_id).unwrap_err(),
         lya_core::HubError::Invalid(_)
     ));
+}
+
+#[tokio::test]
+async fn tree_exposes_every_branch_not_just_the_active_path() {
+    let fx = fixture();
+    fx.say("你好");
+    run_once(&fx).await;
+    arm(&fx);
+    fx.hub.regenerate(&fx.session_id).unwrap();
+    settle(&fx).await;
+
+    let tree = fx.hub.tree(&fx.session_id).unwrap();
+    assert_eq!(tree.leaves.len(), 2);
+    assert_eq!(tree.nodes.len(), 3, "一条用户消息 + 两条并列回答");
+    assert!(tree.active_leaf_id.is_some());
+
+    // 父子关系画得出分叉图：两条回答挂在同一个父节点下
+    let user = tree.nodes.iter().find(|n| n.parent_id.is_none()).unwrap();
+    let children: Vec<_> = tree
+        .nodes
+        .iter()
+        .filter(|n| n.parent_id == Some(user.id))
+        .collect();
+    assert_eq!(children.len(), 2);
+
+    // 每个节点自带那一步的全部信息，追踪不需要另建一套记录
+    assert!(children[0].payload.openai.is_some());
+    assert!(children[0].created_at >= user.created_at);
+}
+
+#[tokio::test]
+async fn session_without_custom_tools_follows_the_global_default() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Arc::new(
+        Db::open(dir.path().join("lya.db"))
+            .unwrap()
+            .with_migration(lya_session::MIGRATION_SQL)
+            .with_migration(lya_memory::MIGRATION_SQL),
+    );
+    db.migrate().unwrap();
+    let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
+    let memory = Arc::new(MemoryStore::with_db(db));
+
+    let agent = Agent::new(AgentParts {
+        backend: SlowBackend {
+            stop: Arc::new(AtomicBool::new(true)),
+        },
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")],
+        default_model: "default".into(),
+        sessions: Arc::clone(&sessions),
+        memory,
+        tools: Arc::new(ToolRegistry::new()),
+        actions: Arc::new(ActionRegistry::new()),
+        prompt: PromptBuilder::new(),
+        max_tool_rounds: 4,
+        default_enabled_tools: Some(vec!["file_read".into()]),
+    })
+    .unwrap();
+
+    let meta = sessions.create_session(CreateSession::default()).unwrap();
+    assert_eq!(
+        agent.effective_tools(&meta),
+        Some(vec!["file_read".to_string()]),
+        "没自定义过的会话应当跟随全局，而不是一律全开"
+    );
+
+    // 会话自己定了就以会话为准
+    sessions
+        .set_enabled_tools(&meta.id, Some(&["bash".to_string()]))
+        .unwrap();
+    let meta = sessions.get_session(&meta.id).unwrap().unwrap();
+    assert_eq!(agent.effective_tools(&meta), Some(vec!["bash".to_string()]));
 }
 
 #[tokio::test]

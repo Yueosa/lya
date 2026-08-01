@@ -27,4 +27,4 @@ pub mod hub;
 
 pub use event::{Envelope, Scope};
 pub use http::router;
-pub use hub::{BranchInfo, CallState, HubError, SessionHub, Snapshot, TurnBuffer};
+pub use hub::{BranchInfo, CallState, HubError, SessionHub, SessionTree, Snapshot, TurnBuffer};

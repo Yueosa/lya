@@ -5,6 +5,8 @@
 //! 手机上看到的是同一份流，而不是各自请求各自的响应。
 
 pub mod guard;
+mod introspect;
+mod memories;
 mod sessions;
 
 use std::sync::Arc;
@@ -34,7 +36,27 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         .route("/api/sessions/{id}/regenerate", post(sessions::regenerate))
         .route("/api/sessions/{id}/stop", post(sessions::stop))
         .route("/api/sessions/{id}/hitl", post(sessions::hitl))
+        .route("/api/sessions/{id}/tree", get(sessions::tree))
         .route("/api/sessions/{id}/subscribe", get(sessions::subscribe))
+        .route(
+            "/api/sessions/{id}/tools/{tool}",
+            axum::routing::put(introspect::toggle_tool),
+        )
+        // 白盒：模型手里有什么，用户看得见
+        .route("/api/tools", get(introspect::tools))
+        .route("/api/actions", get(introspect::actions))
+        // 记忆：模型只能读写，删除只走这里
+        .route(
+            "/api/memories",
+            get(memories::list).post(memories::create),
+        )
+        .route("/api/memories/search", get(memories::search))
+        .route(
+            "/api/memories/{id}",
+            get(memories::read)
+                .patch(memories::update)
+                .delete(memories::delete),
+        )
         .layer(axum::middleware::from_fn(guard::same_origin))
         .with_state(hub)
 }

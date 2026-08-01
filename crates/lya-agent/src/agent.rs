@@ -12,7 +12,7 @@ use lya_mode::Mode;
 use lya_prompt::{PromptBuilder, PromptInput};
 use lya_session::{
     ConfirmStepBlock, HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus,
-    OpenAiFunction, OpenAiMessage, OpenAiToolCall, SessionStore,
+    OpenAiFunction, OpenAiMessage, OpenAiToolCall, SessionMeta, SessionStore,
 };
 use lya_tool::{ConfirmRequest, ToolCtx, ToolRegistry};
 use serde_json::{Value, json};
@@ -44,6 +44,10 @@ pub struct AgentParts<B: ChatBackend> {
     pub prompt: PromptBuilder,
     /// 单轮内 LLM 与工具最多来回几次。
     pub max_tool_rounds: u32,
+    /// 会话没自定义工具列表时用的默认值。
+    ///
+    /// `None` 表示默认启用全部。
+    pub default_enabled_tools: Option<Vec<String>>,
 }
 
 /// 一轮对话的驱动器。
@@ -61,6 +65,7 @@ pub struct Agent<B: ChatBackend> {
     actions: Arc<ActionRegistry>,
     prompt: PromptBuilder,
     max_tool_rounds: u32,
+    default_enabled_tools: Option<Vec<String>>,
 }
 
 impl<B: ChatBackend> Agent<B> {
@@ -96,7 +101,30 @@ impl<B: ChatBackend> Agent<B> {
             actions: parts.actions,
             prompt: parts.prompt,
             max_tool_rounds: parts.max_tool_rounds,
+            default_enabled_tools: parts.default_enabled_tools,
         })
+    }
+
+    /// 工具目录，供界面展示「模型手里有什么」。
+    pub fn tools(&self) -> &ToolRegistry {
+        &self.tools
+    }
+
+    /// 动作目录。
+    pub fn actions(&self) -> &ActionRegistry {
+        &self.actions
+    }
+
+    /// 会话实际生效的工具名单。
+    ///
+    /// 会话没自定义（`None`）时**跟随全局默认**，而不是一律「全部启用」——
+    /// 否则用户在配置里关掉某个工具，已有会话完全不受影响，很反直觉。
+    /// 想让某个会话就是要全部，把它显式列全即可。
+    pub fn effective_tools(&self, session: &SessionMeta) -> Option<Vec<String>> {
+        session
+            .enabled_tools
+            .clone()
+            .or_else(|| self.default_enabled_tools.clone())
     }
 
     /// 取出会话该用的端点。
@@ -189,9 +217,9 @@ impl<B: ChatBackend> Agent<B> {
                     }
                 };
 
-                // None = 会话没限制过，全部工具都可见
-                let enabled: Option<Vec<&str>> = meta
-                    .enabled_tools
+                // 会话没自定义就跟随全局默认
+                let enabled = self.effective_tools(&meta);
+                let enabled: Option<Vec<&str>> = enabled
                     .as_ref()
                     .map(|names| names.iter().map(String::as_str).collect());
                 let mode_bundle = meta.work_mode.resolve(&self.tools, enabled.as_deref());
@@ -503,8 +531,8 @@ impl<B: ChatBackend> Agent<B> {
             .sessions
             .get_session(session_id)?
             .ok_or_else(|| AgentError::Invalid(format!("会话不存在：{session_id}")))?;
-        let enabled: Option<Vec<&str>> = meta
-            .enabled_tools
+        let enabled = self.effective_tools(&meta);
+        let enabled: Option<Vec<&str>> = enabled
             .as_ref()
             .map(|names| names.iter().map(String::as_str).collect());
         let allowed = meta.work_mode.resolve(&self.tools, enabled.as_deref()).tools;

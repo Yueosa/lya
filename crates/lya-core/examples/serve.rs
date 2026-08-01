@@ -89,6 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         actions: Arc::new(actions),
         prompt,
         max_tool_rounds: config.runtime.agent.max_tool_rounds,
+        default_enabled_tools: config.runtime.tools.enabled.clone(),
     })?);
 
     let hub = SessionHub::new(agent);

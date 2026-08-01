@@ -96,6 +96,17 @@ pub struct BranchInfo {
     pub created_at: String,
 }
 
+/// 整棵消息树。
+#[derive(Debug, Clone, Serialize)]
+pub struct SessionTree {
+    /// 当前所在的叶节点。
+    pub active_leaf_id: Option<i64>,
+    /// 所有分支端点。
+    pub leaves: Vec<i64>,
+    /// 全部节点，按时间正序；`parent_id` 描述父子关系。
+    pub nodes: Vec<MessageRecord>,
+}
+
 /// 摘出一条消息的可读预览。
 fn preview_of(record: &MessageRecord) -> String {
     const MAX: usize = 80;
@@ -274,6 +285,23 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             });
         }
         Ok(branches)
+    }
+
+    /// 整棵消息树。
+    ///
+    /// 界面用它画分叉图；点开某个节点就能看到那一步的思考、工具参数与耗时——
+    /// 上一代要为此单独做一个调用追踪页，我们把每次 user / assistant / tool 都
+    /// 存成了独立节点，追踪信息本来就在树里，不必另起一套。
+    pub fn tree(&self, session_id: &str) -> Result<SessionTree, HubError> {
+        let sessions = self.agent.sessions();
+        let meta = sessions
+            .get_session(session_id)?
+            .ok_or_else(|| HubError::NotFound(session_id.to_string()))?;
+        Ok(SessionTree {
+            active_leaf_id: meta.active_leaf_id,
+            leaves: sessions.list_leaves(session_id)?,
+            nodes: sessions.list_messages(session_id)?,
+        })
     }
 
     /// 切换到另一个分支。
