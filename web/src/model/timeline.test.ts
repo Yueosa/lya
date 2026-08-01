@@ -245,6 +245,50 @@ describe('buildTimeline', () => {
     expect(message?.blocks.map((b) => b.type)).toEqual(['reasoning', 'text'])
   })
 
+  it('缓冲要盖住那条空占位，否则界面上没有流式输出', () => {
+    reset()
+    const u = record(user('你好'))
+    // 后端先落一条空的助手消息，好让界面有 id 可挂增量；真正在长的字在缓冲里
+    const draft = record(assistant('', { status: 'streaming' }))
+    const running: TurnBuffer = {
+      round: 1,
+      message_id: draft.id,
+      content: '正在一个字一个字地说',
+      reasoning: '先想想',
+      calls: [],
+    }
+
+    const items = buildTimeline({ messages: [u, draft], running })
+    const last = items.at(-1)
+    const message = last?.kind === 'message' ? last.message : null
+
+    // 只渲染落库那条的话，这里会是空的——那正是「发了消息但没有流式输出」
+    expect(message?.blocks.map((b) => b.type)).toEqual(['reasoning', 'text'])
+    const text = message?.blocks.find((b) => b.type === 'text')
+    expect(text?.type === 'text' && text.text).toBe('正在一个字一个字地说')
+    expect(message?.status).toBe('streaming')
+    // 而且不能既画占位又画一条临时的，那样同一段话会出现两遍
+    expect(items.filter((item) => item.kind === 'message')).toHaveLength(2)
+  })
+
+  it('缓冲里的工具调用也要显示出来', () => {
+    reset()
+    const draft = record(assistant('', { status: 'streaming' }))
+    const running: TurnBuffer = {
+      round: 1,
+      message_id: draft.id,
+      content: '',
+      reasoning: '',
+      calls: [{ call_id: 'c1', name: 'bash', kind: 'tool', ok: null }],
+    }
+    const items = buildTimeline({ messages: [draft], running })
+    const message = items[0]?.kind === 'message' ? items[0].message : null
+    const tool = message?.blocks.find((b) => b.type === 'tool')
+    expect(tool?.type === 'tool' && tool.call.name).toBe('bash')
+    // ok still null 表示还在跑
+    expect(tool?.type === 'tool' && tool.call.result).toBeUndefined()
+  })
+
   it('这一轮已经落库就不重复添一条', () => {
     reset()
     const u = record(user('你好'))

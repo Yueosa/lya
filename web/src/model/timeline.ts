@@ -128,11 +128,21 @@ export function buildTimeline(input: TimelineInput): TimelineItem[] {
       continue
     }
 
-    items.push({ kind: 'message', message: toMessage(record, results, siblings) })
+    const message = toMessage(record, results, siblings)
+
+    // 正在写的那条：占位消息已经落库但正文是空的，真正在长的字在缓冲里。
+    // 不覆盖的话界面上就只有一个空气泡——「没有流式输出」就是这么来的。
+    if (input.running && input.running.message_id === record.id) {
+      const live = runningBlocks(input.running)
+      if (live.length > 0) message.blocks = live
+      message.status = 'streaming'
+    }
+
+    items.push({ kind: 'message', message })
   }
 
-  const running = runningMessage(input.running, input.messages)
-  if (running) items.push({ kind: 'message', message: running })
+  const orphan = orphanRunning(input.running, input.messages)
+  if (orphan) items.push({ kind: 'message', message: orphan })
 
   if (input.endReason && isFailure(input.endReason)) {
     items.push({ kind: 'error', reason: input.endReason })
@@ -255,12 +265,28 @@ function toCallView(
 }
 
 /**
- * 把正在跑的那一轮拼成一条临时消息。
+ * 把本轮缓冲拼成块。
  *
- * 这些内容还没落库。缓冲里已经有 `message_id` 说明那条消息已经入树了，
- * 就不要重复添一条——快照里已经有它。
+ * 缓冲里是**还没落库**的内容。流式开始时后端先落一条空占位好让界面有 id 可挂，
+ * 所以那条消息虽然在树上，正文却是空的——真正在长的字在缓冲里。谁更新就用谁。
  */
-function runningMessage(
+function runningBlocks(running: TurnBuffer): Block[] {
+  const blocks: Block[] = []
+  if (running.reasoning) blocks.push({ type: 'reasoning', text: running.reasoning })
+  if (running.content) blocks.push({ type: 'text', text: running.content })
+  for (const call of running.calls) {
+    blocks.push({ type: 'tool', call: runningCall(call) })
+  }
+  return blocks
+}
+
+/**
+ * 缓冲对不上任何已有消息时，拼一条临时的挂在末尾。
+ *
+ * 正常流程里占位消息总是先落库，所以走不到这里；但事件乱序或漏掉时，
+ * 有内容总比什么都不显示强。
+ */
+function orphanRunning(
   running: TurnBuffer | null | undefined,
   messages: MessageRecord[],
 ): Message | null {
@@ -268,12 +294,7 @@ function runningMessage(
   if (running.message_id !== null && messages.some((m) => m.id === running.message_id)) {
     return null
   }
-  const blocks: Block[] = []
-  if (running.reasoning) blocks.push({ type: 'reasoning', text: running.reasoning })
-  if (running.content) blocks.push({ type: 'text', text: running.content })
-  for (const call of running.calls) {
-    blocks.push({ type: 'tool', call: runningCall(call) })
-  }
+  const blocks = runningBlocks(running)
   if (blocks.length === 0) return null
 
   return {
