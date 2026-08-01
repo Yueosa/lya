@@ -15,6 +15,7 @@
 
 import './tokyo-night.css'
 import './mtf.css'
+import './mc.css'
 import './base.css'
 
 /** 一套主题。 */
@@ -29,6 +30,7 @@ export interface Theme {
 export const THEMES: Theme[] = [
   { id: 'tokyo-night', label: '东京夜', scheme: 'dark' },
   { id: 'mtf', label: 'MTF 简约', scheme: 'light' },
+  { id: 'mc', label: '方块世界', scheme: 'light' },
 ]
 
 const STORAGE_KEY = 'lya.theme'

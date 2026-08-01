@@ -1,0 +1,117 @@
+/**
+ * 方块世界。
+ *
+ * 这套是 token 层最狠的一次考验：它的标志性外观——按钮那圈**内斜角**（左上白、
+ * 右下深灰，看着像凸起来的一块石头）——既不是颜色也不是普通阴影，而是两层
+ * `inset` 投影。能塞进 `--shadow-card` 就说明抽象没跑偏；塞不进就得给它开特例。
+ *
+ * 结果是塞得进：整条 CSS 值都由主题给，所以「柔和模糊」「硬偏移」「内斜角」
+ * 可以共存于同一个变量。
+ *
+ * 配色取自游戏界面：石灰按钮 #C6C6C6、深灰描边、草绿强调、砖红危险。
+ * 圆角全部为 0，描边 3px——比另外两套都粗，方块感就靠它。
+ */
+
+[data-theme='mc'] {
+  /* 石头灰打底，面板是更亮的石灰，两者都偏亮，所以正文用同一个深色就够 */
+  --bg: #8b8b8b;
+  --bg-sunken: #6e6e6e;
+  --surface: #c6c6c6;
+  --surface-hover: #d4d4d4;
+  --surface-active: #a0a0a0;
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --text: #1a1a1a;
+  --text-muted: #3f3f3f;
+  --text-faint: #5a5a5a;
+  --on-accent: #ffffff;
+
+  --border: #555555;
+  --border-strong: #1a1a1a;
+  /* 三套主题里最粗的一档 */
+  --border-width: 3px;
+
+  /* 草绿比游戏里的略深一点：原色配白字只有 3.3:1，读不清 */
+  --accent: #3e7a28;
+  --accent-soft: rgba(62, 122, 40, 0.2);
+  --danger: #aa0000;
+  --danger-soft: rgba(170, 0, 0, 0.18);
+  --success: #3e7a28;
+  --warning: #ffaa00;
+  --info: #4a4ad4;
+
+  /* 方块世界里没有圆角 */
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-pill: 0;
+  --bubble-radius: 0;
+  --bubble-tail-radius: 0;
+
+  /* 内斜角：左上高光、右下阴影，就是那种「凸起的一格」 */
+  --shadow-card: inset -3px -3px 0 #565656, inset 3px 3px 0 #ffffff;
+  --shadow-float: 6px 6px 0 rgba(0, 0, 0, 0.55);
+  /* 游戏里选中的按钮是描一圈白边 */
+  --shadow-focus: 0 0 0 3px #ffffff;
+
+  /*
+   * 本机没装中文像素字体，所以中文这部分只能落到等宽字体上。真要像素感得
+   * 打包一份支持中文的点阵字（比如 Zpix，约 1.6 MB）——那是笔实打实的体积，
+   * 值不值得由用户定。在那之前，方块感主要靠斜角、直角和配色撑着。
+   */
+  --font-ui: 'Minecraft', 'Zpix', 'Press Start 2P', 'Fusion Pixel', ui-monospace, monospace;
+  --font-mono: 'Minecraft', 'Zpix', ui-monospace, 'Cascadia Code', monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 17px;
+  --leading: 1.7;
+
+  /* 按钮比另外两套敦实一些，方块感的一部分 */
+  --ctl-h-sm: 28px;
+  --ctl-h-md: 36px;
+  --ctl-h-lg: 44px;
+  --ctl-pad-x-sm: 12px;
+  --ctl-pad-x-md: 18px;
+  --ctl-pad-x-lg: 24px;
+
+  /* 像素风不该有平滑过渡，一格是一格 */
+  --transition: 0s;
+
+  --code-keyword: #aa00aa;
+  --code-string: #2d7a2d;
+  --code-number: #aa5500;
+  --code-comment: #5a5a5a;
+  --code-function: #0000aa;
+  --code-type: #00707a;
+  --code-variable: #1a1a1a;
+}
+
+/*
+ * ── 逃生舱 ──────────────────────────────────────────────────────
+ *
+ * 以下是 token 表达不了、只有这套主题需要的东西。它们针对**语义类名**，
+ * 所以类名是主题的公开接口，改名字会悄悄破坏这里。
+ */
+
+/* 按下去往下陷一格，像真的把按钮摁了进去 */
+[data-theme='mc'] .btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: inset 3px 3px 0 #565656, inset -3px -3px 0 #ffffff;
+}
+
+/* 主按钮和危险按钮是纯色，白色高光压上去会脏，只留暗侧 */
+[data-theme='mc'] .btn--primary,
+[data-theme='mc'] .btn--danger {
+  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.35);
+}
+
+/* 输入框是凹进去的，斜角方向和按钮相反 */
+[data-theme='mc'] .input {
+  box-shadow: inset 3px 3px 0 #565656, inset -3px -3px 0 #ffffff;
+}
+
+/* 缩放图片不插值，保住像素边缘 */
+[data-theme='mc'] img {
+  image-rendering: pixelated;
+}

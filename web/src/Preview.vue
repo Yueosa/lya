@@ -7,8 +7,10 @@
 -->
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
+import { shellFor } from './shell/registry'
+import type { View } from './shell/types'
 import { applyTheme, currentTheme, THEMES } from './themes'
 import UiHost from './ui/UiHost.vue'
 import { openContextMenu } from './ui/useContextMenu'
@@ -17,10 +19,17 @@ import { toast } from './ui/useToast'
 
 const theme = ref(currentTheme())
 const lastResult = ref('（还没操作）')
+/** 看原件还是看外壳。 */
+const tab = ref<'parts' | 'shell'>('parts')
+const view = ref<View>('home')
+
+const shell = computed(() => shellFor(theme.value))
 
 function switchTheme(id: string): void {
   theme.value = id
   applyTheme(id)
+  // 换主题时回到落地页，否则从 MC 的内容页切到侧边栏外壳会看着很怪
+  view.value = 'home'
 }
 
 async function tryConfirm(danger: boolean): Promise<void> {
@@ -66,7 +75,33 @@ function onContextMenu(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="preview">
+  <!-- 外壳页：整屏交给主题自己的排版 -->
+  <div v-if="tab === 'shell'" class="preview-shell">
+    <component :is="shell" :view="view" @navigate="(next: View) => (view = next)">
+      <div class="preview-shell__content">
+        <p>这里是内容区。</p>
+        <p class="preview__hint">
+          外壳只管导航与排版，内容从插槽来——所以聊天那套逻辑只有一份实现，
+          不会被复制到三套外壳里。
+        </p>
+      </div>
+    </component>
+    <div class="preview-shell__switch panel">
+      <button
+        v-for="item in THEMES"
+        :key="item.id"
+        class="btn btn--sm"
+        :class="{ 'btn--primary': theme === item.id }"
+        @click="switchTheme(item.id)"
+      >
+        {{ item.label }}
+      </button>
+      <button class="btn btn--sm" @click="tab = 'parts'">← 看原件</button>
+    </div>
+    <UiHost />
+  </div>
+
+  <div v-else class="preview">
     <header class="preview__bar panel">
       <strong>主题</strong>
       <button
@@ -78,6 +113,7 @@ function onContextMenu(event: MouseEvent): void {
       >
         {{ item.label }}
       </button>
+      <button class="btn" @click="tab = 'shell'">看外壳 →</button>
     </header>
 
     <section class="panel preview__card">
@@ -138,6 +174,29 @@ function onContextMenu(event: MouseEvent): void {
 </template>
 
 <style scoped>
+.preview-shell {
+  height: 100vh;
+  position: relative;
+}
+
+.preview-shell__content {
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 悬在角上的切换条，不占外壳自己的版面 */
+.preview-shell__switch {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+}
+
 .preview {
   max-width: 720px;
   margin: 0 auto;
