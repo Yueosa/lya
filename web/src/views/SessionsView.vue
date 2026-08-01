@@ -73,7 +73,7 @@ function onContextMenu(event: MouseEvent, session: SessionMeta): void {
     },
     {
       label: '删除',
-      icon: '✕',
+      icon: '🗑',
       danger: true,
       onSelect: async () => {
         // 用 confirmAsync：删完才关弹窗，失败就地报错，不用重走一遍

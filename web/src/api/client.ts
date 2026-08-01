@@ -83,6 +83,29 @@ export type HitlReply =
   | { kind: 'confirm'; approved: boolean; note?: string }
   | { kind: 'mode_change'; approved: boolean }
 
+/** 一个模型（密钥已脱敏）。 */
+export interface ModelInfo {
+  id: string
+  name: string
+  base_url: string
+  api_key_masked: string
+  /** 还是模板里的占位符，说明这个模型不能用。 */
+  api_key_placeholder: boolean
+  capabilities: string[]
+}
+
+/** 一个工具。`enabled` 只在按会话查询时才有。 */
+export interface ToolInfo {
+  name: string
+  raw_name: string
+  description: string
+  /** 形如 `-R-`、`-R-W-X-`。 */
+  permission: string
+  /** 至少要哪个模式才看得到。 */
+  min_mode: Mode
+  enabled?: boolean
+}
+
 /** 一个分支端点。 */
 export interface BranchInfo {
   leaf_id: number
@@ -187,6 +210,19 @@ export class LyaClient {
   /** 切到另一个分支，返回切换后的快照。 */
   switchBranch(id: string, leafId: number): Promise<Snapshot> {
     return this.request('POST', `/api/sessions/${id}/branches`, { leaf_id: leafId })
+  }
+
+  // ── 白盒 ──────────────────────────────────────────────────────
+
+  /** 模型清单。密钥已脱敏，不会把真钥匙发到界面上。 */
+  models(): Promise<ModelInfo[]> {
+    return this.request('GET', '/api/models')
+  }
+
+  /** 工具清单；给了会话 id 就顺带标出它当前生效哪些。 */
+  tools(sessionId?: string): Promise<ToolInfo[]> {
+    const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : ''
+    return this.request('GET', `/api/tools${query}`)
   }
 
   // ── HITL ─────────────────────────────────────────────────────

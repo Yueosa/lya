@@ -11,8 +11,14 @@
 
 import { computed, ref, shallowRef } from 'vue'
 
-import { ApiError, LyaClient, type HitlReply } from '../api/client'
-import type { HitlBlock, SessionMeta } from '../api/wire'
+import {
+  ApiError,
+  LyaClient,
+  type HitlReply,
+  type ModelInfo,
+  type ToolInfo,
+} from '../api/client'
+import type { HitlBlock, MessageRecord, Mode, SessionMeta, SessionTree } from '../api/wire'
 import { buildTimeline, type TimelineItem } from '../model/timeline'
 import {
   applyEvent,
@@ -56,14 +62,34 @@ export const loading = ref(false)
 /** 断开当前订阅；切换会话或退出时调用。 */
 const unsubscribe = shallowRef<(() => void) | null>(null)
 
+/**
+ * 整棵树，只用来算分支切换器。
+ *
+ * 不跟着事件流实时维护：分叉只在重新生成、编辑重发之后产生，那都是明确的用户
+ * 操作，拉快照和收轮次结束时各刷一次就够了。
+ */
+const tree = ref<MessageRecord[] | null>(null)
+
 /** 渲染用的时间线。 */
 export const timeline = computed<TimelineItem[]>(() =>
   buildTimeline({
     messages: state.value.messages,
+    ...(tree.value ? { tree: tree.value } : {}),
     running: state.value.running,
     endReason: state.value.endReason,
   }),
 )
+
+/** 刷新分支信息。 */
+async function refreshTree(): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    tree.value = (await client.tree(id)).nodes
+  } catch {
+    // 拿不到就只是不显示切换器，不影响读消息
+  }
+}
 
 /** 当前会话元数据。 */
 export const meta = computed(() => state.value.meta)
@@ -141,9 +167,13 @@ export async function openSession(id: string): Promise<void> {
     onSnapshot: (snapshot) => {
       state.value = applySnapshot(state.value, snapshot)
       loading.value = false
+      void loadTools()
+      void refreshTree()
     },
     onEvent: (event) => {
       state.value = applyEvent(state.value, event)
+      // 一轮结束才可能多出分叉，没必要每个增量都去拉整棵树
+      if (event.type === 'turn_end') void refreshTree()
     },
     onError: () => {
       // EventSource 自己会重连，重连后收到的快照会把状态对齐，
@@ -159,6 +189,7 @@ export function closeSession(): void {
   unsubscribe.value = null
   currentId.value = null
   state.value = emptyState()
+  tree.value = null
 }
 
 /**
@@ -185,6 +216,144 @@ export async function stop(): Promise<void> {
     await client.stop(id)
   } catch (error) {
     report(error, '停止')
+  }
+}
+
+// ── 分支操作 ──────────────────────────────────────────────────
+//
+// 这几个都会改动消息树，后端会在改完之后推一份新快照——分叉换掉的是整条可见
+// 路径，增量说不清。所以这里都不用手动刷新。
+
+/** 换个答法重答上一轮。旧分支留着，随时能切回去。 */
+export async function regenerate(): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    await client.regenerate(id)
+  } catch (error) {
+    report(error, '重新生成')
+  }
+}
+
+/** 改掉某条自己发的消息并从那里重开。旧问法与旧回答成为并列分支。 */
+export async function editAndResend(messageId: number, text: string): Promise<void> {
+  const id = currentId.value
+  if (!id || !text.trim()) return
+  try {
+    await client.editAndResend(id, messageId, text)
+  } catch (error) {
+    report(error, '编辑重发')
+  }
+}
+
+/** 删掉一个叶节点。 */
+export async function deleteMessage(messageId: number): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    await client.deleteMessage(id, messageId)
+    await refreshSnapshot()
+    await refreshTree()
+  } catch (error) {
+    report(error, '删除消息')
+  }
+}
+
+/** 切到另一条分支。 */
+export async function switchBranch(leafId: number): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    state.value = applySnapshot(state.value, await client.switchBranch(id, leafId))
+    await refreshTree()
+  } catch (error) {
+    report(error, '切换分支')
+  }
+}
+
+/** 主动拉一次快照。删消息这类后端没广播的改动之后用。 */
+async function refreshSnapshot(): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  state.value = applySnapshot(state.value, await client.snapshot(id))
+}
+
+/** 整棵树，画分支图用。每次现拉，不跟着事件流维护。 */
+export async function loadTree(): Promise<SessionTree | null> {
+  const id = currentId.value
+  if (!id) return null
+  try {
+    return await client.tree(id)
+  } catch (error) {
+    report(error, '读取分支树')
+    return null
+  }
+}
+
+// ── 会话设置 ──────────────────────────────────────────────────
+
+/** 可选模型清单。 */
+export const models = ref<ModelInfo[]>([])
+/** 当前会话的工具清单，带生效状态。 */
+export const tools = ref<ToolInfo[]>([])
+
+/** 拉模型清单，启动时一次就够。 */
+export async function loadModels(): Promise<void> {
+  try {
+    models.value = await client.models()
+  } catch {
+    // 拿不到就只是选不了模型，不影响聊天
+  }
+}
+
+/** 拉当前会话的工具清单。 */
+export async function loadTools(): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    tools.value = await client.tools(id)
+  } catch (error) {
+    report(error, '读取工具清单')
+  }
+}
+
+/** 开关某个工具。 */
+export async function toggleTool(name: string, enabled: boolean): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    await client.toggleTool(id, name, enabled)
+    await loadTools()
+  } catch (error) {
+    report(error, '切换工具')
+  }
+}
+
+/** 换工作模式。走 agent，会在树上留一条说明。 */
+export async function setMode(mode: Mode): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    const updated = await client.patchSession(id, { work_mode: mode })
+    state.value = { ...state.value, meta: updated }
+    // 模式变了，能用的工具跟着变
+    await Promise.all([loadTools(), refreshSnapshot()])
+  } catch (error) {
+    report(error, '切换模式')
+  }
+}
+
+/** 换模型；`null` 表示回退到配置里的默认。 */
+export async function setModel(modelId: string | null): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    state.value = {
+      ...state.value,
+      meta: await client.patchSession(id, { model_id: modelId }),
+    }
+  } catch (error) {
+    report(error, '切换模型')
   }
 }
 

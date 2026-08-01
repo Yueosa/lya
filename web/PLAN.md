@@ -19,33 +19,35 @@
 | `GET /api/sessions` | 已接 | 会话列表 |
 | `POST /api/sessions` | 已接 | 「开始新对话」 |
 | `GET /api/sessions/{id}` | 已接 | 快照；订阅时也会推一份，所以只在不订阅的场景用 |
-| `PATCH /api/sessions/{id}` | 部分 | 标题已接；**工作模式、模型、启用工具还没有入口** |
+| `PATCH /api/sessions/{id}` | 已接 | 标题、模式、模型、工具、归档状态 |
+| `DELETE /api/sessions/{id}` | 已接 | 真删；会话列表右键 |
+| `GET /api/sessions/archived` | 已接 | 已归档清单 |
 | `POST /api/sessions/{id}/messages` | 已接 | 发消息 |
-| `POST /api/sessions/{id}/messages/{mid}` | 待做 | 编辑重发，挂在用户气泡上 |
-| `DELETE /api/sessions/{id}/messages/{mid}` | 待做 | 删除叶节点，挂在气泡右键菜单 |
-| `GET /api/sessions/{id}/branches` | 待做 | 分支切换器的数据源 |
-| `POST /api/sessions/{id}/branches` | 待做 | 切换分支 |
-| `POST /api/sessions/{id}/regenerate` | 待做 | 重新生成，挂在最后一条助手消息上 |
+| `POST /api/sessions/{id}/messages/{mid}` | 已接 | 编辑重发，用户气泡右键 |
+| `DELETE /api/sessions/{id}/messages/{mid}` | 已接 | 删除叶节点，气泡右键 |
+| `GET /api/sessions/{id}/branches` | 未用 | 切换器改用 `/tree` 算——一次拿到全部父子关系，缩进列表也要用 |
+| `POST /api/sessions/{id}/branches` | 已接 | 气泡上的 `‹ 2/3 ›`，以及分支页 |
+| `POST /api/sessions/{id}/regenerate` | 已接 | 助手气泡右键「换个答法」 |
 | `POST /api/sessions/{id}/stop` | 已接 | 流式中的停止按钮 |
-| `POST /api/sessions/{id}/hitl` | 待做 | 表单 / 工具确认 / 模式切换的答复 |
-| `GET /api/sessions/{id}/tree` | 待做 | 分支树 |
+| `POST /api/sessions/{id}/hitl` | 已接 | 输入框上方的托盘 |
+| `GET /api/sessions/{id}/tree` | 已接 | 分支页 + 气泡上的切换器 |
 | `GET /api/sessions/{id}/subscribe` | 已接 | 事件流 |
-| `PUT /api/sessions/{id}/tools/{tool}` | 待做 | 会话级工具开关 |
+| `PUT /api/sessions/{id}/tools/{tool}` | 已接 | 会话设置页 |
 
 ### 白盒与配置
 
 | 端点 | 状态 | 归宿 |
 |------|------|------|
-| `GET /api/tools` | 待做 | 工具管理页：模型手里有什么，用户看得见也关得掉 |
+| `GET /api/tools` | 已接 | 会话设置页；当前模式够不着的单独归一堆 |
 | `GET /api/actions` | 待做 | 同上，动作只读展示 |
-| `GET /api/bootstrap` | 待做 | **启动时必须拿**，本地图片要用里面的令牌 |
+| `GET /api/bootstrap` | 已接 | 启动握手，取图片令牌 |
 | `GET /api/config` | 待做 | 设置页 |
 | `PUT /api/config/runtime` | 待做 | 设置页可写部分 |
 | `PUT /api/config/persona` | 待做 | 人设编辑 |
 | `GET /api/config/raw/{file}` | 待做 | 高级：直接看原始 TOML |
-| `GET /api/models` | 待做 | 模型选择器（已脱敏） |
+| `GET /api/models` | 已接 | 输入框右侧的模型选择器 |
 | `POST /api/models/probe` | 待做 | 「测一下这个模型通不通」 |
-| `GET /api/local-image` | 待做 | Markdown 渲染器改写本地图片路径时用 |
+| `GET /api/local-image` | 已接 | Markdown 渲染器改写本地图片路径 |
 | `GET /api/events` | 待做 | 全局事件：配置变更、会话列表变化 |
 
 ### 记忆
@@ -59,13 +61,13 @@
 | `PATCH /api/memories/{id}` | 待做 | 编辑 |
 | `DELETE /api/memories/{id}` | 待做 | 删除（模型只能读写，删只走界面） |
 
-### 后端还缺的
+### 归档与删除（已做）
 
-- **归档与删除会话没有端点**。`SessionStore::archive_session` 存在但没接出来，
-  而且没有取消归档、没有列出已归档、没有真删除。语义也要先定：**归档 = 只读
-  回看**（前端收掉输入框，和上一代一致），**删除 = 真从库里去掉**。
-  归档只改 `status`，但目前**没有任何地方检查它**——追加消息和开跑都不看，
-  所以「只读」得在后端也拦一道，不能只靠前端藏输入框。
+**归档 = 只读回看，删除 = 真从库里去掉。** 只读由 `SessionStore::append` 保证：
+所有新内容都从那一个口进来，界面藏掉输入框只挡得住走界面的人。归档可逆——
+取不回来的话误点一下会话就凭空消失，比删除还糟。
+
+只读只限制「发消息」，**渲染、折叠、切分支、改工具开关照常**。
 
 ---
 

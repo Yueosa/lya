@@ -10,9 +10,24 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 
-import { canSend, pendingHitl, readOnly, running, send, stop, timeline } from '../app/useChat'
+import {
+  canSend,
+  deleteMessage,
+  editAndResend,
+  pendingHitl,
+  readOnly,
+  regenerate,
+  running,
+  send,
+  stop,
+  switchBranch,
+  timeline,
+} from '../app/useChat'
 import { prefs } from '../app/usePrefs'
-import type { Block } from '../model/timeline'
+import type { Block, Message } from '../model/timeline'
+import { openContextMenu, type MenuEntry } from '../ui/useContextMenu'
+import { confirm, confirmAsync, prompt } from '../ui/useDialog'
+import ComposerBar from './ComposerBar.vue'
 import CollapsibleBlock from './CollapsibleBlock.vue'
 import HitlRecord from './HitlRecord.vue'
 import HitlTray from './HitlTray.vue'
@@ -40,6 +55,64 @@ function visible(blocks: Block[]): Block[] {
     if (block.type === 'hitl') return !(prefs.hideResolvedHitl && block.answer !== undefined)
     return true
   })
+}
+
+/**
+ * 气泡上的操作。
+ *
+ * 都会改动消息树，所以只读会话里一个都不给——后端也会拒，这里灰掉是为了不让人
+ * 白点一下才知道。
+ */
+function messageMenu(event: MouseEvent, message: Message, text: string): void {
+  if (readOnly.value) return
+  const entries: MenuEntry[] = [
+    { label: '复制', icon: '⧉', onSelect: () => void navigator.clipboard.writeText(text) },
+  ]
+
+  if (message.role === 'user') {
+    entries.push({
+      label: '编辑并重发',
+      icon: '✎',
+      onSelect: async () => {
+        const next = await prompt({ title: '改一下再发', initial: text })
+        if (next === null || !next.trim()) return
+        // 后端会分叉到这条的父节点再追加，旧问法与旧回答留成并列分支
+        await editAndResend(message.id, next.trim())
+      },
+    })
+  }
+
+  if (message.role === 'assistant') {
+    entries.push({
+      label: '换个答法',
+      icon: '↻',
+      onSelect: async () => {
+        const ok = await confirm({
+          title: '重新生成？',
+          message: '会回到你上一条消息重跑。原来这条留在另一条分支上，随时能切回去。',
+        })
+        if (ok) await regenerate()
+      },
+    })
+  }
+
+  entries.push({ separator: true })
+  entries.push({
+    label: '删除这条',
+    icon: '🗑',
+    danger: true,
+    onSelect: async () => {
+      await confirmAsync({
+        title: '删掉这条消息？',
+        message: '只能删末端的消息，中间的要先删它后面的。',
+        confirmText: '删除',
+        danger: true,
+        run: () => deleteMessage(message.id),
+      })
+    },
+  })
+
+  openContextMenu(event, entries)
 }
 
 /** 这条消息有没有正文可显示。 */
@@ -148,7 +221,11 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
             </div>
 
             <div v-else class="chat__row" :class="`chat__row--${item.message.role}`">
-              <div class="bubble" :class="`bubble--${item.message.role}`">
+              <div
+                class="bubble"
+                :class="`bubble--${item.message.role}`"
+                @contextmenu.prevent="messageMenu($event, item.message, block.text)"
+              >
                 <!-- 用户消息不走 Markdown：你打的字应当原样显示，
                      不该因为随手用了 * 或 # 就变了样 -->
                 <div v-if="item.message.role === 'user'" class="chat__text">{{ block.text }}</div>
@@ -157,6 +234,25 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
                 <span v-if="item.message.status === 'interrupted'" class="chat__interrupted">
                   （已中断）
                 </span>
+
+                <!-- 这里分过叉。没有这个切换器，树就退化成了列表 -->
+                <div v-if="item.message.branch" class="chat__branch">
+                  <button
+                    class="chat__branch-step"
+                    :disabled="item.message.branch.index === 0"
+                    @click="switchBranch(item.message.branch.siblingIds[item.message.branch.index - 1]!)"
+                  >
+                    ‹
+                  </button>
+                  <span>{{ item.message.branch.index + 1 }}/{{ item.message.branch.total }}</span>
+                  <button
+                    class="chat__branch-step"
+                    :disabled="item.message.branch.index === item.message.branch.total - 1"
+                    @click="switchBranch(item.message.branch.siblingIds[item.message.branch.index + 1]!)"
+                  >
+                    ›
+                  </button>
+                </div>
               </div>
             </div>
           </template>
@@ -177,12 +273,8 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
 
     <HitlTray />
 
-    <!-- 归档的会话只能回看。后端也会拒绝写入，这里收掉输入框是为了不让人白打字 -->
-    <div v-if="readOnly" class="chat__archived">
-      这个会话已归档，只能回看。想继续聊的话先在列表里把它取回。
-    </div>
-
-    <form v-else class="chat__composer" @submit.prevent="submit">
+    <!-- 归档的会话整个不显示输入区。只读只是不能发消息——渲染、折叠、切分支照常 -->
+    <form v-if="!readOnly" class="chat__composer" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="input chat__input"
@@ -194,6 +286,7 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
       <button v-if="running" type="button" class="btn btn--danger" @click="stop">停止</button>
       <button v-else type="submit" class="btn btn--primary" :disabled="!canSend">发送</button>
     </form>
+    <ComposerBar v-if="!readOnly" class="chat__bar" :disabled="running" />
   </div>
 </template>
 
@@ -270,14 +363,6 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
   min-width: 0;
 }
 
-.chat__todo {
-  padding: 6px 10px;
-  border: var(--border-width) dashed var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
 /* 流式中的光标，让人知道还在写 */
 .chat__caret {
   display: inline-block;
@@ -299,13 +384,31 @@ function reasonLabel(reason: { kind: string; message?: string }): string {
   font-size: var(--text-sm);
 }
 
-.chat__archived {
-  padding: 14px 5%;
-  border-top: var(--border-width) solid var(--border);
-  background: var(--bg-sunken);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  text-align: center;
+.chat__branch {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.chat__branch-step {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.chat__branch-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.chat__bar {
+  padding: 0 5% 10px;
 }
 
 .chat__composer {
