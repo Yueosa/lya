@@ -9,12 +9,22 @@
 -->
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
-import { loadTools, meta, readOnly, toggleTool, tools } from '../app/useChat'
+import type { ActionInfo } from '../api/client'
+import { client, loadTools, meta, readOnly, toggleTool, tools } from '../app/useChat'
 import { prefs } from '../app/usePrefs'
 
-onMounted(loadTools)
+const actions = ref<ActionInfo[]>([])
+
+onMounted(async () => {
+  await loadTools()
+  try {
+    actions.value = await client.actions()
+  } catch {
+    // 拿不到只是少一块白盒展示，不影响用
+  }
+})
 
 /** 当前模式下够不着的工具单独归一堆，省得用户开了半天发现没生效。 */
 const reachable = computed(() => tools.value.filter((tool) => !outOfReach(tool.min_mode)))
@@ -62,6 +72,19 @@ const DISPLAY: { key: keyof typeof prefs; label: string; hint: string }[] = [
           <span class="settings__desc">需要 {{ tool.min_mode }} 模式</span>
         </div>
       </template>
+    </section>
+
+    <section>
+      <h3 class="settings__title">它还能对自己做什么</h3>
+      <p class="settings__hint">
+        动作是它操作自身状态的手段——记东西、问你一句、请求换模式。这些不能关：
+        关掉「问你一句」它就只会自己猜了。
+      </p>
+      <div v-for="action in actions" :key="action.name" class="settings__row settings__row--off">
+        <span class="settings__name">{{ action.raw_name }}</span>
+        <code class="settings__perm">{{ action.flow === 'await_human' ? '会等你' : '直接继续' }}</code>
+        <span class="settings__desc">{{ action.description }}</span>
+      </div>
     </section>
 
     <section>

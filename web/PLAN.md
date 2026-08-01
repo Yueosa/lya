@@ -39,27 +39,27 @@
 | 端点 | 状态 | 归宿 |
 |------|------|------|
 | `GET /api/tools` | 已接 | 会话设置页；当前模式够不着的单独归一堆 |
-| `GET /api/actions` | 待做 | 同上，动作只读展示 |
+| `GET /api/actions` | 已接 | 会话设置页，只读——动作不该给用户关 |
 | `GET /api/bootstrap` | 已接 | 启动握手，取图片令牌 |
-| `GET /api/config` | 待做 | 设置页 |
-| `PUT /api/config/runtime` | 待做 | 设置页可写部分 |
-| `PUT /api/config/persona` | 待做 | 人设编辑 |
-| `GET /api/config/raw/{file}` | 待做 | 高级：直接看原始 TOML |
+| `GET /api/config` | 已接 | 全局设置页 |
+| `PUT /api/config/runtime` | 已接 | 全局设置页 |
+| `PUT /api/config/persona` | 已接 | 全局设置页 |
+| `GET /api/config/raw/{file}` | 已接 | 全局设置页「原始文件」 |
 | `GET /api/models` | 已接 | 输入框右侧的模型选择器 |
-| `POST /api/models/probe` | 待做 | 「测一下这个模型通不通」 |
+| `POST /api/models/probe` | 已接 | 改成按 model_id 探测，真密钥不出服务器 |
 | `GET /api/local-image` | 已接 | Markdown 渲染器改写本地图片路径 |
-| `GET /api/events` | 待做 | 全局事件：配置变更、会话列表变化 |
+| `GET /api/events` | 已接 | 与会话流分开订阅，换会话不断 |
 
 ### 记忆
 
 | 端点 | 状态 | 归宿 |
 |------|------|------|
-| `GET /api/memories` | 待做 | 记忆页 |
-| `POST /api/memories` | 待做 | 手动加一条 |
-| `GET /api/memories/search` | 待做 | 记忆页搜索框 |
-| `GET /api/memories/{id}` | 待做 | 查看正文 |
-| `PATCH /api/memories/{id}` | 待做 | 编辑 |
-| `DELETE /api/memories/{id}` | 待做 | 删除（模型只能读写，删只走界面） |
+| `GET /api/memories` | 已接 | 记忆页 |
+| `POST /api/memories` | 已接 | 记忆页「新建」 |
+| `GET /api/memories/search` | 已接 | 记忆页搜索，标出命中字段 |
+| `GET /api/memories/{id}` | 未用 | 列表已带正文，不必再单取 |
+| `PATCH /api/memories/{id}` | 已接 | 记忆编辑弹窗 |
+| `DELETE /api/memories/{id}` | 已接 | 记忆页删除 |
 
 ### 归档与删除（已做）
 
@@ -126,9 +126,9 @@
 
 ## 顺序
 
-1. **消息渲染** —— 对观感提升最大，也是其余几项的地基（HITL 托盘里也要渲染 Markdown）
-2. **HITL 界面** —— 表单与工具确认。学上一代从输入框上方滑出托盘，
-   模态框会挡住上文，而确认工具调用时恰恰需要看着上文判断
-3. **归档与删除** —— 前后端一起，先定语义
-4. **三套外壳的特色 + 分支切换器 + 跳到最新**
-5. **设置、工具管理、记忆页** —— 把接口底线剩下的补齐
+接口底线已经铺满：25 条路由里 22 条接了，3 条明确不用（`/branches` 的 GET 被
+`/tree` 取代、单取记忆的 GET 用不上）。剩下的都是界面自己的事：
+
+1. **三套外壳的特色** —— 东京夜走紧凑信息流，MTF 走宽松卡片，方块世界已做
+2. **跳到最新按钮** —— 四态：隐藏 / 正在跟随 / 输出完毕 / 百分比
+3. **打磨** —— 到这一步再调间距、配色、动效才不会白做

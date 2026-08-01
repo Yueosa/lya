@@ -106,6 +106,74 @@ export interface ToolInfo {
   enabled?: boolean
 }
 
+/** 一个动作。用户不能开关——动作是模型操作自身状态的手段，不是可选能力。 */
+export interface ActionInfo {
+  name: string
+  raw_name: string
+  description: string
+  /** `continue` 直接接着跑，`await_human` 会挂起等人。 */
+  flow: string
+  /** 哪些模式下可见。 */
+  visible_in: Mode[]
+}
+
+/** 配置全貌。`core` 只读——改端口这类事需要重启才生效，界面上不给改。 */
+export interface ConfigView {
+  core: Record<string, unknown>
+  runtime: Record<string, unknown>
+  models: ModelInfo[]
+  persona: string | null
+  core_readonly: boolean
+}
+
+/** 探测一个模型能不能连通。 */
+export interface ProbeResult {
+  ok: boolean
+  /** 该供应商声明支持的模型 id。 */
+  models: string[]
+  error?: string
+}
+
+/** 一条长期记忆。 */
+export interface Memory {
+  id: number
+  title: string
+  /** 一句话概括，进常驻索引。 */
+  summary: string
+  body: string
+  tags: string[]
+  /** 写下它的会话，仅溯源用。 */
+  source_session_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+/** 搜索命中。 */
+export interface MemoryHit {
+  memory: Memory
+  /** 命中在哪个字段。 */
+  field: string
+}
+
+/** 新建记忆。 */
+export interface NewMemory {
+  title: string
+  summary: string
+  body: string
+  tags: string[]
+}
+
+/** 改记忆；不给的字段保持不变，`tags` 是整体替换。 */
+export interface MemoryPatch {
+  title?: string
+  summary?: string
+  body?: string
+  tags?: string[]
+}
+
+/** 全局事件类型。 */
+const GLOBAL_EVENTS = ['config_changed', 'sessions_changed'] as const
+
 /** 一个分支端点。 */
 export interface BranchInfo {
   leaf_id: number
@@ -225,6 +293,97 @@ export class LyaClient {
     return this.request('GET', `/api/tools${query}`)
   }
 
+  /** 动作清单。只读展示——动作由模型自己调，用户关不掉。 */
+  actions(): Promise<ActionInfo[]> {
+    return this.request('GET', '/api/actions')
+  }
+
+  // ── 配置 ──────────────────────────────────────────────────────
+
+  config(): Promise<ConfigView> {
+    return this.request('GET', '/api/config')
+  }
+
+  /**
+   * 写 runtime 配置。
+   *
+   * 后端用 `toml_edit` 落盘，注释和排版都保得住；写完会回读一次验证，
+   * 所以返回的是**生效后**的值，不是你发过去那份。
+   */
+  writeRuntime(tables: Record<string, unknown>): Promise<unknown> {
+    return this.request('PUT', '/api/config/runtime', { tables })
+  }
+
+  writePersona(text: string): Promise<void> {
+    return this.request('PUT', '/api/config/persona', { text })
+  }
+
+  /** 某个配置文件的原文，供高级编辑直接看 TOML。 */
+  rawConfig(file: 'core' | 'runtime' | 'models' | 'persona'): Promise<string> {
+    return this.requestText('GET', `/api/config/raw/${file}`)
+  }
+
+  /**
+   * 测一个**已配置**的模型通不通。
+   *
+   * 只传 id：真密钥留在服务器上取，界面手里只有脱敏的那串，也不该为了测一下
+   * 就把钥匙在浏览器里转一圈。
+   */
+  probeModel(modelId: string): Promise<ProbeResult> {
+    return this.request('POST', '/api/models/probe', { model_id: modelId })
+  }
+
+  /** 测一对还没写进配置的新凭据。 */
+  probeCredentials(baseUrl: string, apiKey: string): Promise<ProbeResult> {
+    return this.request('POST', '/api/models/probe', { base_url: baseUrl, api_key: apiKey })
+  }
+
+  // ── 记忆 ──────────────────────────────────────────────────────
+
+  memories(): Promise<Memory[]> {
+    return this.request('GET', '/api/memories')
+  }
+
+  searchMemories(q: string, limit = 20): Promise<MemoryHit[]> {
+    const query = new URLSearchParams({ q, limit: String(limit) })
+    return this.request('GET', `/api/memories/search?${query}`)
+  }
+
+  readMemory(id: number): Promise<Memory> {
+    return this.request('GET', `/api/memories/${id}`)
+  }
+
+  createMemory(body: NewMemory): Promise<Memory> {
+    return this.request('POST', '/api/memories', body)
+  }
+
+  updateMemory(id: number, patch: MemoryPatch): Promise<Memory> {
+    return this.request('PATCH', `/api/memories/${id}`, patch)
+  }
+
+  /** 删除。模型只能读写记忆，删只走界面。 */
+  deleteMemory(id: number): Promise<void> {
+    return this.request('DELETE', `/api/memories/${id}`)
+  }
+
+  // ── 全局事件 ──────────────────────────────────────────────────
+
+  /**
+   * 订阅全局事件：配置变更、会话列表变化。
+   *
+   * 和会话流分开，因为它们与「当前打开哪个会话」无关——换会话不该断掉它。
+   */
+  subscribeGlobal(onEvent: (kind: string, payload: Record<string, unknown>) => void): () => void {
+    const source = new EventSource(`${this.base}/api/events`)
+    for (const kind of GLOBAL_EVENTS) {
+      source.addEventListener(kind, (message) => {
+        const envelope = JSON.parse((message as MessageEvent<string>).data) as Envelope
+        onEvent(kind, envelope.payload)
+      })
+    }
+    return () => source.close()
+  }
+
   // ── HITL ─────────────────────────────────────────────────────
 
   /** 答复当前挂起，后端会自动接着跑下一轮。 */
@@ -292,6 +451,13 @@ export class LyaClient {
   // ── 底层 ──────────────────────────────────────────────────────
 
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const text = await this.requestText(method, path, body)
+    // 202 / 204 没有正文
+    return (text ? JSON.parse(text) : undefined) as T
+  }
+
+  /** 拿原始正文，配置文件的 TOML 原文要用。 */
+  private async requestText(method: string, path: string, body?: unknown): Promise<string> {
     const response = await fetch(`${this.base}${path}`, {
       method,
       headers: body === undefined ? {} : { 'content-type': 'application/json' },
@@ -300,9 +466,7 @@ export class LyaClient {
     if (!response.ok) {
       throw new ApiError(response.status, await response.text())
     }
-    // 202 / 204 没有正文
-    const text = await response.text()
-    return (text ? JSON.parse(text) : undefined) as T
+    return response.text()
   }
 }
 

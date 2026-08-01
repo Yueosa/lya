@@ -150,11 +150,22 @@ pub async fn raw(Path(file): Path<String>) -> Result<String, ApiError> {
 }
 
 /// 探测入参。
+///
+/// 两种用法：给 `model_id` 测一个**已配置**的模型（用服务器上存的真密钥），
+/// 或者给 `base_url` + `api_key` 测一对还没写进配置的新凭据。
 #[derive(Debug, Deserialize)]
 pub struct ProbeBody {
-    /// API 基地址。
+    /// 已配置模型的 id。
+    ///
+    /// 给了它就不用再传密钥——界面手里只有脱敏后的那串，而真密钥不该为了测一下
+    /// 就发到浏览器里再原样发回来。
+    #[serde(default)]
+    pub model_id: Option<String>,
+    /// API 基地址；给了 `model_id` 就不用填。
+    #[serde(default)]
     pub base_url: String,
-    /// API 密钥。
+    /// API 密钥；给了 `model_id` 就不用填。
+    #[serde(default)]
     pub api_key: String,
 }
 
@@ -178,11 +189,25 @@ pub struct ProbeResult {
 /// 连不通不算服务器错误——那是探测的正常结果之一，所以照常返回 200，用 `ok`
 /// 字段表达成败，界面才好显示原因。
 pub async fn probe(State(hub): Hub, Json(body): Json<ProbeBody>) -> Json<ProbeResult> {
-    let url = format!("{}/models", body.base_url.trim_end_matches('/'));
+    // 给了 model_id 就从配置里取真密钥，界面因此不必持有它
+    let (base_url, api_key) = match &body.model_id {
+        Some(id) => {
+            let Ok(config) = load() else {
+                return Json(ProbeResult::failed("读不到配置".into()));
+            };
+            match config.models.models.iter().find(|entry| &entry.id == id) {
+                Some(entry) => (entry.base_url.clone(), entry.api_key.clone()),
+                None => return Json(ProbeResult::failed(format!("没有名为 {id} 的模型"))),
+            }
+        }
+        None => (body.base_url.clone(), body.api_key.clone()),
+    };
+
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
     let http = hub.http();
     let request = http
         .get(&url)
-        .header("Authorization", format!("Bearer {}", body.api_key));
+        .header("Authorization", format!("Bearer {api_key}"));
 
     let response = match http.send(request).await {
         Ok(response) => response,

@@ -20,7 +20,7 @@
  */
 
 /** 应用里的几个去处。 */
-export type View = 'home' | 'chat' | 'sessions' | 'tree' | 'settings'
+export type View = 'home' | 'chat' | 'sessions' | 'tree' | 'settings' | 'memory' | 'config'
 
 /** 外壳组件的入参。 */
 export interface ShellProps {
@@ -39,5 +39,7 @@ export const NAV_ITEMS: { view: View; label: string; icon: string }[] = [
   { view: 'chat', label: '开始对话', icon: '💬' },
   { view: 'sessions', label: '会话列表', icon: '📋' },
   { view: 'tree', label: '分支', icon: '⑂' },
-  { view: 'settings', label: '设置', icon: '⚙' },
+  { view: 'settings', label: '会话设置', icon: '⚙' },
+  { view: 'memory', label: '记忆', icon: '🧠' },
+  { view: 'config', label: '全局设置', icon: '🔧' },
 ]

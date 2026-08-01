@@ -6,7 +6,7 @@
 -->
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { shellFor } from '../shell/registry'
 import type { View } from '../shell/types'
@@ -14,9 +14,11 @@ import { applyTheme, currentTheme, THEMES } from '../themes'
 import UiHost from '../ui/UiHost.vue'
 import BranchTree from '../views/BranchTree.vue'
 import ChatView from '../views/ChatView.vue'
+import ConfigView from '../views/ConfigView.vue'
+import MemoryView from '../views/MemoryView.vue'
 import SessionSettings from '../views/SessionSettings.vue'
 import SessionsView from '../views/SessionsView.vue'
-import { bootstrap, currentId, loadModels } from './useChat'
+import { bootstrap, client, currentId, loadModels, refreshSessions } from './useChat'
 
 const theme = ref(currentTheme())
 const view = ref<View>('sessions')
@@ -26,6 +28,16 @@ const shell = computed(() => shellFor(theme.value))
 // 图片令牌要尽早拿，否则先渲染出来的本地图片会是坏的
 void bootstrap()
 void loadModels()
+
+// 全局事件：配置或会话列表在别处变了，这边跟着刷新。和会话流分开订阅——
+// 它们与「当前打开哪个会话」无关，换会话不该断掉
+onMounted(() => {
+  const stop = client.subscribeGlobal((kind) => {
+    if (kind === 'sessions_changed') void refreshSessions()
+    if (kind === 'config_changed') void loadModels()
+  })
+  onUnmounted(stop)
+})
 
 function navigate(next: View): void {
   // 「开始对话」没有会话可开时先去列表，免得进到一个空白的聊天页
@@ -45,6 +57,8 @@ function switchTheme(id: string): void {
     <SessionsView v-else-if="view === 'sessions'" @opened="view = 'chat'" />
     <BranchTree v-else-if="view === 'tree' && currentId" :key="currentId" />
     <SessionSettings v-else-if="view === 'settings' && currentId" :key="currentId" />
+    <MemoryView v-else-if="view === 'memory'" />
+    <ConfigView v-else-if="view === 'config'" />
     <div v-else class="app__todo">
       <p>先在会话列表里打开一个会话。</p>
     </div>
