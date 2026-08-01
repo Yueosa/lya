@@ -75,8 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let db = Db::open(config.db_path())?
-        .with_migration(lya_session::MIGRATION_SQL)
-        .with_migration(lya_memory::MIGRATION_SQL);
+        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
     db.migrate()?;
     let db = Arc::new(db);
 

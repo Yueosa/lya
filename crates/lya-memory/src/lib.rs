@@ -42,8 +42,15 @@ pub mod types;
 
 pub use error::MemoryError;
 pub use index::{IndexBudget, MEMORY_SECTION_TITLE, render_index};
+pub use lya_db::Migration;
 pub use store::MemoryStore;
 pub use types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};
 
-/// 记忆相关表迁移 SQL。
-pub const MIGRATION_SQL: &str = include_str!("../migrations/001_init.sql");
+/// 记忆相关表的迁移序列。
+pub const MIGRATIONS: &[Migration] = &[Migration {
+    version: 1,
+    sql: include_str!("../migrations/001_init.sql"),
+}];
+
+/// 迁移台账里用的归属名。
+pub const MIGRATION_SCOPE: &str = "memory";

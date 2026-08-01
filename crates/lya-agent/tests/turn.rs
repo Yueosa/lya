@@ -195,8 +195,8 @@ fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let db = Db::open(dir.path().join("lya.db"))
         .unwrap()
-        .with_migration(lya_session::MIGRATION_SQL)
-        .with_migration(lya_memory::MIGRATION_SQL);
+        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
     db.migrate().unwrap();
     let db = Arc::new(db);
 
@@ -723,8 +723,8 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
     let db = Arc::new(
         Db::open(dir.path().join("lya.db"))
             .unwrap()
-            .with_migration(lya_session::MIGRATION_SQL)
-            .with_migration(lya_memory::MIGRATION_SQL),
+            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
     );
     db.migrate().unwrap();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
@@ -1105,8 +1105,8 @@ async fn session_model_selection_is_honoured() {
     let db = Arc::new(
         Db::open(dir.path().join("lya.db"))
             .unwrap()
-            .with_migration(lya_session::MIGRATION_SQL)
-            .with_migration(lya_memory::MIGRATION_SQL),
+            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
     );
     db.migrate().unwrap();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
@@ -1180,8 +1180,8 @@ async fn default_model_must_exist() {
     let db = Arc::new(
         Db::open(dir.path().join("lya.db"))
             .unwrap()
-            .with_migration(lya_session::MIGRATION_SQL)
-            .with_migration(lya_memory::MIGRATION_SQL),
+            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
     );
     db.migrate().unwrap();
     let memory = Arc::new(MemoryStore::with_db(Arc::clone(&db)));
@@ -1210,8 +1210,8 @@ async fn name_collision_is_rejected_at_construction() {
     let db = Arc::new(
         Db::open(dir.path().join("lya.db"))
             .unwrap()
-            .with_migration(lya_session::MIGRATION_SQL)
-            .with_migration(lya_memory::MIGRATION_SQL),
+            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
     );
     db.migrate().unwrap();
     let memory = Arc::new(MemoryStore::with_db(Arc::clone(&db)));

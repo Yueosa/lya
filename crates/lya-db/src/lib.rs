@@ -25,12 +25,41 @@ mod error;
 mod paths;
 
 pub use error::DbError;
+
+/// 当前时间的 RFC 3339 表示，用于迁移台账。
+fn now() -> String {
+    chrono::Utc::now().to_rfc3339()
+}
 pub use paths::{data_root, default_db_path};
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use rusqlite::{Connection, TransactionBehavior};
+use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
+
+/// 一步迁移。
+///
+/// 每一步跑过就记在案，不会重跑，所以 SQL **不需要**幂等——`ALTER TABLE`
+/// 这种没法写成「不存在才执行」的语句因此也能用。
+#[derive(Debug, Clone, Copy)]
+pub struct Migration {
+    /// 版本号，同一 scope 内从 1 开始递增。
+    pub version: u32,
+    /// 这一步要执行的 SQL。
+    pub sql: &'static str,
+}
+
+/// 记录已执行迁移的表。
+///
+/// 用 `(scope, version)` 而不是 `PRAGMA user_version`：一个库文件被多个领域
+/// crate 共用（会话、记忆各一套表），共享一个全局版本号的话，任何一边加迁移
+/// 都得跟另一边协调编号。
+const LEDGER: &str = "CREATE TABLE IF NOT EXISTS _migrations (
+    scope       TEXT    NOT NULL,
+    version     INTEGER NOT NULL,
+    applied_at  TEXT    NOT NULL,
+    PRIMARY KEY (scope, version)
+);";
 
 /// 一个已打开的 SQLite 数据库。
 pub struct Db {
@@ -38,8 +67,8 @@ pub struct Db {
     path: PathBuf,
     /// 常驻连接，读写共用。
     conn: Mutex<Connection>,
-    /// 已注册的迁移 SQL，按注册顺序执行。
-    migrations: Vec<&'static str>,
+    /// 已注册的迁移，按 scope 分组。
+    migrations: Vec<(&'static str, &'static [Migration])>,
 }
 
 impl Db {
@@ -75,12 +104,12 @@ impl Db {
         })
     }
 
-    /// 注册一段迁移 SQL，通常来自领域 crate 的 `include_str!`。
+    /// 注册一个领域的迁移序列。
     ///
-    /// SQL 必须幂等（`CREATE TABLE IF NOT EXISTS` 等），因为每次
-    /// [`Db::migrate`] 都会重跑全部脚本。
-    pub fn with_migration(mut self, sql: &'static str) -> Self {
-        self.migrations.push(sql);
+    /// `scope` 是这套表的归属（如 `"session"`），用来和别的领域各记各的版本。
+    /// 步骤按 `version` 从小到大执行，跑过的不再跑。
+    pub fn with_migrations(mut self, scope: &'static str, steps: &'static [Migration]) -> Self {
+        self.migrations.push((scope, steps));
         self
     }
 
@@ -89,11 +118,39 @@ impl Db {
         &self.path
     }
 
-    /// 依次执行所有已注册迁移。
+    /// 执行所有还没跑过的迁移。
+    ///
+    /// 每一步单独一个事务：中途某步失败，之前成功的仍然算数，重跑时从失败那步
+    /// 继续。整体一个大事务的话，一次失败会把已经对的部分也回滚掉，反而更难修。
     pub fn migrate(&self) -> Result<(), DbError> {
-        let conn = self.conn.lock().map_err(|_| DbError::LockPoisoned)?;
-        for sql in &self.migrations {
-            conn.execute_batch(sql)?;
+        let mut conn = self.conn.lock().map_err(|_| DbError::LockPoisoned)?;
+        conn.execute_batch(LEDGER)?;
+
+        for (scope, steps) in &self.migrations {
+            let mut sorted: Vec<&Migration> = steps.iter().collect();
+            sorted.sort_by_key(|step| step.version);
+
+            for step in sorted {
+                let done: bool = conn
+                    .query_row(
+                        "SELECT 1 FROM _migrations WHERE scope = ?1 AND version = ?2",
+                        rusqlite::params![scope, step.version],
+                        |_| Ok(true),
+                    )
+                    .optional()?
+                    .unwrap_or(false);
+                if done {
+                    continue;
+                }
+
+                let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+                tx.execute_batch(step.sql)?;
+                tx.execute(
+                    "INSERT INTO _migrations (scope, version, applied_at) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![scope, step.version, now()],
+                )?;
+                tx.commit()?;
+            }
         }
         Ok(())
     }
@@ -129,14 +186,108 @@ impl Db {
 mod tests {
     use super::*;
 
-    const SQL: &str = "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT NOT NULL);";
+    const V1: &[Migration] = &[Migration {
+        version: 1,
+        sql: "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT NOT NULL);",
+    }];
+
+    /// 第二步给已有的表加一列——`CREATE TABLE IF NOT EXISTS` 做不到这件事，
+    /// 这正是要版本化迁移的原因。
+    const V2: &[Migration] = &[
+        V1[0],
+        Migration {
+            version: 2,
+            sql: "ALTER TABLE t ADD COLUMN note TEXT;",
+        },
+    ];
+
+    fn column_names(db: &Db) -> Vec<String> {
+        db.read::<_, DbError>(|conn| {
+            let mut stmt = conn.prepare("PRAGMA table_info(t)")?;
+            let names = stmt
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(names)
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn existing_tables_can_gain_columns() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+
+        // 先按旧版本建库并写点数据，模拟「用户机器上已经有一个库了」
+        let old = Db::open(&path).unwrap().with_migrations("demo", V1);
+        old.migrate().unwrap();
+        old.write::<_, DbError>(|conn| {
+            conn.execute("INSERT INTO t (v) VALUES (?1)", ["旧数据"])?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(column_names(&old), ["id", "v"]);
+        drop(old);
+
+        // 换成新版本再打开：应当补上新列，且旧数据还在
+        let upgraded = Db::open(&path).unwrap().with_migrations("demo", V2);
+        upgraded.migrate().unwrap();
+        assert_eq!(column_names(&upgraded), ["id", "v", "note"]);
+
+        let kept: i64 = upgraded
+            .read::<_, DbError>(|conn| {
+                Ok(conn.query_row("SELECT COUNT(*) FROM t", [], |r| r.get(0))?)
+            })
+            .unwrap();
+        assert_eq!(kept, 1, "升级不该丢数据");
+    }
+
+    #[test]
+    fn each_step_runs_at_most_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        let db = Db::open(&path).unwrap().with_migrations("demo", V2);
+
+        db.migrate().unwrap();
+        // ALTER 不幂等，重跑会报 duplicate column——跑第二遍还能过，
+        // 说明台账真的起了作用
+        db.migrate().unwrap();
+        assert_eq!(column_names(&db), ["id", "v", "note"]);
+    }
+
+    #[test]
+    fn scopes_keep_separate_version_counters() {
+        let dir = tempfile::tempdir().unwrap();
+        // 两个领域共用一个库文件，各自都有 v1，互不干扰
+        let db = Db::open(dir.path().join("t.db"))
+            .unwrap()
+            .with_migrations("demo", V1)
+            .with_migrations(
+                "other",
+                &[Migration {
+                    version: 1,
+                    sql: "CREATE TABLE IF NOT EXISTS u (id INTEGER PRIMARY KEY);",
+                }],
+            );
+        db.migrate().unwrap();
+
+        let tables: i64 = db
+            .read::<_, DbError>(|conn| {
+                Ok(conn.query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('t', 'u')",
+                    [],
+                    |row| row.get(0),
+                )?)
+            })
+            .unwrap();
+        assert_eq!(tables, 2);
+    }
 
     #[test]
     fn migrate_is_idempotent_and_transaction_commits() {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(dir.path().join("t.db"))
             .unwrap()
-            .with_migration(SQL);
+            .with_migrations("demo", V1);
         db.migrate().unwrap();
         db.migrate().unwrap();
 
@@ -159,7 +310,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = Db::open(dir.path().join("t.db"))
             .unwrap()
-            .with_migration(SQL);
+            .with_migrations("demo", V1);
         db.migrate().unwrap();
 
         let result = db.write::<(), DbError>(|conn| {

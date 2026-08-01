@@ -131,9 +131,9 @@ pub async fn send(
     if body.text.trim().is_empty() {
         return Err(ApiError::bad_request("消息不能为空"));
     }
-    hub.agent()
-        .sessions()
-        .append(&id, MessagePayload::user_text(body.text), false)?;
+    // 走 hub 而不是直接写 store：它会把这条消息广播出去，否则订阅者
+    // （包括发消息的人自己）看不到它
+    hub.push_user_message(&id, body.text)?;
     hub.start_turn(&id)?;
     Ok(StatusCode::ACCEPTED)
 }

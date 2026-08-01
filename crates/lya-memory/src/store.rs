@@ -9,10 +9,10 @@ use chrono::{DateTime, Utc};
 use lya_db::Db;
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::MIGRATION_SQL;
 use crate::error::MemoryError;
 use crate::index::{IndexBudget, render_index};
 use crate::types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};
+use crate::{MIGRATION_SCOPE, MIGRATIONS};
 
 /// 长期记忆仓储。
 pub struct MemoryStore {
@@ -28,7 +28,7 @@ impl MemoryStore {
     /// 用已打开的 [`Db`] 构造，并登记 memory 迁移（不执行）。
     pub fn new(db: Db) -> Self {
         Self {
-            db: Arc::new(db.with_migration(MIGRATION_SQL)),
+            db: Arc::new(db.with_migrations(MIGRATION_SCOPE, MIGRATIONS)),
             limits: MemoryLimits::default(),
             budget: IndexBudget::default(),
         }
@@ -36,7 +36,7 @@ impl MemoryStore {
 
     /// 复用别处已经建好的 [`Db`]。
     ///
-    /// **不登记迁移**——调用方要自己先 `with_migration(lya_memory::MIGRATION_SQL)`
+    /// **不登记迁移**——调用方要自己先 `with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS)`
     /// 并 `migrate()`。与 `lya-session` 共享同一个库文件时用这个。
     pub fn with_db(db: Arc<Db>) -> Self {
         Self {
@@ -662,9 +662,12 @@ mod tests {
         let (_dir, store) = store();
         store
             .create(
-                NewMemory::new("NetworkManager 高 CPU", "根因是 qshell 泄漏了 nmcli monitor 进程")
-                    .with_summary("NM 吃满 CPU")
-                    .with_tags(["NetworkManager", "bug"]),
+                NewMemory::new(
+                    "NetworkManager 高 CPU",
+                    "根因是 qshell 泄漏了 nmcli monitor 进程",
+                )
+                .with_summary("NM 吃满 CPU")
+                .with_tags(["NetworkManager", "bug"]),
             )
             .unwrap();
 
@@ -691,7 +694,10 @@ mod tests {
             store.search("Hyprland", 10).unwrap()[0].matched_in,
             MatchField::Title
         );
-        assert_eq!(store.search("drm", 10).unwrap()[0].matched_in, MatchField::Tag);
+        assert_eq!(
+            store.search("drm", 10).unwrap()[0].matched_in,
+            MatchField::Tag
+        );
         assert_eq!(
             store.search("多显示器", 10).unwrap()[0].matched_in,
             MatchField::Summary

@@ -377,6 +377,8 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             .ok_or_else(|| HubError::Invalid("这个会话还没有用户消息，无从重新生成".into()))?;
 
         sessions.fork_at(session_id, Some(last_user.id))?;
+        // 分叉换掉了整条可见路径，增量说不清，重推一份快照
+        self.resync(session_id);
         self.start_turn(session_id)
     }
 
@@ -404,8 +406,54 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         }
 
         sessions.fork_at(session_id, record.parent_id)?;
-        sessions.append(session_id, MessagePayload::user_text(text), false)?;
+        self.resync(session_id);
+        self.push_user_message(session_id, text)?;
         self.start_turn(session_id)
+    }
+
+    /// 追加一条用户消息，并告诉订阅者。
+    ///
+    /// 不广播的话，**发消息的人自己看不到自己发的消息**——用户消息由这里写进树，
+    /// 而 agent 只为它自己做的事发事件。同一个会话在手机上开着、从电脑发一句，
+    /// 手机那头就只会看到回复凭空冒出来。
+    pub fn push_user_message(
+        &self,
+        session_id: &str,
+        text: impl Into<String>,
+    ) -> Result<MessageRecord, HubError> {
+        let record =
+            self.agent
+                .sessions()
+                .append(session_id, MessagePayload::user_text(text), false)?;
+        self.publish(
+            session_id,
+            &AgentEvent::MessageCommitted {
+                record: Box::new(record.clone()),
+            },
+        );
+        Ok(record)
+    }
+
+    /// 把当前快照重新推给订阅者。
+    ///
+    /// 换分支时用。增量事件描述的是「树上多了/改了/少了一个节点」，而分叉换的是
+    /// **整条可见路径**——那用增量表达不了，重发一份快照最直接，客户端整体替换
+    /// 即可（和断线重连走同一条路）。
+    pub fn resync(&self, session_id: &str) {
+        let Ok(snapshot) = self.snapshot(session_id) else {
+            return;
+        };
+        let Some(channel) = self.channel_if_present(session_id) else {
+            return;
+        };
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed);
+        let payload = serde_json::to_value(&snapshot).unwrap_or_else(|_| serde_json::json!({}));
+        let _ = channel.lock().unwrap().tx.send(Envelope {
+            scope: Scope::Session(session_id.to_string()).as_wire(),
+            kind: "snapshot".into(),
+            seq,
+            payload,
+        });
     }
 
     /// 改树之前确认没有轮次在跑。

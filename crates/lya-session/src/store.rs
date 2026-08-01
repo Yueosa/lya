@@ -12,10 +12,10 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 use uuid::Uuid;
 
-use crate::MIGRATION_SQL;
 use crate::error::SessionError;
 use crate::message::{MessagePayload, MessageRole, MessageStatus};
 use crate::types::{CreateSession, MessageRecord, SessionMeta, SessionStatus};
+use crate::{MIGRATION_SCOPE, MIGRATIONS};
 
 /// 会话存储：会话元数据 + 消息树。
 pub struct SessionStore {
@@ -30,14 +30,15 @@ impl SessionStore {
     /// 这样多个领域 crate 可以先各自登记迁移，最后统一执行。
     pub fn new(db: Db) -> Self {
         Self {
-            db: Arc::new(db.with_migration(MIGRATION_SQL)),
+            db: Arc::new(db.with_migrations(MIGRATION_SCOPE, MIGRATIONS)),
         }
     }
 
     /// 复用别处已经建好的 [`Db`]。
     ///
     /// 与 [`SessionStore::new`] 的区别是**不登记迁移**——调用方要自己先
-    /// `with_migration(lya_session::MIGRATION_SQL)` 并 `migrate()`。
+    /// `with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)`
+    /// 并 `migrate()`。
     /// 多个领域仓储共享同一个库文件时用这个，这样写入仍走同一把锁，
     /// 不会出现两个连接互相抢。
     pub fn with_db(db: Arc<Db>) -> Self {

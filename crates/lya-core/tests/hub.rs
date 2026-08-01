@@ -64,8 +64,8 @@ fn fixture() -> Fixture {
     let db = Arc::new(
         Db::open(dir.path().join("lya.db"))
             .unwrap()
-            .with_migration(lya_session::MIGRATION_SQL)
-            .with_migration(lya_memory::MIGRATION_SQL),
+            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
     );
     db.migrate().unwrap();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
@@ -256,7 +256,14 @@ async fn regenerate_forks_instead_of_overwriting() {
         1,
         "只能有一条当前分支"
     );
-    assert!(!branches.iter().find(|b| b.is_active).unwrap().leaf_id.eq(&first_answer));
+    assert!(
+        !branches
+            .iter()
+            .find(|b| b.is_active)
+            .unwrap()
+            .leaf_id
+            .eq(&first_answer)
+    );
 
     // 当前路径里只有一条用户消息，没被复制
     let after = fx.hub.snapshot(&fx.session_id).unwrap();
@@ -273,7 +280,14 @@ async fn switching_branches_changes_the_visible_path() {
     let fx = fixture();
     fx.say("你好");
     run_once(&fx).await;
-    let first = fx.hub.snapshot(&fx.session_id).unwrap().messages.last().unwrap().id;
+    let first = fx
+        .hub
+        .snapshot(&fx.session_id)
+        .unwrap()
+        .messages
+        .last()
+        .unwrap()
+        .id;
 
     arm(&fx);
     fx.hub.regenerate(&fx.session_id).unwrap();
@@ -320,7 +334,14 @@ async fn only_user_messages_can_be_edited() {
     let fx = fixture();
     fx.say("你好");
     run_once(&fx).await;
-    let answer = fx.hub.snapshot(&fx.session_id).unwrap().messages.last().unwrap().id;
+    let answer = fx
+        .hub
+        .snapshot(&fx.session_id)
+        .unwrap()
+        .messages
+        .last()
+        .unwrap()
+        .id;
 
     let err = fx
         .hub
@@ -416,8 +437,8 @@ async fn session_without_custom_tools_follows_the_global_default() {
     let db = Arc::new(
         Db::open(dir.path().join("lya.db"))
             .unwrap()
-            .with_migration(lya_session::MIGRATION_SQL)
-            .with_migration(lya_memory::MIGRATION_SQL),
+            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
     );
     db.migrate().unwrap();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));

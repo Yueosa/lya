@@ -29,6 +29,7 @@ pub mod store;
 pub mod types;
 
 pub use error::SessionError;
+pub use lya_db::Migration;
 pub use message::{
     ConfirmStepBlock, FormOption, FormQuestion, FormQuestionKind, HitlBlock, HitlKind, LyaExtras,
     MessageKind, MessagePayload, MessageRole, MessageStatus, OpenAiFunction, OpenAiMessage,
@@ -37,5 +38,20 @@ pub use message::{
 pub use store::SessionStore;
 pub use types::{CreateSession, MessageRecord, SessionMeta, SessionStatus};
 
-/// 会话相关表迁移 SQL。
-pub const MIGRATION_SQL: &str = include_str!("../migrations/001_init.sql");
+/// 会话相关表的迁移序列。
+///
+/// 每一步跑过就记在案，所以 SQL 不必幂等；v1 保持最初的样子不再改动，
+/// 字段变更一律新起一个版本。
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: include_str!("../migrations/001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("../migrations/002_model_id.sql"),
+    },
+];
+
+/// 迁移台账里用的归属名。
+pub const MIGRATION_SCOPE: &str = "session";
