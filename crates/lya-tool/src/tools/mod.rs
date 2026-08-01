@@ -29,6 +29,7 @@ pub fn register_builtins(
     registry.register(Arc::new(local::FileManageTool::new()))?;
     registry.register(Arc::new(local::DirListTool::new()))?;
     registry.register(Arc::new(local::SystemInfoTool::new()))?;
+    registry.register(Arc::new(local::ImageScanTool::new()))?;
     registry.register(Arc::new(web::WebSearchTool::new(http.clone())))?;
     registry.register(Arc::new(web::WebFetchTool::new(http)))?;
     registry.register(Arc::new(shell::BashTool::new(shell_confirm)))?;
@@ -59,6 +60,7 @@ mod tests {
             vec![
                 "dir_list",
                 "file_read",
+                "image_scan",
                 "system_info",
                 "web_fetch",
                 "web_search"
@@ -72,6 +74,7 @@ mod tests {
                 "file_edit",
                 "file_read",
                 "file_write",
+                "image_scan",
                 "system_info",
                 "web_fetch",
                 "web_search"
@@ -87,6 +90,7 @@ mod tests {
                 "file_manage",
                 "file_read",
                 "file_write",
+                "image_scan",
                 "system_info",
                 "web_fetch",
                 "web_search"
