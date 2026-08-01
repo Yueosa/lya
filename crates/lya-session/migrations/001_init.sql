@@ -42,13 +42,6 @@ CREATE TABLE IF NOT EXISTS branch_meta (
     created_at      TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS session_events (
-    session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    seq             INTEGER NOT NULL CHECK (seq >= 1),
-    envelope_json   TEXT NOT NULL,
-    created_at      TEXT NOT NULL,
-    PRIMARY KEY(session_id, seq)
-);
-
-CREATE INDEX IF NOT EXISTS idx_session_events_replay
-    ON session_events(session_id, seq);
+-- 曾经为「SSE 断线续传」预留过一张 session_events 表，后来发现用不上：
+-- 订阅时先发一份快照（消息树 + 当前轮的内存缓冲）再推增量，重连和首次连接
+-- 走同一条路，天然幂等，不需要序号对齐也不需要事件重放。

@@ -53,7 +53,7 @@ pub struct CreateSession {
 }
 
 /// 会话元数据快照。
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionMeta {
     /// 会话 id（uuid）。
     pub id: String,
@@ -78,7 +78,7 @@ pub struct SessionMeta {
 }
 
 /// 持久化后的消息行。
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MessageRecord {
     /// 数据库 id。
     pub id: i64,
