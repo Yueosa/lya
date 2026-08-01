@@ -1,0 +1,98 @@
+/**
+ * 与主题无关的基础样式。
+ *
+ * 这里只允许出现 `var(--...)`，不允许写死颜色、圆角、阴影——一个写死的十六进制
+ * 色值就是给未来的主题埋一个必须特判的地方。`tokens.test.ts` 会检查这一点。
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  line-height: var(--leading);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--info);
+}
+
+/* 原生滚动条也跟着主题走。Firefox 用 scrollbar-color，webkit 用伪元素，
+   两个都要写才不会有一边是默认样式 */
+* {
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-sm);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 代码高亮。配色由主题给，所以浅色主题里的代码块也是浅色的——
+   上一代静态 import 了一个深色 hljs 主题，换不掉 */
+.hljs {
+  color: var(--code-variable);
+  background: var(--bg-sunken);
+}
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-section {
+  color: var(--code-keyword);
+}
+.hljs-string,
+.hljs-attr,
+.hljs-addition {
+  color: var(--code-string);
+}
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--code-number);
+}
+.hljs-comment,
+.hljs-quote,
+.hljs-meta {
+  color: var(--code-comment);
+  font-style: italic;
+}
+.hljs-function,
+.hljs-title {
+  color: var(--code-function);
+}
+.hljs-type,
+.hljs-class,
+.hljs-built_in {
+  color: var(--code-type);
+}
+.hljs-variable,
+.hljs-name,
+.hljs-attribute {
+  color: var(--code-variable);
+}
