@@ -17,7 +17,7 @@ use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::event::Envelope;
-use crate::hub::{HubError, SessionHub, Snapshot};
+use crate::hub::{BranchInfo, HubError, SessionHub, Snapshot};
 
 type Hub = State<Arc<SessionHub>>;
 
@@ -136,6 +136,63 @@ pub async fn send(
         .append(&id, MessagePayload::user_text(body.text), false)?;
     hub.start_turn(&id)?;
     Ok(StatusCode::ACCEPTED)
+}
+
+/// 列出分支端点。
+pub async fn branches(
+    State(hub): Hub,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<BranchInfo>>, ApiError> {
+    Ok(Json(hub.branches(&id)?))
+}
+
+/// 切换分支。
+#[derive(Debug, Deserialize)]
+pub struct SwitchBody {
+    /// 要切到哪个叶节点。
+    pub leaf_id: i64,
+}
+
+/// 切到另一条分支。
+pub async fn switch_branch(
+    State(hub): Hub,
+    Path(id): Path<String>,
+    Json(body): Json<SwitchBody>,
+) -> Result<Json<Snapshot>, ApiError> {
+    hub.switch_branch(&id, body.leaf_id)?;
+    Ok(Json(hub.snapshot(&id)?))
+}
+
+/// 重新生成上一个回合。
+pub async fn regenerate(State(hub): Hub, Path(id): Path<String>) -> Result<StatusCode, ApiError> {
+    hub.regenerate(&id)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// 改掉一条用户消息并重发。
+#[derive(Debug, Deserialize)]
+pub struct EditBody {
+    /// 新的消息正文。
+    pub text: String,
+}
+
+/// 编辑重发。
+pub async fn edit_message(
+    State(hub): Hub,
+    Path((id, message_id)): Path<(String, i64)>,
+    Json(body): Json<EditBody>,
+) -> Result<StatusCode, ApiError> {
+    hub.edit_and_resend(&id, message_id, &body.text)?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// 删除一个叶节点。
+pub async fn delete_message(
+    State(hub): Hub,
+    Path((id, message_id)): Path<(String, i64)>,
+) -> Result<StatusCode, ApiError> {
+    hub.delete_message(&id, message_id)?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// 停止当前轮。
@@ -271,6 +328,13 @@ impl From<HubError> for ApiError {
             HubError::NotFound(_) => StatusCode::NOT_FOUND,
             // 已经有一轮在跑，前端应当提示「正在回复中」而不是重试
             HubError::Busy(_) => StatusCode::CONFLICT,
+            HubError::Invalid(_) => StatusCode::BAD_REQUEST,
+            // 会话层的「不是叶子」「消息不存在」也是请求问题，不是服务器故障
+            HubError::Session(
+                lya_session::SessionError::NotLeaf(_)
+                | lya_session::SessionError::MessageNotFound(_)
+                | lya_session::SessionError::Invalid(_),
+            ) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         Self {

@@ -205,6 +205,182 @@ async fn buffer_is_cleared_after_the_turn() {
     );
 }
 
+/// 让假后端重新开始吐字。每次开跑前都要调，否则新一轮会立刻空回复收场。
+fn arm(fx: &Fixture) {
+    fx.stop.store(false, Ordering::Relaxed);
+}
+
+/// 让它吐一会儿，然后叫停并等轮次真正结束。
+async fn settle(fx: &Fixture) {
+    tokio::time::sleep(Duration::from_millis(60)).await;
+    fx.stop.store(true, Ordering::Relaxed);
+    for _ in 0..50 {
+        if !fx.hub.is_running(&fx.session_id) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    panic!("轮次没能结束");
+}
+
+/// 跑一轮并等它结束，用于把分支铺出来。
+async fn run_once(fx: &Fixture) {
+    arm(fx);
+    fx.hub.start_turn(&fx.session_id).unwrap();
+    settle(fx).await;
+}
+
+#[tokio::test]
+async fn regenerate_forks_instead_of_overwriting() {
+    let fx = fixture();
+    fx.say("你好");
+    run_once(&fx).await;
+
+    let before = fx.hub.snapshot(&fx.session_id).unwrap();
+    let first_answer = before.messages.last().unwrap().id;
+    assert_eq!(fx.hub.branches(&fx.session_id).unwrap().len(), 1);
+
+    arm(&fx);
+    fx.hub.regenerate(&fx.session_id).unwrap();
+    settle(&fx).await;
+
+    let branches = fx.hub.branches(&fx.session_id).unwrap();
+    assert_eq!(branches.len(), 2, "重新生成应当分叉，而不是覆盖原答案");
+    assert!(
+        branches.iter().any(|b| b.leaf_id == first_answer),
+        "旧答案要留着，随时能切回去"
+    );
+    assert_eq!(
+        branches.iter().filter(|b| b.is_active).count(),
+        1,
+        "只能有一条当前分支"
+    );
+    assert!(!branches.iter().find(|b| b.is_active).unwrap().leaf_id.eq(&first_answer));
+
+    // 当前路径里只有一条用户消息，没被复制
+    let after = fx.hub.snapshot(&fx.session_id).unwrap();
+    let users = after
+        .messages
+        .iter()
+        .filter(|m| m.payload.role == lya_session::MessageRole::User)
+        .count();
+    assert_eq!(users, 1);
+}
+
+#[tokio::test]
+async fn switching_branches_changes_the_visible_path() {
+    let fx = fixture();
+    fx.say("你好");
+    run_once(&fx).await;
+    let first = fx.hub.snapshot(&fx.session_id).unwrap().messages.last().unwrap().id;
+
+    arm(&fx);
+    fx.hub.regenerate(&fx.session_id).unwrap();
+    settle(&fx).await;
+
+    fx.hub.switch_branch(&fx.session_id, first).unwrap();
+    let snapshot = fx.hub.snapshot(&fx.session_id).unwrap();
+    assert_eq!(snapshot.messages.last().unwrap().id, first);
+    assert_eq!(snapshot.session.active_leaf_id, Some(first));
+}
+
+#[tokio::test]
+async fn editing_a_message_keeps_the_old_one_on_a_sibling_branch() {
+    let fx = fixture();
+    fx.say("原来的问题");
+    run_once(&fx).await;
+
+    let path = fx.hub.snapshot(&fx.session_id).unwrap().messages;
+    let user_msg = path[0].id;
+
+    arm(&fx);
+    fx.hub
+        .edit_and_resend(&fx.session_id, user_msg, "改过的问题")
+        .unwrap();
+    settle(&fx).await;
+
+    let snapshot = fx.hub.snapshot(&fx.session_id).unwrap();
+    let first = &snapshot.messages[0];
+    assert_eq!(
+        first.payload.openai.as_ref().unwrap().content,
+        "改过的问题",
+        "当前分支上是新问法"
+    );
+    assert_ne!(first.id, user_msg, "新问法是另一条消息，旧的没被改写");
+    assert_eq!(
+        fx.hub.branches(&fx.session_id).unwrap().len(),
+        2,
+        "旧问法连同它的回答成为并列分支"
+    );
+}
+
+#[tokio::test]
+async fn only_user_messages_can_be_edited() {
+    let fx = fixture();
+    fx.say("你好");
+    run_once(&fx).await;
+    let answer = fx.hub.snapshot(&fx.session_id).unwrap().messages.last().unwrap().id;
+
+    let err = fx
+        .hub
+        .edit_and_resend(&fx.session_id, answer, "我来替你说")
+        .unwrap_err();
+    assert!(matches!(err, lya_core::HubError::Invalid(_)), "{err}");
+}
+
+#[tokio::test]
+async fn tree_edits_are_refused_while_a_turn_runs() {
+    let fx = fixture();
+    fx.say("你好");
+    fx.hub.start_turn(&fx.session_id).unwrap();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+
+    // 一边跑一边改树会让两者抢着往同一棵树上追加
+    assert!(matches!(
+        fx.hub.regenerate(&fx.session_id).unwrap_err(),
+        lya_core::HubError::Busy(_)
+    ));
+    assert!(matches!(
+        fx.hub.switch_branch(&fx.session_id, 1).unwrap_err(),
+        lya_core::HubError::Busy(_)
+    ));
+    assert!(matches!(
+        fx.hub.delete_message(&fx.session_id, 1).unwrap_err(),
+        lya_core::HubError::Busy(_)
+    ));
+
+    fx.stop.store(true, Ordering::Relaxed);
+}
+
+#[tokio::test]
+async fn deleting_a_non_leaf_is_refused() {
+    let fx = fixture();
+    fx.say("你好");
+    run_once(&fx).await;
+
+    let path = fx.hub.snapshot(&fx.session_id).unwrap().messages;
+    let user_msg = path[0].id;
+    let answer = path.last().unwrap().id;
+
+    // 用户消息底下还挂着回答，删了会把子树变成孤儿
+    assert!(fx.hub.delete_message(&fx.session_id, user_msg).is_err());
+    fx.hub.delete_message(&fx.session_id, answer).unwrap();
+    assert_eq!(
+        fx.hub.snapshot(&fx.session_id).unwrap().messages.len(),
+        1,
+        "删掉叶子后回到用户消息"
+    );
+}
+
+#[tokio::test]
+async fn regenerate_needs_a_user_message() {
+    let fx = fixture();
+    assert!(matches!(
+        fx.hub.regenerate(&fx.session_id).unwrap_err(),
+        lya_core::HubError::Invalid(_)
+    ));
+}
+
 #[tokio::test]
 async fn unknown_session_is_reported() {
     let fx = fixture();

@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use futures_util::StreamExt;
 use lya_agent::{Agent, AgentError, AgentEvent, CallKind, CancelToken, ChatBackend};
 use lya_llm::LlmClient;
-use lya_session::{MessageRecord, SessionError, SessionMeta};
+use lya_session::{MessagePayload, MessageRecord, MessageRole, SessionError, SessionMeta};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
@@ -44,6 +44,10 @@ pub enum HubError {
     /// agent 层错误。
     #[error(transparent)]
     Agent(#[from] AgentError),
+
+    /// 请求本身说不通。
+    #[error("{0}")]
+    Invalid(String),
 }
 
 /// 当前轮次已经产出的内容。
@@ -75,6 +79,40 @@ pub struct CallState {
     pub kind: String,
     /// 是否成功；`None` 表示还在跑。
     pub success: Option<bool>,
+}
+
+/// 一个分支端点的概要，供界面做分支切换器。
+#[derive(Debug, Clone, Serialize)]
+pub struct BranchInfo {
+    /// 叶节点 id，切换时用它。
+    pub leaf_id: i64,
+    /// 是否为当前所在分支。
+    pub is_active: bool,
+    /// 叶节点的角色。
+    pub role: String,
+    /// 叶节点内容摘要。
+    pub preview: String,
+    /// 叶节点创建时间。
+    pub created_at: String,
+}
+
+/// 摘出一条消息的可读预览。
+fn preview_of(record: &MessageRecord) -> String {
+    const MAX: usize = 80;
+    let text = match &record.payload.openai {
+        Some(openai) if !openai.content.trim().is_empty() => openai.content.trim().to_string(),
+        // HITL 节点没有 openai 体，用块类型交代一下
+        _ => match &record.payload.lya.hitl {
+            Some(_) => "（等待用户答复）".to_string(),
+            None => "（无正文）".to_string(),
+        },
+    };
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() <= MAX {
+        flat
+    } else {
+        format!("{}…", flat.chars().take(MAX).collect::<String>())
+    }
 }
 
 /// 订阅或查询时给出的完整状态。
@@ -209,6 +247,101 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             }
             hub.finish(&id);
         });
+        Ok(())
+    }
+
+    // ── 分支 ─────────────────────────────────────────────────────
+    //
+    // 消息树的价值全在这几个操作上：没有它们，分叉存了也没人能用。
+    // 它们都会改动树，所以一律要求当前没有轮次在跑。
+
+    /// 列出所有分支端点。
+    pub fn branches(&self, session_id: &str) -> Result<Vec<BranchInfo>, HubError> {
+        let sessions = self.agent.sessions();
+        let meta = sessions
+            .get_session(session_id)?
+            .ok_or_else(|| HubError::NotFound(session_id.to_string()))?;
+
+        let mut branches = Vec::new();
+        for leaf_id in sessions.list_leaves(session_id)? {
+            let record = sessions.get_message(session_id, leaf_id)?;
+            branches.push(BranchInfo {
+                leaf_id,
+                is_active: meta.active_leaf_id == Some(leaf_id),
+                role: record.payload.role.as_str().to_string(),
+                preview: preview_of(&record),
+                created_at: record.created_at.to_rfc3339(),
+            });
+        }
+        Ok(branches)
+    }
+
+    /// 切换到另一个分支。
+    pub fn switch_branch(&self, session_id: &str, leaf_id: i64) -> Result<(), HubError> {
+        self.ensure_idle(session_id)?;
+        self.agent.sessions().switch_leaf(session_id, leaf_id)?;
+        Ok(())
+    }
+
+    /// 删除一个叶节点。
+    pub fn delete_message(&self, session_id: &str, message_id: i64) -> Result<(), HubError> {
+        self.ensure_idle(session_id)?;
+        self.agent.sessions().delete_leaf(session_id, message_id)?;
+        Ok(())
+    }
+
+    /// 重新生成上一个回合。
+    ///
+    /// 回退到当前路径里**最后一条用户消息**再跑，而不是只重跑最后一次 LLM 调用
+    /// ——用户点「重新生成」想要的是「换个答法回答我刚才的问题」，中间那几次工具
+    /// 调用也该一起重来。旧分支原样留着，随时能切回去。
+    pub fn regenerate(self: &Arc<Self>, session_id: &str) -> Result<(), HubError> {
+        self.ensure_idle(session_id)?;
+        let sessions = self.agent.sessions();
+        let path = sessions.path_to_active_leaf(session_id)?;
+        let last_user = path
+            .iter()
+            .rev()
+            .find(|record| record.payload.role == MessageRole::User)
+            .ok_or_else(|| HubError::Invalid("这个会话还没有用户消息，无从重新生成".into()))?;
+
+        sessions.fork_at(session_id, Some(last_user.id))?;
+        self.start_turn(session_id)
+    }
+
+    /// 改掉某条用户消息并重新发送。
+    ///
+    /// 分叉到那条消息的父节点再追加新内容，于是旧问法与旧回答成为一条并列分支，
+    /// 不会被抹掉。
+    pub fn edit_and_resend(
+        self: &Arc<Self>,
+        session_id: &str,
+        message_id: i64,
+        text: &str,
+    ) -> Result<(), HubError> {
+        if text.trim().is_empty() {
+            return Err(HubError::Invalid("消息不能为空".into()));
+        }
+        self.ensure_idle(session_id)?;
+
+        let sessions = self.agent.sessions();
+        let record = sessions.get_message(session_id, message_id)?;
+        if record.payload.role != MessageRole::User {
+            return Err(HubError::Invalid(format!(
+                "消息 #{message_id} 不是用户消息，只能改自己发的"
+            )));
+        }
+
+        sessions.fork_at(session_id, record.parent_id)?;
+        sessions.append(session_id, MessagePayload::user_text(text), false)?;
+        self.start_turn(session_id)
+    }
+
+    /// 改树之前确认没有轮次在跑。
+    fn ensure_idle(&self, session_id: &str) -> Result<(), HubError> {
+        if self.is_running(session_id) {
+            return Err(HubError::Busy(session_id.to_string()));
+        }
         Ok(())
     }
 

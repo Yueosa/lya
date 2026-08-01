@@ -23,6 +23,15 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
             get(sessions::snapshot).patch(sessions::patch),
         )
         .route("/api/sessions/{id}/messages", post(sessions::send))
+        .route(
+            "/api/sessions/{id}/messages/{message_id}",
+            post(sessions::edit_message).delete(sessions::delete_message),
+        )
+        .route(
+            "/api/sessions/{id}/branches",
+            get(sessions::branches).post(sessions::switch_branch),
+        )
+        .route("/api/sessions/{id}/regenerate", post(sessions::regenerate))
         .route("/api/sessions/{id}/stop", post(sessions::stop))
         .route("/api/sessions/{id}/hitl", post(sessions::hitl))
         .route("/api/sessions/{id}/subscribe", get(sessions::subscribe))
