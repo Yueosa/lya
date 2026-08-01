@@ -252,6 +252,12 @@ pub async fn hitl(
         }
         HitlBody::ModeChange { approved } => agent.resolve_mode_change(&id, approved)?,
     }
+
+    // 结清一次挂起会同时改两条消息：追加一条工具结果，再把 HITL 节点翻成
+    // resolved。两条都不在事件流里，订阅者因此不知道它已经结清——界面上那个
+    // 等你答复的托盘会一直挂着。两条一起变，增量说不清，重推一份快照最直接。
+    hub.resync(&id);
+
     // 答复完就接着跑，用户不用再点一次「继续」
     hub.start_turn(&id)?;
     Ok(StatusCode::ACCEPTED)
