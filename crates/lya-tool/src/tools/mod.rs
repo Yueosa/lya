@@ -18,10 +18,15 @@ use crate::registry::ToolRegistry;
 ///
 /// 由进程启动组装处调用一次即可。网络工具共用调用方传进来的
 /// [`HttpClient`]，避免各自建连接池。
+///
+/// `self_port` 让 `web_fetch` 认出「访问 lya 自己」并拒绝。注册发生在监听之前，
+/// 所以传的是个共享原子量，绑定成功后由启动流程回填；一直是 0 也安全，那样
+/// 所有本机地址都按内网走确认。
 pub fn register_builtins(
     registry: &mut ToolRegistry,
     http: HttpClient,
     shell_confirm: shell::ConfirmPolicy,
+    self_port: web::SelfPort,
 ) -> Result<(), ToolError> {
     registry.register(Arc::new(local::FileReadTool::new()))?;
     registry.register(Arc::new(local::FileWriteTool::new()))?;
@@ -31,7 +36,7 @@ pub fn register_builtins(
     registry.register(Arc::new(local::SystemInfoTool::new()))?;
     registry.register(Arc::new(local::ImageScanTool::new()))?;
     registry.register(Arc::new(web::WebSearchTool::new(http.clone())))?;
-    registry.register(Arc::new(web::WebFetchTool::new(http)))?;
+    registry.register(Arc::new(web::WebFetchTool::new(http, self_port)))?;
     registry.register(Arc::new(shell::BashTool::new(shell_confirm)))?;
     Ok(())
 }
@@ -45,7 +50,13 @@ mod tests {
     fn names(permission: Permission) -> Vec<String> {
         let http = HttpClient::with_defaults().unwrap();
         let mut registry = ToolRegistry::new();
-        register_builtins(&mut registry, http, shell::ConfirmPolicy::default()).unwrap();
+        register_builtins(
+            &mut registry,
+            http,
+            shell::ConfirmPolicy::default(),
+            Default::default(),
+        )
+        .unwrap();
         registry.bundle(None, permission).names
     }
 

@@ -84,7 +84,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let memory = Arc::new(MemoryStore::with_db(db));
 
     let mut tools = ToolRegistry::new();
-    register_tools(&mut tools, http.clone(), shell_policy(config.runtime.shell.confirm))?;
+    // 命令行 example 不监听端口，自身端口保持 0：本机地址一律按内网走确认
+    register_tools(
+        &mut tools,
+        http.clone(),
+        shell_policy(config.runtime.shell.confirm),
+        Default::default(),
+    )?;
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, Arc::clone(&memory))?;
 

@@ -5,7 +5,8 @@
 
 mod fetch;
 pub mod html;
+pub mod net;
 mod search;
 
-pub use fetch::WebFetchTool;
+pub use fetch::{SelfPort, WebFetchTool};
 pub use search::WebSearchTool;

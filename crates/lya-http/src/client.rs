@@ -12,15 +12,15 @@ use std::sync::Arc;
 use bytes::Bytes;
 use futures_core::Stream;
 use reqwest::{
-    header::{HeaderMap, HeaderName, HeaderValue},
     Client, Method, RequestBuilder, Response, StatusCode,
+    header::{HeaderMap, HeaderName, HeaderValue},
 };
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate::config::HttpConfig;
 use crate::error::HttpError;
-use crate::stream::{map_stream_error, ByteStream};
+use crate::stream::{ByteStream, map_stream_error};
 
 /// 一次成功响应的包装。
 ///
@@ -49,6 +49,15 @@ impl HttpResponse {
     /// 响应头只读视图。
     pub fn headers(&self) -> &HeaderMap {
         self.inner.headers()
+    }
+
+    /// 最终落地的地址。
+    ///
+    /// 重定向是自动跟随的，所以这未必是当初请求的那个——调用方若对目标有安全
+    /// 要求（比如不许访问内网），必须拿这个再校验一次，光验请求前的 URL 会被
+    /// 一次 302 绕过去。
+    pub fn url(&self) -> &str {
+        self.inner.url().as_str()
     }
 
     /// 是否为 2xx。
@@ -306,8 +315,7 @@ pub fn header(name: &str, value: &str) -> Result<(HeaderName, HeaderValue), Http
     let name: HeaderName = name
         .parse()
         .map_err(|err: reqwest::header::InvalidHeaderName| HttpError::Other(err.to_string()))?;
-    let value = HeaderValue::from_str(value)
-        .map_err(|err| HttpError::Other(err.to_string()))?;
+    let value = HeaderValue::from_str(value).map_err(|err| HttpError::Other(err.to_string()))?;
     Ok((name, value))
 }
 

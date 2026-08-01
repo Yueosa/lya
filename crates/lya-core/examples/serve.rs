@@ -11,6 +11,7 @@
 //! ```
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
 use lya_action::{ActionRegistry, register_builtins as register_actions};
@@ -23,6 +24,7 @@ use lya_llm::{LlmClient, LlmEndpoint};
 use lya_memory::MemoryStore;
 use lya_prompt::PromptBuilder;
 use lya_session::SessionStore;
+use lya_tool::tools::web::SelfPort;
 use lya_tool::{ToolRegistry, register_builtins as register_tools};
 
 #[tokio::main]
@@ -60,11 +62,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let memory = Arc::new(MemoryStore::with_db(db));
 
+    // web_fetch 靠它认出「访问 lya 自己」并拒绝。端口要等真正绑上才知道
+    // （被占用时 candidate_ports 会往后退让），所以先给 0 再回填；万一没填上，
+    // 0 表示所有本机地址都按内网走确认，不会漏放。
+    let self_port: SelfPort = Arc::new(AtomicU16::new(0));
+
     let mut tools = ToolRegistry::new();
     register_tools(
         &mut tools,
         http.clone(),
         shell_policy(config.runtime.shell.confirm),
+        Arc::clone(&self_port),
     )?;
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, Arc::clone(&memory))?;
@@ -113,6 +121,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         match tokio::net::TcpListener::bind(&addr).await {
             Ok(bound) => {
                 println!("监听 http://{addr}");
+                // 回填给 web_fetch，它据此拒绝「模型被网页诱导来访问 lya 自己」
+                self_port.store(port, Ordering::Relaxed);
                 listener = Some(bound);
                 break;
             }
