@@ -9,7 +9,6 @@ import { computed } from 'vue'
 import {
   deleteMessage,
   editAndResend,
-  hydrating,
   readOnly,
   regenerate,
   switchToBranch,
@@ -44,10 +43,17 @@ import {
 } from './chatBlockHelpers'
 import { state } from '../../app/chat/state'
 
-const props = defineProps<{
+const props = withDefaults(
+  defineProps<{
   items: TimelineItem[]
+  timelineOffset?: number
+  motionReady?: boolean
   editing: { id: number; text: string } | null
-}>()
+}>(),
+  { timelineOffset: 0, motionReady: true },
+)
+
+const timelineBase = computed(() => props.timelineOffset ?? 0)
 
 const emit = defineEmits<{
   'update:editing': [value: { id: number; text: string } | null]
@@ -70,15 +76,20 @@ function messageOrdinal(timelineIndex: number): number {
 }
 
 function motionStyle(timelineIndex: number): Record<string, string> | undefined {
-  if (!motionEnabled.value || hydrating.value) return undefined
+  if (!motionEnabled.value || !props.motionReady) return undefined
   return { '--local-msg-delay': messageStaggerDelay(messageOrdinal(timelineIndex)) }
 }
 
 function msgMotionClass(role: string): string | undefined {
-  if (!motionEnabled.value || hydrating.value) return undefined
+  if (!motionEnabled.value || !props.motionReady) return undefined
   if (role === 'assistant') return 'lya-msg--assistant'
   if (role === 'user') return 'lya-msg--user'
   return undefined
+}
+
+function asideMotionClass(): string | undefined {
+  if (!motionEnabled.value || !props.motionReady) return undefined
+  return 'lya-aside-enter'
 }
 
 function timelineKey(item: TimelineItem, index: number): string {
@@ -172,7 +183,7 @@ function onEditKey(event: KeyboardEvent): void {
 
     <template v-else-if="item.kind === 'message'">
       <template v-for="(block, at) in visibleBlocks(item.message.blocks, prefSlice)" :key="at">
-        <div v-if="block.type === 'reasoning'" class="chat__aside">
+        <div v-if="block.type === 'reasoning'" class="chat__aside" :class="asideMotionClass()" :style="motionStyle(timelineBase + index)">
           <CollapsibleBlock
             icon="reasoning"
             label="思考"
@@ -188,6 +199,8 @@ function onEditKey(event: KeyboardEvent): void {
         <div
           v-else-if="block.type === 'tool' && !shouldSkipToolBlock(item.message, at, item.message.blocks)"
           class="chat__aside"
+          :class="asideMotionClass()"
+          :style="motionStyle(timelineBase + index)"
         >
           <CollapsibleBlock
             v-if="item.message.toolBatch && isFirstToolBlockInBatch(item.message, at, item.message.blocks)"
@@ -196,6 +209,7 @@ function onEditKey(event: KeyboardEvent): void {
             :busy="toolBlocksInMessage(item.message.blocks).some((tb) => !tb.call.result)"
             :auto-collapse="prefs.autoCollapseAside"
             :fold-threshold="prefs.asideFoldLineThreshold"
+            :content-lines="1"
           >
             <div class="chat__tool-batch">
               <CollapsibleBlock
@@ -237,15 +251,15 @@ function onEditKey(event: KeyboardEvent): void {
           </CollapsibleBlock>
         </div>
 
-        <div v-else-if="block.type === 'hitl'" class="chat__aside">
+        <div v-else-if="block.type === 'hitl'" class="chat__aside" :class="asideMotionClass()" :style="motionStyle(timelineBase + index)">
           <HitlRecord :hitl="block.hitl" :answer="block.answer" />
         </div>
 
         <div
-          v-else
+          v-else-if="block.type === 'text'"
           class="chat__row"
           :class="[`chat__row--${item.message.role}`, msgMotionClass(item.message.role)]"
-          :style="motionStyle(index)"
+          :style="motionStyle(timelineBase + index)"
         >
           <ChatAvatar v-if="item.message.role === 'assistant'" role="assistant" />
           <div class="chat__msg">
@@ -335,7 +349,7 @@ function onEditKey(event: KeyboardEvent): void {
         v-if="item.message.status === 'streaming' && !hasText(item.message.blocks)"
         class="chat__row chat__row--assistant"
         :class="msgMotionClass('assistant')"
-        :style="motionStyle(index)"
+        :style="motionStyle(timelineBase + index)"
       >
         <ChatAvatar role="assistant" />
         <div class="chat__msg">

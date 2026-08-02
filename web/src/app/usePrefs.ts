@@ -23,6 +23,8 @@ export interface Prefs {
   autoCollapseAside: boolean
   /** 超过此行数的侧栏块默认折叠（流式中仍展开）。 */
   asideFoldLineThreshold: number
+  /** 代码块内长行自动换行（默认横向滚动 + 行号）。 */
+  codeBlockWrap: boolean
 }
 
 const KEY = 'lya.prefs'
@@ -34,7 +36,8 @@ const DEFAULTS: Prefs = {
   hideNotices: false,
   followStream: true,
   autoCollapseAside: true,
-  asideFoldLineThreshold: 16,
+  asideFoldLineThreshold: 0,
+  codeBlockWrap: false,
 }
 
 function load(): Prefs {

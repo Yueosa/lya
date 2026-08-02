@@ -1,21 +1,25 @@
 /** 聊天区滚动：跟随流式、跳转按钮、hydration 尾部渲染。 */
 
-import { computed, nextTick, onMounted, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 
 import { hydrating, running, timeline } from '../../app/useChat'
 import { prefs } from '../../app/usePrefs'
+import { sessionEnterMotionMs } from '../../ui/useMotion'
 
 const INITIAL_TAIL = 48
 
 export function useChatScroll(scroller: Ref<HTMLElement | null>) {
   const renderTail = ref<number | null>(null)
+  const timelineReady = ref(false)
+  /** 仅进入会话时短暂为 true；SSE 流式更新不再播放入场动画。 */
+  const sessionEnterMotion = ref(false)
+  let enterMotionTimer: number | null = null
 
-  watch(hydrating, (on) => {
-    if (on && timeline.value.length > INITIAL_TAIL) {
-      renderTail.value = INITIAL_TAIL
-    } else if (!on) {
-      renderTail.value = null
-    }
+  const timelineOffset = computed(() => {
+    const items = timeline.value
+    const tail = renderTail.value
+    if (tail === null || items.length <= tail) return 0
+    return items.length - tail
   })
 
   const displayTimeline = computed(() => {
@@ -31,15 +35,89 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
   const atScrollBottom = ref(true)
   const lastTurnFinished = ref(false)
   let programmaticScroll = false
+  let layoutObserver: ResizeObserver | null = null
+
+  watch(
+    () => timeline.value.length,
+    async (len, prevLen) => {
+      if (len > INITIAL_TAIL && prevLen === 0 && hydrating.value) {
+        renderTail.value = INITIAL_TAIL
+        await nextTick()
+        scrollBottom()
+      }
+    },
+  )
+
+  function stopEnterMotion(): void {
+    sessionEnterMotion.value = false
+    if (enterMotionTimer !== null) {
+      window.clearTimeout(enterMotionTimer)
+      enterMotionTimer = null
+    }
+  }
+
+  function startEnterMotion(): void {
+    stopEnterMotion()
+    sessionEnterMotion.value = true
+    enterMotionTimer = window.setTimeout(stopEnterMotion, sessionEnterMotionMs())
+  }
+
+  async function revealTimeline(): Promise<void> {
+    if (timeline.value.length > INITIAL_TAIL && renderTail.value === null) {
+      renderTail.value = INITIAL_TAIL
+    }
+    await nextTick()
+    scrollBottom()
+
+    const finish = (): void => {
+      requestAnimationFrame(() => {
+        scrollBottom()
+        timelineReady.value = true
+        startEnterMotion()
+      })
+    }
+
+    if (renderTail.value !== null) {
+      requestAnimationFrame(() => {
+        renderTail.value = null
+        nextTick(() => {
+          scrollBottom()
+          finish()
+        })
+      })
+    } else {
+      finish()
+    }
+
+    window.setTimeout(stopLayoutScroll, 600)
+  }
+
+  watch(hydrating, async (on, wasOn) => {
+    if (on) {
+      stopEnterMotion()
+      timelineReady.value = false
+      startLayoutScroll()
+      return
+    }
+
+    // 已在 hydrate 结束后才挂载 ChatView（shell 先 await openSession 再 navigate）
+    if (wasOn === undefined) {
+      await revealTimeline()
+      return
+    }
+
+    if (!wasOn) return
+    await revealTimeline()
+  }, { immediate: true })
 
   watch(
     timeline,
     async () => {
-      if (!prefs.followStream) return
+      if (!prefs.followStream || !scroller.value) return
       await nextTick()
       scrollBottom()
     },
-    { deep: true, immediate: true },
+    { deep: true },
   )
 
   watch(running, (on, was) => {
@@ -107,6 +185,22 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
     })
   }
 
+  function startLayoutScroll(): void {
+    const el = scroller.value
+    if (!el || layoutObserver) return
+    layoutObserver = new ResizeObserver(() => {
+      if (prefs.followStream && (hydrating.value || atScrollBottom.value)) {
+        scrollBottom()
+      }
+    })
+    layoutObserver.observe(el)
+  }
+
+  function stopLayoutScroll(): void {
+    layoutObserver?.disconnect()
+    layoutObserver = null
+  }
+
   function jumpLatest(): void {
     if (jumpState.value === 'following') {
       prefs.followStream = false
@@ -118,14 +212,23 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
   }
 
   onMounted(() => {
+    if (hydrating.value) startLayoutScroll()
     nextTick(() => {
       onScroll()
       if (prefs.followStream) scrollBottom()
     })
   })
 
+  onUnmounted(() => {
+    stopLayoutScroll()
+    stopEnterMotion()
+  })
+
   return {
     displayTimeline,
+    timelineOffset,
+    timelineReady,
+    sessionEnterMotion,
     jumpState,
     jumpText,
     jumpTip,

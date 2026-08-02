@@ -27,7 +27,9 @@ const TEXT_X = 30
 const TEXT_RIGHT = 18
 
 const FILTER_KEY = 'lya.tree.filters.v2'
-const WIDTH_TOUCHED_KEY = 'lya.tree.widthTouched'
+const MIN_PANEL_WIDTH = 240
+const MAX_PANEL_RATIO = 0.8
+const PANEL_PAD = 32
 
 function loadFilters(): TreeFilters {
   try {
@@ -46,8 +48,9 @@ const loading = ref(false)
 const picked = ref<MessageRecord | null>(null)
 const switching = ref(false)
 const deleting = ref(false)
-const width = ref(Number(localStorage.getItem('lya.tree.width')) || 460)
-const widthTouched = ref(localStorage.getItem(WIDTH_TOUCHED_KEY) === '1')
+const width = ref(MIN_PANEL_WIDTH)
+/** 当前打开期间的手动宽度；关闭面板后丢弃，避免污染下次自动计算。 */
+const manualWidth = ref<number | null>(null)
 const resizing = ref(false)
 const scrollEl = ref<HTMLElement | null>(null)
 const filters = ref<TreeFilters>(loadFilters())
@@ -61,7 +64,12 @@ watch(
   { deep: true },
 )
 
-watch(() => props.open, (open) => void (open && refresh()), { immediate: true })
+watch(() => props.open, (open) => {
+  if (open) {
+    manualWidth.value = null
+    void refresh()
+  }
+}, { immediate: true })
 watch(currentId, () => void (props.open && refresh()))
 
 function visibleNodes(): MessageRecord[] {
@@ -195,11 +203,25 @@ const canDeletePicked = computed(() => {
   return pickedPlaced.value?.isLeaf ?? false
 })
 
-function fitPanelWidth(): void {
-  if (widthTouched.value) return
-  const needed = Math.min(Math.max(layout.value.w + 32, 320), window.innerWidth * 0.8)
-  width.value = needed
+function clampPanelWidth(value: number): number {
+  return Math.min(Math.max(value, MIN_PANEL_WIDTH), window.innerWidth * MAX_PANEL_RATIO)
 }
+
+function panelWidthForLayout(): number {
+  if (layout.value.placed.length === 0) return MIN_PANEL_WIDTH
+  return clampPanelWidth(layout.value.w + PANEL_PAD)
+}
+
+function fitPanelWidth(): void {
+  width.value = manualWidth.value === null ? panelWidthForLayout() : clampPanelWidth(manualWidth.value)
+}
+
+watch(
+  () => layout.value.w,
+  () => {
+    if (props.open && manualWidth.value === null) fitPanelWidth()
+  },
+)
 
 function scrollToActive(): void {
   const el = scrollEl.value
@@ -276,16 +298,15 @@ async function confirmDelete(): Promise<void> {
 
 function startResize(event: PointerEvent): void {
   resizing.value = true
-  widthTouched.value = true
-  localStorage.setItem(WIDTH_TOUCHED_KEY, '1')
   const startX = event.clientX
   const startWidth = width.value
   const move = (moved: PointerEvent): void => {
-    width.value = Math.min(Math.max(320, startWidth - (moved.clientX - startX)), window.innerWidth * 0.8)
+    const next = clampPanelWidth(startWidth - (moved.clientX - startX))
+    width.value = next
+    manualWidth.value = next
   }
   const up = (): void => {
     resizing.value = false
-    localStorage.setItem('lya.tree.width', String(Math.round(width.value)))
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
   }

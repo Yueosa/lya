@@ -1,4 +1,4 @@
-import { computed } from 'vue'
+import { computed, watch } from 'vue'
 
 import type { HitlReply } from '../../api/client'
 import type { HitlBlock } from '../../api/wire'
@@ -12,12 +12,40 @@ import { round, startClock, stopClock } from './turn'
 import { client } from './client'
 import {
   currentId,
+  focusedHitlId,
   hydrating,
   loading,
   state,
   tree,
   unsubscribe,
 } from './state'
+
+function hitlIdsInBatch(anchorId: number): number[] {
+  const current = state.value.messages.find((message) => message.id === anchorId)
+  const batchId = current?.payload.lya.meta?.['batch_id']
+  const pending = state.value.messages.filter(
+    (message) => message.payload.role === 'hitl' && message.payload.status === 'pending',
+  )
+  if (typeof batchId !== 'string') {
+    return pending.some((message) => message.id === anchorId) ? [anchorId] : []
+  }
+  return pending
+    .filter((message) => message.payload.lya.meta?.['batch_id'] === batchId)
+    .sort(
+      (a, b) =>
+        Number(a.payload.lya.meta?.['batch_index'] ?? 0) -
+        Number(b.payload.lya.meta?.['batch_index'] ?? 0),
+    )
+    .map((message) => message.id)
+}
+
+watch(
+  () => state.value.pendingHitlId,
+  (id) => {
+    focusedHitlId.value = id
+  },
+  { immediate: true },
+)
 
 /** 渲染用的时间线。 */
 export const timeline = computed(() =>
@@ -34,8 +62,45 @@ export const running = computed(() => isRunning(state.value))
 export const canSend = computed(() => currentId.value !== null && canSendTo(state.value))
 export const pendingHitlId = computed(() => state.value.pendingHitlId)
 
-export const pendingHitl = computed<HitlBlock | null>(() => {
+export const batchPendingHitlIds = computed(() => {
   const id = state.value.pendingHitlId
+  if (id === null) return []
+  return hitlIdsInBatch(id)
+})
+
+export const canSubmitFocusedHitl = computed(
+  () =>
+    focusedHitlId.value !== null &&
+    focusedHitlId.value === state.value.pendingHitlId,
+)
+
+export const canNavHitlPrev = computed(() => {
+  const ids = batchPendingHitlIds.value
+  const focused = focusedHitlId.value ?? state.value.pendingHitlId
+  if (focused === null) return false
+  return ids.indexOf(focused) > 0
+})
+
+export const canNavHitlNext = computed(() => {
+  const ids = batchPendingHitlIds.value
+  const focused = focusedHitlId.value ?? state.value.pendingHitlId
+  if (focused === null) return false
+  const at = ids.indexOf(focused)
+  return at >= 0 && at < ids.length - 1
+})
+
+export function navigateHitlBatch(delta: -1 | 1): void {
+  const ids = batchPendingHitlIds.value
+  const focused = focusedHitlId.value ?? state.value.pendingHitlId
+  if (focused === null || ids.length <= 1) return
+  const at = ids.indexOf(focused)
+  if (at < 0) return
+  const next = ids[at + delta]
+  if (next !== undefined) focusedHitlId.value = next
+}
+
+export const pendingHitl = computed<HitlBlock | null>(() => {
+  const id = focusedHitlId.value ?? state.value.pendingHitlId
   if (id === null) return null
   const record = state.value.messages.find((message) => message.id === id)
   return record?.payload.lya.hitl ?? null
@@ -43,7 +108,7 @@ export const pendingHitl = computed<HitlBlock | null>(() => {
 
 /** 当前待审工具在调用组里的序号（仅 tool_confirm 批内有效）。 */
 export const pendingHitlBatch = computed<{ index: number; total: number } | null>(() => {
-  const id = state.value.pendingHitlId
+  const id = focusedHitlId.value ?? state.value.pendingHitlId
   if (id === null) return null
   const record = state.value.messages.find((message) => message.id === id)
   const meta = record?.payload.lya.meta
@@ -92,6 +157,7 @@ export function closeSession(): void {
   currentId.value = null
   state.value = emptyState()
   tree.value = null
+  focusedHitlId.value = null
   hydrating.value = false
   stopClock()
 }

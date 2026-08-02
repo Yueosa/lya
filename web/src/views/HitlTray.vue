@@ -1,20 +1,19 @@
-<!--
-  需要你决定时，从输入框上方滑出的托盘。
-
-  **不用模态框**是有原因的：确认一条命令该不该跑，你往往需要看着上文——它为什么
-  要跑这个、之前说了什么。模态框恰好把那些挡住。托盘只占底部一条，上面的对话
-  照样能滚、能读。
-
-  三种打断共用后端同一个端点，这里也共用一个组件：它们的语义是一样的——「结清
-  当前挂起，让这一轮接着跑」。
--->
-
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 
 import type { FormAnswerItem } from '../api/client'
 import type { HitlBlock } from '../api/wire'
-import { pendingHitl, pendingHitlBatch, replyHitl } from '../app/useChat'
+import {
+  focusedHitlId,
+  pendingHitl,
+  pendingHitlBatch,
+  pendingHitlId,
+  canNavHitlNext,
+  canNavHitlPrev,
+  canSubmitFocusedHitl,
+  navigateHitlBatch,
+  replyHitl,
+} from '../app/useChat'
 import Icon from '../ui/Icon.vue'
 
 const busy = ref(false)
@@ -22,15 +21,34 @@ const busy = ref(false)
 const picked = reactive<Record<string, string[]>>({})
 /** 表单作答：题目 id → 备注。 */
 const notes = reactive<Record<string, string>>({})
-/** 表单级补充说明，以及工具确认的备注。 */
-const remark = ref('')
+/** 工具确认备注：按 HITL 消息 id 分别保存，批内切换不丢。 */
+const hitlRemarks = reactive<Record<number, string>>({})
 
-// 换了一个新的挂起就把上一次的作答清掉，免得串台
-watch(pendingHitl, () => {
-  for (const key of Object.keys(picked)) delete picked[key]
-  for (const key of Object.keys(notes)) delete notes[key]
-  remark.value = ''
+const remark = computed({
+  get(): string {
+    const id = focusedHitlId.value ?? pendingHitlId.value
+    return id !== null ? (hitlRemarks[id] ?? '') : ''
+  },
+  set(value: string) {
+    const id = focusedHitlId.value ?? pendingHitlId.value
+    if (id !== null) hitlRemarks[id] = value
+  },
+})
+
+watch(pendingHitlId, (id, prev) => {
+  if (prev !== null && prev !== id) delete hitlRemarks[prev]
   busy.value = false
+})
+
+watch(pendingHitl, (block) => {
+  if (block?.type === 'form') {
+    for (const key of Object.keys(picked)) delete picked[key]
+    for (const key of Object.keys(notes)) delete notes[key]
+  }
+  if (!block) {
+    for (const key of Object.keys(hitlRemarks)) delete hitlRemarks[Number(key)]
+    busy.value = false
+  }
 })
 
 const block = computed<HitlBlock | null>(() => pendingHitl.value)
@@ -66,11 +84,9 @@ async function submitForm(): Promise<void> {
             : []
           : (picked[question.id] ?? [])
       const item: FormAnswerItem = { question_id: question.id, values }
-      // 文本题的输入就是答案本身，别再当成备注重复一遍
       if (question.kind !== 'text' && notes[question.id]) item.note = notes[question.id]!
       return item
     })
-    // 没作答的题直接不出现，后端允许
     .filter((item) => item.values.length > 0 || item.note)
 
   try {
@@ -88,7 +104,7 @@ async function submitForm(): Promise<void> {
 }
 
 async function answerConfirm(approved: boolean): Promise<void> {
-  if (busy.value) return
+  if (busy.value || !canSubmitFocusedHitl.value) return
   busy.value = true
   try {
     await replyHitl({
@@ -157,12 +173,32 @@ async function answerMode(approved: boolean): Promise<void> {
     <!-- 工具确认 -->
     <template v-else-if="block.type === 'tool_confirm'">
       <div v-if="batchNav" class="tray__batch-nav">
-        <span class="tray__batch-nav-label">‹ {{ batchNav.index }} / {{ batchNav.total }} ›</span>
+        <button
+          type="button"
+          class="tray__batch-nav-btn"
+          :disabled="!canNavHitlPrev"
+          aria-label="上一条待确认工具"
+          @click="navigateHitlBatch(-1)"
+        >
+          <Icon name="chevronLeft" size="sm" />
+        </button>
+        <span class="tray__batch-nav-label">{{ batchNav.index }} / {{ batchNav.total }}</span>
+        <button
+          type="button"
+          class="tray__batch-nav-btn"
+          :disabled="!canNavHitlNext"
+          aria-label="下一条待确认工具"
+          @click="navigateHitlBatch(1)"
+        >
+          <Icon name="chevronRight" size="sm" />
+        </button>
       </div>
+      <p v-if="batchNav && !canSubmitFocusedHitl" class="tray__batch-hint">
+        可自由浏览并分别填写备注；提交须按顺序，请先处理尚未审批的那一条
+      </p>
       <h3 class="tray__title">要执行 {{ block.tool_name }} 吗</h3>
       <p class="tray__summary">{{ block.summary }}</p>
 
-      <!-- 逐段拆开：一长串 && 和 | 串起来的命令原样丢给人看，等于让人闭眼签字 -->
       <ol v-if="block.steps?.length" class="tray__steps">
         <li v-for="(step, at) in block.steps" :key="at">
           <span v-if="step.connector" class="tray__connector">{{ step.connector }}</span>
@@ -178,8 +214,8 @@ async function answerMode(approved: boolean): Promise<void> {
 
       <input v-model="remark" class="input" placeholder="附一句话给它（可不填）" />
       <div class="tray__actions">
-        <button class="btn" :disabled="busy" @click="answerConfirm(false)">拒绝</button>
-        <button class="btn btn--danger" :disabled="busy" @click="answerConfirm(true)">
+        <button class="btn" :disabled="busy || !canSubmitFocusedHitl" @click="answerConfirm(false)">拒绝</button>
+        <button class="btn btn--danger" :disabled="busy || !canSubmitFocusedHitl" @click="answerConfirm(true)">
           {{ busy ? '执行中…' : '放行' }}
         </button>
       </div>
@@ -204,7 +240,6 @@ async function answerMode(approved: boolean): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  /* 强调色描边，一眼看出这里在等你 */
   border-color: var(--accent);
 }
 
@@ -294,12 +329,48 @@ async function answerMode(approved: boolean): Promise<void> {
 
 .tray__batch-nav {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 8px;
+}
+
+.tray__batch-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.tray__batch-nav-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.tray__batch-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .tray__batch-nav-label {
+  min-width: 3.5rem;
+  text-align: center;
   font-size: var(--text-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+}
+
+.tray__batch-hint {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 </style>

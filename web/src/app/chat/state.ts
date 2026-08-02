@@ -42,6 +42,9 @@ export const turnStartedAt = ref<number | null>(null)
 export const elapsed = ref(0)
 export let ticker: ReturnType<typeof setInterval> | null = null
 
+/** 工具批 HITL 托盘当前查看的节点（可前后浏览，提交仍针对 pendingHitlId）。 */
+export const focusedHitlId = ref<number | null>(null)
+
 export function setTicker(next: ReturnType<typeof setInterval> | null): void {
   ticker = next
 }

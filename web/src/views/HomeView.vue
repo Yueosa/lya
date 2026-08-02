@@ -15,8 +15,76 @@ interface FloatItem {
   x: number
   y: number
   size: number
-  delay: number
-  duration: number
+}
+
+interface FloatBox {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+const TITLE_ZONE: FloatBox = { x: 50, y: 50, w: 44, h: 38 }
+const BOX_GAP = 1.8
+
+function estimateBox(text: string, fontSize: number): Pick<FloatBox, 'w' | 'h'> {
+  const displayChars = Math.min(text.length, 28)
+  const w = Math.min(displayChars * fontSize * 0.038, 30) + 3
+  const h = fontSize * 0.065 + 2
+  return { w, h }
+}
+
+function boxesOverlap(a: FloatBox, b: FloatBox): boolean {
+  return (
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 + BOX_GAP &&
+    Math.abs(a.y - b.y) < (a.h + b.h) / 2 + BOX_GAP
+  )
+}
+
+function placeLabels(
+  labels: { id: string; text: string; size: number }[],
+): Map<string, { x: number; y: number }> {
+  const placed: FloatBox[] = [{ ...TITLE_ZONE }]
+  const positions = new Map<string, { x: number; y: number }>()
+
+  for (const [index, label] of labels.entries()) {
+    const box = estimateBox(label.text, label.size)
+    let found = false
+
+    for (let attempt = 0; attempt < 240; attempt++) {
+      const seed = hash(`${label.id}:${index}:${attempt}`)
+      const candidate: FloatBox = {
+        x: 6 + (seed % 880) / 10,
+        y: 6 + ((seed >> 10) % 880) / 10,
+        ...box,
+      }
+      if (placed.every((other) => !boxesOverlap(candidate, other))) {
+        placed.push(candidate)
+        positions.set(label.id, { x: candidate.x, y: candidate.y })
+        found = true
+        break
+      }
+    }
+
+    if (found) continue
+
+    for (let row = 0; row < 14 && !found; row++) {
+      for (let col = 0; col < 10 && !found; col++) {
+        const candidate: FloatBox = {
+          x: 8 + col * 8.4,
+          y: 7 + row * 6.4,
+          ...box,
+        }
+        if (placed.every((other) => !boxesOverlap(candidate, other))) {
+          placed.push(candidate)
+          positions.set(label.id, { x: candidate.x, y: candidate.y })
+          found = true
+        }
+      }
+    }
+  }
+
+  return positions
 }
 
 const memories = ref<Memory[]>([])
@@ -35,45 +103,40 @@ function hash(text: string): number {
   return Math.abs(value)
 }
 
-function place(id: string, index: number): { x: number; y: number } {
-  const seed = hash(`${id}:${index}`)
-  let x = 5 + (seed % 900) / 10
-  let y = 5 + ((seed >> 10) % 900) / 10
-  if (x > 30 && x < 70 && y > 25 && y < 75) {
-    x = x < 50 ? 22 + (seed % 8) : 70 + (seed % 8)
-  }
-  return { x, y }
-}
-
 const floats = computed((): FloatItem[] => {
-  const labels: { id: string; text: string; kind: FloatKind }[] = []
+  const labels: { id: string; text: string; kind: FloatKind; size: number }[] = []
 
   for (const session of sessions.value) {
     const title = session.title?.trim() || '未命名'
-    labels.push({ id: `s-${session.id}`, text: title, kind: 'session' })
+    labels.push({ id: `s-${session.id}`, text: title, kind: 'session', size: 18 + (hash(`s-${session.id}`) % 10) })
   }
   for (const session of archivedSessions.value) {
     const title = session.title?.trim() || '未命名'
-    labels.push({ id: `a-${session.id}`, text: title, kind: 'session' })
+    labels.push({ id: `a-${session.id}`, text: title, kind: 'session', size: 18 + (hash(`a-${session.id}`) % 10) })
   }
   for (const memory of memories.value) {
-    labels.push({ id: `m-${memory.id}`, text: memory.title, kind: 'memory' })
+    labels.push({
+      id: `m-${memory.id}`,
+      text: memory.title,
+      kind: 'memory',
+      size: 18 + (hash(`m-${memory.id}`) % 10),
+    })
   }
   for (const model of models.value) {
-    labels.push({ id: `md-${model.id}`, text: model.name, kind: 'model' })
+    labels.push({
+      id: `md-${model.id}`,
+      text: model.name,
+      kind: 'model',
+      size: 18 + (hash(`md-${model.id}`) % 10),
+    })
   }
 
-  return labels.slice(0, 120).map((item, index) => {
-    const seed = hash(item.id)
-    const { x, y } = place(item.id, index)
-    return {
-      ...item,
-      x,
-      y,
-      size: 18 + (seed % 10),
-      delay: (seed % 8000) / 1000,
-      duration: 14 + (seed % 9000) / 1000,
-    }
+  const capped = labels.slice(0, 120)
+  const positions = placeLabels(capped)
+
+  return capped.map((item) => {
+    const pos = positions.get(item.id) ?? { x: 50, y: 92 }
+    return { ...item, x: pos.x, y: pos.y }
   })
 })
 
@@ -88,8 +151,6 @@ function floatStyle(item: FloatItem): Record<string, string> {
     top: `${item.y}%`,
     fontSize: `${item.size}px`,
     opacity: String(Math.min(0.92, bgOpacity.value * (0.88 + (hash(item.id) % 14) / 100))),
-    animationDuration: `${item.duration}s`,
-    animationDelay: `${item.delay}s`,
   }
 }
 
@@ -150,7 +211,6 @@ function floatStyle(item: FloatItem): Record<string, string> {
   white-space: nowrap;
   font-weight: 600;
   line-height: 1.25;
-  animation: home-drift ease-in-out infinite;
   transform: translate(-50%, -50%);
 }
 
@@ -197,22 +257,5 @@ function floatStyle(item: FloatItem): Record<string, string> {
   color: var(--text-faint);
   font-size: var(--text-sm);
   line-height: var(--leading);
-}
-
-@keyframes home-drift {
-  0%,
-  100% {
-    transform: translate(-50%, -50%) translate(0, 0);
-  }
-
-  50% {
-    transform: translate(-50%, -50%) translate(10px, -16px);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .home__float {
-    animation: none;
-  }
 }
 </style>

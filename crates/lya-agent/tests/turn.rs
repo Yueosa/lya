@@ -1436,6 +1436,6 @@ async fn batch_executes_approved_confirms_after_all_reviewed() {
     assert_eq!(
         ran.lock().unwrap().as_slice(),
         ["rm -rf build", "rm -rf dist"],
-        "本批审完后并行执行"
+        "本批审完后按序执行"
     );
 }

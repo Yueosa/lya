@@ -28,3 +28,8 @@ export function useMotion() {
 export function messageStaggerDelay(messageIndex: number, cap = 28, stepMs = 42): string {
   return `${Math.min(Math.max(messageIndex, 0), cap) * stepMs}ms`
 }
+
+/** 进入会话时错峰 + 滑入动画的最长等待（ms）。 */
+export function sessionEnterMotionMs(cap = 28, stepMs = 42, animationMs = 320): number {
+  return cap * stepMs + animationMs
+}

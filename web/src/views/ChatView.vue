@@ -5,7 +5,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-import { loading, readOnly } from '../app/useChat'
+import { loading, hydrating, readOnly } from '../app/useChat'
 import BranchTree from './BranchTree.vue'
 import Composer from './Composer.vue'
 import SessionDetail from './SessionDetail.vue'
@@ -25,7 +25,7 @@ const settingsOpen = ref(false)
 const detailOpen = ref(false)
 const editing = ref<{ id: number; text: string } | null>(null)
 
-const { displayTimeline, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
+const { displayTimeline, timelineOffset, timelineReady, sessionEnterMotion, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
   useChatScroll(scroller)
 
 function closePanels(except?: 'tree' | 'settings' | 'detail'): void {
@@ -64,8 +64,18 @@ function toggleDetail(): void {
 
       <ChatStatusBar />
 
-      <div ref="scroller" class="chat__stream" @scroll="onScroll">
-        <ChatTimeline v-model:editing="editing" :items="displayTimeline" />
+      <div
+        ref="scroller"
+        class="chat__stream"
+        :class="{ 'chat__stream--loading': loading || hydrating || !timelineReady }"
+        @scroll="onScroll"
+      >
+        <ChatTimeline
+          v-model:editing="editing"
+          :items="displayTimeline"
+          :timeline-offset="timelineOffset"
+          :motion-ready="sessionEnterMotion"
+        />
       </div>
 
       <ScrollJumpButton
@@ -77,7 +87,8 @@ function toggleDetail(): void {
 
       <Composer v-if="!readOnly" />
 
-      <div v-if="loading" class="chat__loading" aria-live="polite">
+      <div v-if="loading || hydrating || !timelineReady" class="chat__loading" aria-live="polite">
+        <span class="chat__loading-spinner" aria-hidden="true" />
         <span class="chat__loading-text">加载中…</span>
       </div>
     </div>

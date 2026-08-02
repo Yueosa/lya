@@ -11,6 +11,7 @@ import hljs from '../ui/hljs'
 import { computed, nextTick, ref, watch } from 'vue'
 
 import { imageContext } from '../app/useChat'
+import { prefs } from '../app/usePrefs'
 import { renderMarkdown } from '../model/markdown'
 import { bindChatImages } from '../ui/useImageLightbox'
 import { bindChatMediaPaths } from '../ui/useChatMedia'
@@ -26,6 +27,7 @@ const props = withDefaults(
 
 const root = ref<HTMLElement | null>(null)
 const html = computed(() => renderMarkdown(props.text, imageContext.value ?? undefined))
+const codeWrap = computed(() => prefs.codeBlockWrap && props.variant === 'default')
 
 watch(
   html,
@@ -36,23 +38,53 @@ watch(
   { immediate: true },
 )
 
-/** 给还没处理过的代码块加高亮和复制按钮。 */
+/** 给还没处理过的代码块加高亮、顶栏与行号。 */
 function enhance(container: HTMLElement): void {
   bindChatImages(container)
   bindChatMediaPaths(container)
-  // NodeList 在当前 lib 设定下不可迭代，转成数组
   for (const block of Array.from(container.querySelectorAll<HTMLElement>('pre code'))) {
-    // 流式时同一个块会被反复看到，标记一下免得重复高亮
-    if (block.dataset['done'] === '1') continue
-    hljs.highlightElement(block)
-    block.dataset['done'] = '1'
-
     const pre = block.closest('pre')
-    if (!pre || pre.previousElementSibling?.classList.contains('md-bar')) continue
-    // 顶栏而不是浮在代码上的按钮——浮着的那个必然挡住第一行的字
-    pre.parentElement?.insertBefore(headerBar(block), pre)
-    pre.classList.add('md-pre--barred')
+    if (!pre) continue
+
+    if (block.dataset['done'] !== '1') {
+      hljs.highlightElement(block)
+      block.dataset['done'] = '1'
+    }
+
+    ensureCodeBlock(pre, block)
+    syncLineNumbers(pre, block)
   }
+}
+
+function ensureCodeBlock(pre: HTMLElement, code: HTMLElement): void {
+  if (pre.closest('.md-code')) return
+
+  const wrap = document.createElement('div')
+  wrap.className = 'md-code'
+  const parent = pre.parentElement!
+  parent.insertBefore(wrap, pre)
+  wrap.appendChild(headerBar(code))
+
+  const body = document.createElement('div')
+  body.className = 'md-code__body'
+  wrap.appendChild(body)
+  body.appendChild(pre)
+  pre.classList.add('md-pre--barred', 'md-pre--lined')
+}
+
+function syncLineNumbers(pre: HTMLElement, code: HTMLElement): void {
+  const body = pre.parentElement
+  if (!body?.classList.contains('md-code__body')) return
+
+  const lineCount = Math.max(1, (code.textContent ?? '').split('\n').length)
+  let gutter = body.querySelector('.md-code__lines') as HTMLElement | null
+  if (!gutter) {
+    gutter = document.createElement('div')
+    gutter.className = 'md-code__lines'
+    gutter.setAttribute('aria-hidden', 'true')
+    body.insertBefore(gutter, pre)
+  }
+  gutter.textContent = Array.from({ length: lineCount }, (_, i) => String(i + 1)).join('\n')
 }
 
 /** 代码块顶栏：左边语言，右边复制。 */
@@ -61,7 +93,6 @@ function headerBar(block: HTMLElement): HTMLElement {
   bar.className = 'md-bar'
 
   const lang = document.createElement('span')
-  // highlight.js 会把识别出的语言写进 class，取来当标签
   lang.textContent =
     Array.from(block.classList)
       .find((name) => name.startsWith('language-'))
@@ -86,16 +117,22 @@ function headerBar(block: HTMLElement): HTMLElement {
 
 <template>
   <!-- 内容已经过 DOMPurify 消毒，见 model/markdown.ts -->
-  <div ref="root" class="md" :class="{ 'md--doc': variant === 'doc' }" v-html="html" />
+  <div
+    ref="root"
+    class="md"
+    :class="{ 'md--doc': variant === 'doc', 'md--code-wrap': codeWrap }"
+    v-html="html"
+  />
 </template>
 
 <style scoped>
 .md {
   min-width: 0;
   max-width: 100%;
+  overflow: hidden;
   word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: 1.55;
-  /* 气泡不再 pre-wrap；HTML 里 marked 输出的换行符不能当可见空白 */
   white-space: normal;
 }
 
@@ -134,7 +171,6 @@ function headerBar(block: HTMLElement): HTMLElement {
   line-height: 1.55;
 }
 
-/* GFM 松散列表会在 li 里再包一层 p，默认 margin 会把行距撑爆 */
 .md :deep(li > p) {
   margin: 0;
 }
@@ -161,7 +197,9 @@ function headerBar(block: HTMLElement): HTMLElement {
 }
 
 .md :deep(pre) {
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
   margin: 0.6em 0;
   padding: 12px 14px;
   border-radius: var(--radius-sm);
@@ -170,12 +208,19 @@ function headerBar(block: HTMLElement): HTMLElement {
   overflow-x: auto;
 }
 
-/* 顶栏：左边语言、右边复制。和下面的代码块拼成一整块 */
+.md :deep(.md-code) {
+  min-width: 0;
+  max-width: 100%;
+  margin: 0.6em 0;
+}
+
 .md :deep(.md-bar) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0.6em 0 0;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   padding: 4px 12px;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: var(--surface-active);
@@ -197,10 +242,55 @@ function headerBar(block: HTMLElement): HTMLElement {
   color: var(--accent);
 }
 
-.md :deep(.md-pre--barred) {
-  margin-top: 0;
-  border-top-left-radius: 0;
-  border-top-right-radius: 0;
+.md :deep(.md-code__body) {
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+  border: var(--border-width) solid var(--border);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--bg-sunken);
+  overflow: auto;
+}
+
+.md :deep(.md-code__lines) {
+  flex-shrink: 0;
+  padding: 12px 8px 12px 10px;
+  border-right: var(--border-width) solid var(--border);
+  background: color-mix(in srgb, var(--surface-active) 80%, var(--bg-sunken));
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.55;
+  text-align: right;
+  user-select: none;
+  white-space: pre;
+}
+
+.md :deep(.md-pre--barred),
+.md :deep(.md-pre--lined) {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  flex: 1;
+  min-width: 0;
+}
+
+.md :deep(.md-code__body pre code) {
+  display: block;
+  padding: 12px 14px 12px 0;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.md--code-wrap :deep(.md-code__body) {
+  overflow-x: hidden;
+}
+
+.md--code-wrap :deep(.md-code__body pre code) {
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .md :deep(pre code) {
@@ -227,14 +317,25 @@ function headerBar(block: HTMLElement): HTMLElement {
   line-height: 1.55;
 }
 
-.md :deep(img) {
+.md :deep(img.lya-chat-image) {
+  display: block;
   max-width: 100%;
+  max-height: min(72vh, 640px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin-inline: auto;
   border-radius: var(--radius-sm);
 }
 
 .md :deep(video.lya-chat-video) {
   display: block;
   max-width: 100%;
+  max-height: min(72vh, 640px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  margin-inline: auto;
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
 }
@@ -252,6 +353,7 @@ function headerBar(block: HTMLElement): HTMLElement {
   color: var(--text-faint);
   word-break: break-all;
   line-height: 1.4;
+  text-align: center;
 }
 
 .md :deep(table) {
@@ -269,7 +371,6 @@ function headerBar(block: HTMLElement): HTMLElement {
   background: var(--surface-hover);
 }
 
-/* 工具/记忆等详情说明：对齐 prose，列表不额外缩进 */
 .md--doc {
   font-size: var(--text-sm);
   line-height: var(--leading);

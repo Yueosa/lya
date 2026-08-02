@@ -4,22 +4,39 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Mode } from '../api/wire'
 import {
   canSend,
+  currentId,
   defaultModel,
   loadModels,
   meta,
   models,
   pendingHitl,
   running,
+  readComposerDraft,
   send,
   setMode,
   setModel,
   stop,
+  writeComposerDraft,
 } from '../app/useChat'
 import Icon from '../ui/Icon.vue'
 import type { IconKey } from '../ui/icons'
 import HitlTray from './HitlTray.vue'
 
 const draft = ref('')
+
+watch(
+  currentId,
+  (id) => {
+    draft.value = readComposerDraft(id)
+    void nextTick(grow)
+  },
+  { immediate: true },
+)
+
+watch(draft, (text) => {
+  writeComposerDraft(currentId.value, text)
+})
+
 const input = ref<HTMLTextAreaElement | null>(null)
 const modelOpen = ref(false)
 const modelWrap = ref<HTMLElement | null>(null)
@@ -60,6 +77,7 @@ async function submit(): Promise<void> {
   const text = draft.value
   if (!text.trim() || !canSend.value) return
   draft.value = ''
+  writeComposerDraft(currentId.value, '')
   await nextTick()
   grow()
   await send(text)

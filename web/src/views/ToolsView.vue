@@ -73,12 +73,6 @@ function setGlobalMode(mode: GlobalToolsMode): void {
   }
 }
 
-function isGlobalChecked(name: string): boolean {
-  if (globalMode.value === 'all') return true
-  if (globalMode.value === 'none') return false
-  return globalEnabled.value.has(name)
-}
-
 function toggleGlobalTool(name: string, checked: boolean): void {
   if (globalMode.value === 'all') {
     globalMode.value = 'custom'

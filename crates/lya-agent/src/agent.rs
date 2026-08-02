@@ -651,7 +651,7 @@ impl<B: ChatBackend> Agent<B> {
         (result.content, result.success)
     }
 
-    /// 本批 HITL 全部结清后，并行执行已批准且 deferred 的工具确认。
+    /// 本批 HITL 全部结清后，按原始 call 顺序串行执行已批准且 deferred 的工具确认。
     pub async fn flush_deferred_tool_executions(
         &self,
         session_id: &str,
@@ -661,27 +661,23 @@ impl<B: ChatBackend> Agent<B> {
             return Ok(());
         }
 
-        let deferred = self.collect_deferred_confirms(session_id)?;
+        let mut deferred = self.collect_deferred_confirms(session_id)?;
         if deferred.is_empty() {
             return Ok(());
         }
 
-        let futures: Vec<_> = deferred
-            .iter()
-            .map(|item| {
-                self.execute_confirmed(
+        deferred.sort_by_key(|item| item.batch_index);
+
+        for item in deferred {
+            let content = self
+                .execute_confirmed(
                     session_id,
                     &item.tool_name,
                     item.arguments.clone(),
                     item.note.as_deref(),
                     cancel.clone(),
                 )
-            })
-            .collect();
-        let contents = futures_util::future::join_all(futures).await;
-
-        for (item, content) in deferred.iter().zip(contents) {
-            let content = content?;
+                .await?;
             self.sessions.append(
                 session_id,
                 MessagePayload::tool_result(&item.call_id, content),
@@ -740,12 +736,17 @@ impl<B: ChatBackend> Agent<B> {
                 .get("note")
                 .and_then(Value::as_str)
                 .map(str::to_string);
+            let batch_index = meta
+                .get("batch_index")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
             out.push(DeferredConfirm {
                 hitl_id: msg.id,
                 call_id,
                 tool_name: tool_name.clone(),
                 arguments: arguments.clone(),
                 note,
+                batch_index,
             });
         }
         Ok(out)
@@ -874,6 +875,7 @@ struct DeferredConfirm {
     tool_name: String,
     arguments: Value,
     note: Option<String>,
+    batch_index: u32,
 }
 
 fn call_kind(name: &str, actions: &ActionRegistry) -> CallKind {

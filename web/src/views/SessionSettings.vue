@@ -49,6 +49,7 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
   { key: 'hideNotices', label: '隐藏模式变更' },
   { key: 'followStream', label: '跟随流式输出' },
   { key: 'autoCollapseAside', label: '流式结束后自动收起思考/工具' },
+  { key: 'codeBlockWrap', label: '代码块自动换行' },
 ]
 </script>
 
@@ -127,7 +128,7 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
           v-model.number="prefs.asideFoldLineThreshold"
           class="settings__range"
           type="range"
-          min="4"
+          min="0"
           max="64"
           step="1"
         />
@@ -135,7 +136,7 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
           v-model.number="prefs.asideFoldLineThreshold"
           class="settings__num input"
           type="number"
-          min="4"
+          min="0"
           max="128"
         />
       </label>

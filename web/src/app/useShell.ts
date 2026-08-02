@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 
-/** 侧栏是否收起；与 lianclaw 一样由聊天头补偿左侧空间。 */
-export const sidebarCollapsed = ref(localStorage.getItem('lya.sidebar.collapsed') === '1')
+/** 侧栏是否收起；默认收起，用户展开后记住选择。 */
+export const sidebarCollapsed = ref(localStorage.getItem('lya.sidebar.collapsed') !== '0')
 
 export function setSidebarCollapsed(next: boolean): void {
   sidebarCollapsed.value = next

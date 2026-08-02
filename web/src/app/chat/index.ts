@@ -10,6 +10,7 @@ export {
   currentId,
   defaultModel,
   defaultWorkMode,
+  focusedHitlId,
   hydrating,
   loading,
   sessions,
@@ -17,6 +18,7 @@ export {
   tree,
 } from './state'
 export { bootstrap, imageContext, refreshRuntimeDefaults } from './bootstrap'
+export { readComposerDraft, writeComposerDraft } from './composerDraft'
 export { refreshSessions, createSession } from './sessions'
 export {
   timeline,
@@ -26,6 +28,11 @@ export {
   pendingHitlId,
   pendingHitl,
   pendingHitlBatch,
+  batchPendingHitlIds,
+  canSubmitFocusedHitl,
+  canNavHitlPrev,
+  canNavHitlNext,
+  navigateHitlBatch,
   openSession,
   closeSession,
   replyHitl,

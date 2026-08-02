@@ -29,14 +29,14 @@ const props = withDefaults(
   {
     autoCollapse: true,
     contentLines: 0,
-    foldThreshold: 16,
+    foldThreshold: 0,
   },
 )
 
 function shouldStartCollapsed(): boolean {
   if (props.busy) return false
-  if (props.contentLines > props.foldThreshold) return true
-  return false
+  if (props.autoCollapse) return true
+  return props.contentLines > props.foldThreshold
 }
 
 const open = ref(props.busy ? true : !shouldStartCollapsed())
@@ -44,10 +44,10 @@ const open = ref(props.busy ? true : !shouldStartCollapsed())
 const touched = ref(false)
 
 watch(
-  () => [props.contentLines, props.foldThreshold, props.busy] as const,
+  () => [props.contentLines, props.foldThreshold, props.busy, props.autoCollapse] as const,
   () => {
     if (touched.value || props.busy) return
-    if (props.contentLines > props.foldThreshold) open.value = false
+    if (props.autoCollapse || props.contentLines > props.foldThreshold) open.value = false
   },
 )
 
