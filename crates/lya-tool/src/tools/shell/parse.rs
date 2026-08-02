@@ -116,6 +116,28 @@ pub fn parse(command: &str) -> ParsedCommand {
             continue;
         }
         if let Some(open) = quote {
+            // 双引号里 bash 仍会执行 $() 与反引号；单引号里不会，当普通文本即可
+            if open == '"' {
+                if ch == '$' && next == Some('(') {
+                    note(
+                        &mut caveats,
+                        "命令里有 $(...) 命令替换，实际执行内容取决于它的输出",
+                    );
+                    substitution += 1;
+                    current.push_str("$(");
+                    index += 2;
+                    continue;
+                }
+                if ch == '`' {
+                    note(
+                        &mut caveats,
+                        "命令里有反引号替换，实际执行内容取决于它的输出",
+                    );
+                    current.push(ch);
+                    index += 1;
+                    continue;
+                }
+            }
             current.push(ch);
             if ch == open {
                 quote = None;
@@ -160,6 +182,12 @@ pub fn parse(command: &str) -> ParsedCommand {
             ('|', Some('|')) => Some((Connector::Or, 2)),
             ('|', _) => Some((Connector::Pipe, 1)),
             (';', _) => Some((Connector::Seq, 1)),
+            ('&', _) if current.trim_end().ends_with('>') => {
+                // fd 重定向：2>&1、>&2 里的 & 不是后台符
+                current.push(ch);
+                index += 1;
+                continue;
+            }
             ('&', _) => Some((Connector::Background, 1)),
             _ => None,
         };
@@ -258,6 +286,14 @@ fn tokenize(raw: &str) -> Option<Vec<String>> {
             continue;
         }
         if let Some(open) = quote {
+            if open == '"' {
+                if ch == '$' && chars.get(index + 1) == Some(&'(') {
+                    return None;
+                }
+                if ch == '`' {
+                    return None;
+                }
+            }
             if ch == open {
                 quote = None;
             } else {
@@ -433,6 +469,36 @@ mod tests {
 
         let broken = parse("ls &&");
         assert!(!broken.understood, "悬空的连接符要报出来");
+    }
+
+    #[test]
+    fn fd_redirect_does_not_split_on_ampersand() {
+        let parsed = parse("which tree tokei 2>&1");
+        assert_eq!(programs(&parsed), ["which"]);
+        assert_eq!(parsed.segments.len(), 1);
+        assert!(parsed.segments[0].redirects);
+        assert!(parsed.understood);
+    }
+
+    #[test]
+    fn substitution_inside_double_quotes_is_admitted() {
+        let parsed = parse(r#"echo "$(rm -rf /)""#);
+        assert!(!parsed.understood, "bash 会在双引号内执行命令替换");
+        assert!(parsed.caveats.iter().any(|c| c.contains("$(...)")));
+    }
+
+    #[test]
+    fn backticks_inside_double_quotes_are_admitted_too() {
+        let parsed = parse(r#"echo "`rm -rf /`""#);
+        assert!(!parsed.understood);
+        assert!(parsed.caveats.iter().any(|c| c.contains("反引号")));
+    }
+
+    #[test]
+    fn substitution_inside_single_quotes_is_literal() {
+        let parsed = parse(r#"echo '$(whoami)'"#);
+        assert!(parsed.understood);
+        assert_eq!(parsed.segments[0].args(), ["$(whoami)"]);
     }
 
     #[test]

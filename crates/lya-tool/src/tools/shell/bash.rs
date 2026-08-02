@@ -79,6 +79,25 @@ impl BashTool {
                         "type": "integer",
                         "minimum": 1,
                         "description": format!("超时秒数，默认 {DEFAULT_TIMEOUT_SECS}，上限 {MAX_TIMEOUT_SECS}。")
+                    },
+                    "steps": {
+                        "type": "array",
+                        "description": "可选。逐段向用户解释整条命令；不提供则自动按 shell 语法拆解 command。",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "raw": {
+                                    "type": "string",
+                                    "description": "这一段的命令原文"
+                                },
+                                "explain": {
+                                    "type": "string",
+                                    "description": "给用户看的说明"
+                                }
+                            },
+                            "required": ["raw", "explain"],
+                            "additionalProperties": false
+                        }
                     }
                 },
                 "required": ["command"],
@@ -91,9 +110,12 @@ impl BashTool {
                     "改文件用 file_edit、查环境用 system_info——它们的输出更整齐，也不用打扰用户确认。\n",
                     "2) **一次只做一件事，不要用 && 串一长串**。命令会拆开逐段展示给用户过目，",
                     "一长串既难看懂也难放行；分成几次调用反而更快。\n",
-                    "3) 不要跑交互式程序（vim、top、less、python 交互模式），它们会一直等输入直到超时（默认 {} 秒）。\n",
-                    "4) 输出可能很长，自己带上 head / tail / grep 收窄，别指望全部拿回来。\n",
-                    "5) 危险命令会挂起等用户放行。被拒绝就换个做法或问清楚，不要换个写法绕过去。"
+                    "3) 复杂命令（管道、多条串联）请用 steps 逐段说明在做什么；",
+                    "简单单条命令不必填 steps。\n",
+                    "4) 不要跑交互式程序（vim、top、less、python 交互模式），",
+                    "它们会一直等输入直到超时（默认 {} 秒）。\n",
+                    "5) 输出可能很长，自己带上 head / tail / grep 收窄，别指望全部拿回来。\n",
+                    "6) 危险命令会挂起等用户放行。被拒绝就换个做法或问清楚，不要换个写法绕过去。"
                 ),
                 DEFAULT_TIMEOUT_SECS
             ),
@@ -109,6 +131,75 @@ impl BashTool {
             ConfirmPolicy::Unknown => !parsed.understood || !all_readonly,
             ConfirmPolicy::Risky => !parsed.understood || risky,
         }
+    }
+
+    /// 模型提供的逐段说明只影响确认框展示；是否确认只看整条 `command` 的解析。
+    fn confirm_from_llm_steps(&self, command: &str, raw_steps: &[Value]) -> Option<ConfirmRequest> {
+        let parsed = parse(command);
+        let mut reasons: Vec<String> = parsed.caveats.clone();
+        let mut all_readonly = !parsed.segments.is_empty();
+        let mut risky = false;
+
+        for segment in &parsed.segments {
+            let verdict = judge(segment);
+            all_readonly &= verdict.readonly;
+            if let Some(risk) = &verdict.risk {
+                risky = true;
+                reasons.push(format!("{}：{risk}", segment.raw));
+            }
+        }
+        reasons.extend(pipeline_risks(&parsed.segments));
+        if !reasons.is_empty() {
+            risky = true;
+        }
+
+        if !self.needs_confirm(&parsed, risky, all_readonly) {
+            return None;
+        }
+
+        let mut steps = Vec::with_capacity(raw_steps.len());
+        for (index, item) in raw_steps.iter().enumerate() {
+            let Some(raw) = item.get("raw").and_then(Value::as_str) else {
+                continue;
+            };
+            let explain = item
+                .get("explain")
+                .and_then(Value::as_str)
+                .unwrap_or(raw)
+                .to_string();
+            steps.push(ConfirmStep {
+                raw: raw.to_string(),
+                explain,
+                risk: None,
+                connector: if index == 0 {
+                    String::new()
+                } else {
+                    "然后".into()
+                },
+            });
+        }
+
+        if steps.is_empty() {
+            for segment in &parsed.segments {
+                let verdict = judge(segment);
+                steps.push(ConfirmStep {
+                    raw: segment.raw.clone(),
+                    explain: verdict.explain,
+                    risk: verdict.risk,
+                    connector: segment.connector.label().to_string(),
+                });
+            }
+        }
+
+        if reasons.is_empty() {
+            reasons.push("这条命令会改动系统状态".into());
+        }
+
+        Some(ConfirmRequest {
+            summary: format!("执行：{command}"),
+            steps,
+            reasons,
+        })
     }
 }
 
@@ -127,6 +218,11 @@ impl Tool for BashTool {
 
     fn confirm_request(&self, args: &Value) -> Option<ConfirmRequest> {
         let command = args.get("command").and_then(Value::as_str)?;
+        if let Some(steps) = args.get("steps").and_then(Value::as_array) {
+            if !steps.is_empty() {
+                return self.confirm_from_llm_steps(command, steps);
+            }
+        }
         let parsed = parse(command);
 
         let mut steps = Vec::with_capacity(parsed.segments.len());
@@ -361,6 +457,43 @@ mod tests {
         assert_eq!(request.steps[0].explain, "切换工作目录到 /tmp");
         assert_eq!(request.steps[1].explain, "删除 build");
         assert!(request.summary.contains("cd /tmp && rm -rf build"));
+    }
+
+    #[test]
+    fn forged_readonly_steps_cannot_bypass_dangerous_command() {
+        let tool = BashTool::new(ConfirmPolicy::Unknown);
+        let args = json!({
+            "command": "rm -rf /tmp/lyatest_dir2",
+            "steps": [{ "raw": "echo hi", "explain": "只是 echo" }]
+        });
+        assert!(
+            tool.confirm_request(&args).is_some(),
+            "决策必须看 command，不能因伪造 steps 放行"
+        );
+    }
+
+    #[test]
+    fn forged_steps_do_not_force_confirm_for_safe_command() {
+        let tool = BashTool::new(ConfirmPolicy::Unknown);
+        let args = json!({
+            "command": "ls",
+            "steps": [{ "raw": "rm -rf /", "explain": "看起来很危险" }]
+        });
+        assert!(
+            tool.confirm_request(&args).is_none(),
+            "展示可以撒谎，但不能把只读命令变成必须确认"
+        );
+    }
+
+    #[test]
+    fn llm_steps_preserve_custom_explain_text() {
+        let tool = BashTool::new(ConfirmPolicy::Always);
+        let args = json!({
+            "command": "rm -rf build",
+            "steps": [{ "raw": "rm -rf build", "explain": "自定义说明" }]
+        });
+        let request = tool.confirm_request(&args).unwrap();
+        assert_eq!(request.steps[0].explain, "自定义说明");
     }
 
     #[tokio::test]
