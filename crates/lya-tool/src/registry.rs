@@ -112,7 +112,7 @@ impl ToolRegistry {
             return ToolBundle::empty();
         }
 
-        let mut prompt = String::from("## Tools\n\n");
+        let mut prompt = String::from("=== [工具] Tools ===\n\n");
         let mut schemas = Vec::with_capacity(selected.len());
         let mut names = Vec::with_capacity(selected.len());
 

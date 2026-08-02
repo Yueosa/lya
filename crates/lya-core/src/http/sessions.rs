@@ -10,7 +10,6 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use futures_util::stream::Stream;
 use lya_action::FormAnswer;
-use lya_agent::CancelToken;
 use lya_session::{CreateSession, SessionMeta, SessionStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -153,8 +152,7 @@ pub async fn send(
     }
     // 走 hub 而不是直接写 store：它会把这条消息广播出去，否则订阅者
     // （包括发消息的人自己）看不到它
-    hub.push_user_message(&id, body.text)?;
-    hub.start_turn(&id)?;
+    hub.send_user_message_and_start(&id, &body.text)?;
     Ok(StatusCode::ACCEPTED)
 }
 
@@ -285,9 +283,12 @@ pub async fn hitl(
     match body {
         HitlBody::Form { answer } => agent.submit_form(&id, &answer)?,
         HitlBody::Confirm { approved, note } => {
-            agent
-                .resolve_tool_confirm(&id, approved, note.as_deref(), CancelToken::new())
-                .await?
+            let cancel = hub.reserve_operation(&id)?;
+            let result = agent
+                .resolve_tool_confirm(&id, approved, note.as_deref(), cancel)
+                .await;
+            hub.release_operation(&id);
+            result?
         }
         HitlBody::ModeChange { approved } => agent.resolve_mode_change(&id, approved)?,
     }
@@ -402,6 +403,7 @@ impl From<HubError> for ApiError {
             // 已经有一轮在跑，前端应当提示「正在回复中」而不是重试
             HubError::Busy(_) => StatusCode::CONFLICT,
             HubError::Invalid(_) => StatusCode::BAD_REQUEST,
+            HubError::Agent(lya_agent::AgentError::Invalid(_)) => StatusCode::BAD_REQUEST,
             // 会话层的「不是叶子」「消息不存在」也是请求问题，不是服务器故障
             HubError::Session(
                 lya_session::SessionError::NotLeaf(_)

@@ -434,6 +434,12 @@ impl<B: ChatBackend> Agent<B> {
             }
         };
 
+        if already_awaiting {
+            return Dispatched::err(
+                "本轮已经有一个待用户答复的请求了，等这个处理完再发下一个。",
+            );
+        }
+
         if let Some(action) = self.actions.get(name) {
             if !action.visible_in(mode) {
                 return Dispatched::err(format!("动作 `{name}` 在当前 {mode} 模式下不可用。"));
@@ -445,15 +451,7 @@ impl<B: ChatBackend> Agent<B> {
                     success: result.success,
                 },
                 ActionOutcome::AwaitHuman(block) => {
-                    if already_awaiting {
-                        // 一轮里只挂起一次；同一条消息里再发一个只会让用户
-                        // 面对两个并列的确认框，说不清先答哪个
-                        Dispatched::err(
-                            "本轮已经有一个待用户答复的请求了，等这个处理完再发下一个。",
-                        )
-                    } else {
-                        Dispatched::AwaitHuman(block)
-                    }
+                    Dispatched::AwaitHuman(block)
                 }
             };
         }
@@ -468,11 +466,6 @@ impl<B: ChatBackend> Agent<B> {
 
         // 工具自己说要先让用户过目（目前只有 bash 会）
         if let Some(request) = tool.confirm_request(&args) {
-            if already_awaiting {
-                return Dispatched::err(
-                    "本轮已经有一个待用户答复的请求了，等这个处理完再发下一个。",
-                );
-            }
             return Dispatched::AwaitHuman(Box::new(confirm_block(name, &args, request)));
         }
 

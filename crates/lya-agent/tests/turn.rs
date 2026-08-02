@@ -859,21 +859,43 @@ async fn manual_mode_switch_leaves_a_marker() {
         .into_iter()
         .filter(|m| m.role == lya_llm::Role::System)
         .collect();
-    // 第一条是系统提示词，第二条是模式变更标记
-    assert_eq!(system_msgs.len(), 2);
-    assert!(system_msgs[1].content.contains("从 ask 切换为 agent"));
+    // 只有系统提示词；模式变更标记留在树上供界面回看，不进 API 上下文
+    assert_eq!(system_msgs.len(), 1);
+    assert!(fx
+        .sessions
+        .path_to_active_leaf(&fx.session_id)
+        .unwrap()
+        .iter()
+        .any(|m| m
+            .payload
+            .openai
+            .as_ref()
+            .is_some_and(|o| o.content.contains("从 ask 切换为 agent"))));
 
     // 切到同一个模式不该重复记
     fx.agent.switch_mode(&fx.session_id, Mode::Agent).unwrap();
     fx.say("再来");
     fx.run().await;
-    let count = fx
+    let api_count = fx
         .backend
         .last_messages()
         .into_iter()
         .filter(|m| m.content.contains("[模式变更]"))
         .count();
-    assert_eq!(count, 1);
+    assert_eq!(api_count, 0, "模式变更标记不应再进 API 上下文");
+    let tree_count = fx
+        .sessions
+        .path_to_active_leaf(&fx.session_id)
+        .unwrap()
+        .iter()
+        .filter(|m| {
+            m.payload
+                .openai
+                .as_ref()
+                .is_some_and(|o| o.content.contains("[模式变更]"))
+        })
+        .count();
+    assert_eq!(tree_count, 1, "树上仍保留一条模式变更记录");
 }
 
 /// 一个「执行前要确认」的假工具：记录自己有没有真的被执行过。

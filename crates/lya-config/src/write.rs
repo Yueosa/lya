@@ -181,6 +181,22 @@ fn to_value(value: &serde_json::Value) -> Result<toml_edit::Value, ConfigError> 
     Ok(value)
 }
 
+/// 把 `models.toml` 原文里的 `api_key` 换成占位符，供界面只读展示。
+pub fn redact_models_toml(text: &str) -> Result<String, ConfigError> {
+    let mut document: toml_edit::DocumentMut =
+        text.parse().map_err(|err: toml_edit::TomlError| {
+            ConfigError::Invalid(format!("models.toml 不是合法 TOML：{err}"))
+        })?;
+    if let Some(toml_edit::Item::ArrayOfTables(models)) = document.get_mut("models") {
+        for entry in models.iter_mut() {
+            if entry.contains_key("api_key") {
+                entry["api_key"] = toml_edit::value("***");
+            }
+        }
+    }
+    Ok(document.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +269,20 @@ mod tests {
     fn null_is_rejected_with_a_hint() {
         let err = to_item(&json!(null)).unwrap_err();
         assert!(err.to_string().contains("null"));
+    }
+
+    #[test]
+    fn redact_models_toml_masks_api_keys() {
+        let raw = r#"
+[[models]]
+id = "m1"
+api_key = "sk-secret"
+
+[[models]]
+id = "m2"
+"#;
+        let out = redact_models_toml(raw).unwrap();
+        assert!(out.contains(r#"api_key = "***""#));
+        assert!(!out.contains("sk-secret"));
     }
 }

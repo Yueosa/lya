@@ -35,7 +35,7 @@ pub mod write;
 
 pub use core::{CoreConfig, DbConfig, HttpSettings, LogConfig, LogLevel, ServerConfig};
 pub use error::ConfigError;
-pub use write::{edit_file, merge_table, write_persona, write_runtime};
+pub use write::{edit_file, merge_table, redact_models_toml, write_persona, write_runtime};
 pub use models::{ModelCatalog, ModelEntry};
 pub use models::{CAPABILITY_TEXT, CAPABILITY_VISION};
 pub use runtime::{

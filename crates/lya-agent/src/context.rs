@@ -78,8 +78,13 @@ pub fn build_messages(system_prompt: &str, path: &[MessageRecord]) -> Vec<ChatMe
             }
             MessageRole::User => out.push(ChatMessage::user(format!("{stamp}{}", openai.content))),
             // 系统节点（如「用户切换了模式」）不加时间戳：它是系统在说话，
-            // 不是对话的一拍
-            MessageRole::System => out.push(ChatMessage::system(&openai.content)),
+            // 不是对话的一拍。模式变更历史不进上下文——当前模式已在 system prompt 里。
+            MessageRole::System => {
+                if openai.content.starts_with("[模式变更]") {
+                    continue;
+                }
+                out.push(ChatMessage::system(&openai.content));
+            }
             MessageRole::Hitl => unreachable!("已在上面跳过"),
         }
     }

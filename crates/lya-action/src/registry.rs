@@ -17,7 +17,7 @@ use crate::traits::{Action, ActionCtx};
 
 /// 提示词段落里对动作机制的总说明。
 const ACTION_SECTION_HEADER: &str = "\
-## Actions
+=== [元认知] Actions ===
 
 下面这些函数是你的**元认知动作**，调用方式与工具完全相同（function calling），\
 但它们操作的是你自己的状态（记忆、与用户的交互、工作模式），而不是外部环境。
