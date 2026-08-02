@@ -4,6 +4,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Mode } from '../api/wire'
 import {
   canSend,
+  defaultModel,
   loadModels,
   meta,
   models,
@@ -36,7 +37,7 @@ const mode = computed(() => meta.value?.work_mode ?? 'agent')
 const modelLabel = computed(() => {
   const id = meta.value?.model_id
   if (id) return models.value.find((m) => m.id === id)?.name ?? id
-  return '选择模型'
+  return defaultModel.value?.name ?? '默认模型'
 })
 
 const blocked = computed(() => pendingHitl.value !== null)

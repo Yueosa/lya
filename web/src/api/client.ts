@@ -35,6 +35,8 @@ export class ApiError extends Error {
 export interface Bootstrap {
   image_token: string
   home: string | null
+  default_model_id: string | null
+  default_model_name: string | null
 }
 
 /** 创建会话时可给的字段。 */
