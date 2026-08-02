@@ -22,12 +22,14 @@ marked.use({
   },
 })
 
-/** 本地图片改写所需的信息，来自 `/api/bootstrap`。 */
+/** 本地/会话图片改写所需的信息，来自 `/api/bootstrap` 与当前会话。 */
 export interface ImageContext {
-  /** 访问 `/api/local-image` 的令牌。 */
+  /** 访问图片端点的令牌。 */
   token: string
-  /** 家目录；只有落在它下面的路径才会被改写。 */
+  /** 家目录；只有落在它下面的路径才会被改写成 local。 */
   home: string
+  /** 有则走 `/api/sessions/{id}/media/image` 缓存端点。 */
+  sessionId?: string
 }
 
 /**
@@ -38,19 +40,46 @@ export interface ImageContext {
  */
 let currentImages: ImageContext | undefined
 
-// 在**生成 HTML 的时候**就把本地路径换成接口地址，而不是回头去改字符串。
-// 两个原因：DOMPurify 的协议白名单不含 file:，等它消毒完 src 已经被整个剥掉了；
-// 而且拿正则去改一段 HTML 本来就脆。改在源头的话，消毒器看到的只是一个普通的
-// 相对地址。
+function mediaParams(kind: 'local' | 'web', src: string, ctx: ImageContext): string {
+  const base = ctx.sessionId
+    ? `/api/sessions/${encodeURIComponent(ctx.sessionId)}/media/image`
+    : kind === 'local'
+      ? '/api/local-image'
+      : ''
+  if (!base) return src
+  const params = new URLSearchParams({ token: ctx.token })
+  if (ctx.sessionId) {
+    params.set('kind', kind)
+    params.set('src', src)
+  } else {
+    params.set('path', src)
+  }
+  return `${base}?${params}`
+}
+
+function isRemoteUrl(href: string): boolean {
+  const trimmed = href.trim()
+  return trimmed.startsWith('http://') || trimmed.startsWith('https://')
+}
+
+// 在**生成 HTML 的时候**就把路径换成接口地址，而不是回头去改字符串。
 marked.use({
   renderer: {
     image({ href, title, text }) {
-      const path = currentImages ? localPath(href, currentImages.home) : null
-      const src =
-        path && currentImages
-          ? `/api/local-image?${new URLSearchParams({ path, token: currentImages.token })}`
-          : href
-      const attrs = [`src="${escapeAttr(src)}"`, `alt="${escapeAttr(text)}"`]
+      let src = href
+      if (currentImages) {
+        const local = localPath(href, currentImages.home)
+        if (local) {
+          src = mediaParams('local', local, currentImages)
+        } else if (isRemoteUrl(href) && currentImages.sessionId) {
+          src = mediaParams('web', href.trim(), currentImages)
+        }
+      }
+      const attrs = [
+        `src="${escapeAttr(src)}"`,
+        `alt="${escapeAttr(text)}"`,
+        `class="lya-chat-image"`,
+      ]
       if (title) attrs.push(`title="${escapeAttr(title)}"`)
       return `<img ${attrs.join(' ')}>`
     },
@@ -107,13 +136,13 @@ export function renderMarkdown(text: string, images?: ImageContext): string {
 }
 
 /**
- * 把家目录内的绝对路径转成 `/api/local-image` 地址；否则 `null`。
+ * 把家目录内的绝对路径转成图片 API 地址；否则 `null`。
  */
 export function localImageUrl(src: string, ctx?: ImageContext | null): string | null {
   if (!ctx) return null
   const path = localPath(src, ctx.home)
   if (!path) return null
-  return `/api/local-image?${new URLSearchParams({ path, token: ctx.token })}`
+  return mediaParams('local', path, ctx)
 }
 
 /**
@@ -123,7 +152,17 @@ export function localImageUrl(src: string, ctx?: ImageContext | null): string | 
  * 任意文件读取——这里只负责让能显示的显示出来。
  */
 function localPath(src: string, home: string): string | null {
-  let path = src.startsWith('file://') ? src.slice('file://'.length) : src
+  let path = src.trim()
+  // Markdown 尖括号路径：< /home/... >
+  if (path.startsWith('<') && path.endsWith('>')) {
+    path = path.slice(1, -1).trim()
+  }
+
+  if (path.startsWith('file://')) {
+    path = path.slice('file://'.length)
+    // file:///home/... 留三斜杠，file://home 少见，统一去掉 scheme 后 trim
+    if (path.startsWith('//')) path = path.slice(2)
+  }
 
   // 走 renderer 之后 href 通常是原样的，但 Markdown 里手写编码过的路径也常见，
   // 解一次保证送给后端的是真实路径。不解的话 URLSearchParams 会把 % 再编一遍

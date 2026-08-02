@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { localImageUrl, renderMarkdown } from './markdown'
 
 const IMAGES = { token: 'tok', home: '/home/me' }
+const SESSION = { ...IMAGES, sessionId: 'sess-1' }
 
 describe('renderMarkdown', () => {
   it('渲染常见语法', () => {
@@ -81,14 +82,25 @@ describe('renderMarkdown', () => {
   })
 
   it('本地图片端点的令牌不会被别的地址顺走', () => {
-    // 令牌只该出现在指向 /api/local-image 的地址里。要是它跟着一个外部地址
-    // 出去了，等于把访问家目录图片的钥匙发给了别人
+    // 令牌只该出现在指向图片 API 的地址里
     const html = renderMarkdown(
       '![](https://evil.example/x.png)\n\n![](/home/me/a.png)',
       IMAGES,
     )
     const withToken = [...html.matchAll(/src="([^"]*tok[^"]*)"/g)].map((m) => m[1]!)
     expect(withToken.every((src) => src.startsWith('/api/local-image?'))).toBe(true)
+  })
+
+  it('有 sessionId 时本地与远程都走会话媒体端点', () => {
+    const html = renderMarkdown(
+      '![](https://example.com/a.png)\n\n![](/home/me/a.png)',
+      SESSION,
+    )
+    expect(html).toContain('/api/sessions/sess-1/media/image')
+    expect(html).toContain('kind=local')
+    expect(html).toContain('kind=web')
+    expect(html).not.toContain('/api/local-image')
+    expect(html).toContain('class="lya-chat-image"')
   })
 
   it('把家目录内的图片改写成后端接口', () => {
@@ -124,5 +136,19 @@ describe('renderMarkdown', () => {
     const url = localImageUrl('/home/me/Pictures/icon.jpg', IMAGES)
     expect(url).toContain('/api/local-image?')
     expect(url).toContain('token=tok')
+  })
+
+  it('Markdown 尖括号路径也认', () => {
+    const html = renderMarkdown('![x](</home/me/a.png>)', IMAGES)
+    expect(html).toContain('/api/local-image?')
+    expect(html).toContain(encodeURIComponent('/home/me/a.png'))
+  })
+
+  it('percent 编码路径解码后再请求', () => {
+    const html = renderMarkdown('![x](/home/me/foo%20bar.png)', IMAGES)
+    const match = html.match(/path=([^&"]+)/)
+    expect(match).not.toBeNull()
+    const path = decodeURIComponent(match![1]!.replace(/\+/g, ' '))
+    expect(path).toBe('/home/me/foo bar.png')
   })
 })

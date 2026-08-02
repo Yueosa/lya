@@ -29,6 +29,7 @@ import {
   refreshRuntimeDefaults,
   refreshSessions,
 } from './useChat'
+import { setupImageLightbox } from '../ui/useImageLightbox'
 
 const view = ref<View>('home')
 
@@ -38,6 +39,7 @@ const shell = computed(() => shellFor(themeId.value))
 void bootstrap()
 void loadModels()
 void refreshRuntimeDefaults()
+const stopLightbox = setupImageLightbox()
 
 // 全局事件：配置或会话列表在别处变了，这边跟着刷新。和会话流分开订阅——
 // 它们与「当前打开哪个会话」无关，换会话不该断掉
@@ -49,7 +51,10 @@ onMounted(() => {
       void refreshRuntimeDefaults()
     }
   })
-  onUnmounted(stop)
+  onUnmounted(() => {
+    stop()
+    stopLightbox()
+  })
 })
 
 function navigate(next: View): void {

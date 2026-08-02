@@ -12,6 +12,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 
 import { imageContext } from '../app/useChat'
 import { renderMarkdown } from '../model/markdown'
+import { bindChatImages } from '../ui/useImageLightbox'
 
 const props = withDefaults(
   defineProps<{
@@ -36,6 +37,7 @@ watch(
 
 /** 给还没处理过的代码块加高亮和复制按钮。 */
 function enhance(container: HTMLElement): void {
+  bindChatImages(container)
   // NodeList 在当前 lib 设定下不可迭代，转成数组
   for (const block of Array.from(container.querySelectorAll<HTMLElement>('pre code'))) {
     // 流式时同一个块会被反复看到，标记一下免得重复高亮

@@ -24,22 +24,18 @@
 @keyframes lya-slide-in-left {
   from {
     opacity: 0;
-    transform: translateX(-18px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
   }
 }
 
 @keyframes lya-slide-in-right {
   from {
     opacity: 0;
-    transform: translateX(18px);
   }
   to {
     opacity: 1;
-    transform: translateX(0);
   }
 }
 
@@ -263,4 +259,67 @@
   .lya-fold-leave-active {
     animation: none !important;
   }
+}
+
+/* 聊天图片灯箱 */
+.lya-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--bg-sunken) 55%, transparent);
+  backdrop-filter: blur(6px);
+  animation: lya-fade-in var(--duration-fast) ease both;
+}
+
+.lya-lightbox__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: min(96vw, 1200px);
+  max-height: 92vh;
+}
+
+.lya-lightbox__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.lya-lightbox__btn,
+.lya-lightbox__close {
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
+.lya-lightbox__close {
+  margin-right: auto;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 4px 10px;
+}
+
+.lya-lightbox__btn:hover,
+.lya-lightbox__close:hover {
+  background: var(--surface-hover);
+  color: var(--accent);
+}
+
+.lya-lightbox__img {
+  max-width: 100%;
+  max-height: calc(92vh - 48px);
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--bg-sunken) 40%, transparent);
 }
