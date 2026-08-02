@@ -23,7 +23,9 @@ fn missing_files_fall_back_to_defaults() {
     assert_eq!(config.runtime.media.image.max_bytes, 32 * 1024 * 1024);
     assert!(config.runtime.media.image.cache_local);
     assert!(config.runtime.media.image.cache_web);
-    assert!(!config.runtime.media.video.cache);
+    assert_eq!(config.runtime.media.video.max_bytes, 512 * 1024 * 1024);
+    assert!(config.runtime.media.video.cache_local);
+    assert_eq!(config.runtime.media.audio.max_bytes, 128 * 1024 * 1024);
     assert_eq!(config.runtime.tools.enabled, None, "键缺省表示启用全部工具");
     assert!(config.models.is_empty());
     assert_eq!(config.persona, None);

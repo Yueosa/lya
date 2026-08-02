@@ -15,7 +15,7 @@
 //! ## 拼接顺序
 //!
 //! ```text
-//! 系统认知 → 自我认知 → [元认知] → [工具] → [模式] → [记忆] → [额外] → 人设(末尾)
+//! 系统认知 → 自我认知 → 时间锚点 → 聊天媒体 → [元认知] → [工具] → [模式] → [记忆] → [额外] → 人设(末尾)
 //! ```
 //!
 //! 人设放最后：只影响语气风格，并在文案中声明不覆盖前面的行为规则。
@@ -31,9 +31,11 @@
 pub mod builder;
 pub mod identity;
 pub mod input;
+pub mod media;
 
 pub use builder::PromptBuilder;
 pub use identity::{
     DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
+pub use media::CHAT_MEDIA_HINT;
 pub use input::PromptInput;

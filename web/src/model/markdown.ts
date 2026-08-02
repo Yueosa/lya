@@ -5,7 +5,7 @@
  *
  * **消毒不是可选项**：正文是模型生成的，而模型读过的网页里可能藏着东西。
  * 一段 `<img onerror=...>` 就能在你自己的页面上执行脚本，而这个页面手里有
- * 图片令牌、能调所有本地接口。
+ * 媒体令牌、能调所有本地接口。
  */
 
 import DOMPurify from 'dompurify'
@@ -22,34 +22,52 @@ marked.use({
   },
 })
 
-/** 本地/会话图片改写所需的信息，来自 `/api/bootstrap` 与当前会话。 */
+/** 本地/会话媒体改写所需的信息，来自 `/api/bootstrap` 与当前会话。 */
 export interface ImageContext {
-  /** 访问图片端点的令牌。 */
+  /** 访问媒体端点的令牌。 */
   token: string
   /** 家目录；只有落在它下面的路径才会被改写成 local。 */
   home: string
-  /** 有则走 `/api/sessions/{id}/media/image` 缓存端点。 */
+  /** 有则走 `/api/sessions/{id}/media/{image|video|audio}` 缓存端点。 */
   sessionId?: string
 }
 
+export type ChatMediaKind = 'image' | 'video' | 'audio'
+
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi', 'm4v', 'ogv'])
+const AUDIO_EXTENSIONS = new Set(['mp3', 'flac', 'ogg', 'wav', 'm4a', 'aac', 'opus', 'wma'])
+
 /**
- * 当前这次渲染用的图片信息。
+ * 当前这次渲染用的媒体信息。
  *
  * marked 的渲染器是全局配置，而这个值每次调用可能不同，所以在解析前放进来。
  * 解析是同步的、单线程的，不会有两次渲染交叉。
  */
 let currentImages: ImageContext | undefined
 
-function mediaParams(kind: 'local' | 'web', src: string, ctx: ImageContext): string {
+function mediaKindFromHref(href: string): ChatMediaKind {
+  const stem = href.trim().split(/[?#]/)[0] ?? ''
+  const ext = stem.split('.').pop()?.toLowerCase()
+  if (ext && VIDEO_EXTENSIONS.has(ext)) return 'video'
+  if (ext && AUDIO_EXTENSIONS.has(ext)) return 'audio'
+  return 'image'
+}
+
+function mediaParams(
+  sourceKind: 'local' | 'web',
+  src: string,
+  ctx: ImageContext,
+  mediaKind: ChatMediaKind,
+): string {
   const base = ctx.sessionId
-    ? `/api/sessions/${encodeURIComponent(ctx.sessionId)}/media/image`
-    : kind === 'local'
+    ? `/api/sessions/${encodeURIComponent(ctx.sessionId)}/media/${mediaKind}`
+    : mediaKind === 'image' && sourceKind === 'local'
       ? '/api/local-image'
       : ''
   if (!base) return src
   const params = new URLSearchParams({ token: ctx.token })
   if (ctx.sessionId) {
-    params.set('kind', kind)
+    params.set('kind', sourceKind)
     params.set('src', src)
   } else {
     params.set('path', src)
@@ -66,15 +84,39 @@ function isRemoteUrl(href: string): boolean {
 marked.use({
   renderer: {
     image({ href, title, text }) {
+      const mediaKind = mediaKindFromHref(href)
       let src = href
       if (currentImages) {
         const local = localPath(href, currentImages.home)
         if (local) {
-          src = mediaParams('local', local, currentImages)
+          src = mediaParams('local', local, currentImages, mediaKind)
         } else if (isRemoteUrl(href) && currentImages.sessionId) {
-          src = mediaParams('web', href.trim(), currentImages)
+          src = mediaParams('web', href.trim(), currentImages, mediaKind)
         }
       }
+
+      if (mediaKind === 'video') {
+        const attrs = [
+          `src="${escapeAttr(src)}"`,
+          'controls',
+          'preload="metadata"',
+          `class="lya-chat-video"`,
+        ]
+        if (title) attrs.push(`title="${escapeAttr(title)}"`)
+        return `<video ${attrs.join(' ')}>${escapeAttr(text)}</video>`
+      }
+
+      if (mediaKind === 'audio') {
+        const attrs = [
+          `src="${escapeAttr(src)}"`,
+          'controls',
+          'preload="metadata"',
+          `class="lya-chat-audio"`,
+        ]
+        if (title) attrs.push(`title="${escapeAttr(title)}"`)
+        return `<audio ${attrs.join(' ')}>${escapeAttr(text)}</audio>`
+      }
+
       const attrs = [
         `src="${escapeAttr(src)}"`,
         `alt="${escapeAttr(text)}"`,
@@ -113,7 +155,7 @@ function compactHtml(html: string): string {
 /**
  * 把 Markdown 渲染成可以直接塞进 DOM 的 HTML。
  *
- * `images` 给了就把本地图片路径改写成后端接口。没给（比如还没拿到令牌）时
+ * `images` 给了就把本地媒体路径改写成后端接口。没给（比如还没拿到令牌）时
  * 本地图片会渲染成坏图——这比渲染成一个不带令牌、必然 403 的地址要诚实。
  */
 export function renderMarkdown(text: string, images?: ImageContext): string {
@@ -142,7 +184,7 @@ export function localImageUrl(src: string, ctx?: ImageContext | null): string | 
   if (!ctx) return null
   const path = localPath(src, ctx.home)
   if (!path) return null
-  return mediaParams('local', path, ctx)
+  return mediaParams('local', path, ctx, 'image')
 }
 
 /**

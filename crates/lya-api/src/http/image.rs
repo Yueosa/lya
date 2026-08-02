@@ -68,7 +68,7 @@ pub async fn local_image(State(hub): Hub, Query(query): Query<ImageQuery>) -> Re
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "不是支持的图片格式").into_response();
     };
     match std::fs::metadata(&real) {
-        Ok(meta) if meta.len() > image_limits().max_image_bytes => {
+        Ok(meta) if meta.len() > image_limits().max_bytes => {
             return (StatusCode::PAYLOAD_TOO_LARGE, "图片过大").into_response();
         }
         Ok(meta) if !meta.is_file() => {

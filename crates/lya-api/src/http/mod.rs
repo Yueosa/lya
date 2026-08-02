@@ -9,6 +9,7 @@ pub mod guard;
 mod image;
 mod media;
 mod media_limits;
+mod media_serve;
 mod introspect;
 mod memories;
 mod sessions;
@@ -70,10 +71,18 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         .route("/api/storage/stats", get(storage::stats))
         // 本地图片：家目录内 + 令牌校验
         .route("/api/local-image", get(image::local_image))
-        // 会话媒体缓存（img_cache）
+        // 会话媒体缓存（img / vdo / ado）
         .route(
             "/api/sessions/{id}/media/image",
             get(media::session_image),
+        )
+        .route(
+            "/api/sessions/{id}/media/video",
+            get(media::session_video),
+        )
+        .route(
+            "/api/sessions/{id}/media/audio",
+            get(media::session_audio),
         )
         // 全局事件：配置变更，以后还有桌面通知、会话列表变化
         .route("/api/events", get(sessions::subscribe_global))

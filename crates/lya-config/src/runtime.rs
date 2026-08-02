@@ -116,9 +116,9 @@ impl Default for MemorySettings {
 pub struct MediaSettings {
     /// 图片（`img_cache`）。
     pub image: ImageMediaSettings,
-    /// 视频（预留）。
+    /// 视频（`vdo_cache`）。
     pub video: VideoMediaSettings,
-    /// 音频（预留）。
+    /// 音频（`ado_cache`）。
     pub audio: AudioMediaSettings,
 }
 
@@ -144,30 +144,46 @@ impl Default for ImageMediaSettings {
     }
 }
 
-/// 视频缓存（预留，默认不缓存）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+/// 视频缓存与大小限制（`vdo_cache`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct VideoMediaSettings {
-    /// 是否写入 `vdo_cache`（尚未实现）。
-    pub cache: bool,
+    /// 单个视频大小上限（字节）。
+    pub max_bytes: u64,
+    /// 是否写入 `vdo_cache/local`。
+    pub cache_local: bool,
+    /// 是否下载并写入 `vdo_cache/web`。
+    pub cache_web: bool,
 }
 
 impl Default for VideoMediaSettings {
     fn default() -> Self {
-        Self { cache: false }
+        Self {
+            max_bytes: 512 * 1024 * 1024,
+            cache_local: true,
+            cache_web: true,
+        }
     }
 }
 
-/// 音频缓存（预留，默认不缓存）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+/// 音频缓存与大小限制（`ado_cache`）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AudioMediaSettings {
-    /// 是否写入 `ado_cache`（尚未实现）。
-    pub cache: bool,
+    /// 单个音频大小上限（字节）。
+    pub max_bytes: u64,
+    /// 是否写入 `ado_cache/local`。
+    pub cache_local: bool,
+    /// 是否下载并写入 `ado_cache/web`。
+    pub cache_web: bool,
 }
 
 impl Default for AudioMediaSettings {
     fn default() -> Self {
-        Self { cache: false }
+        Self {
+            max_bytes: 128 * 1024 * 1024,
+            cache_local: true,
+            cache_web: true,
+        }
     }
 }

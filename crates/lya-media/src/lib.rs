@@ -5,5 +5,6 @@
 mod cache;
 
 pub use cache::{
-    CachedMedia, MediaCacheError, MediaLimits, cache_root, ensure_local, ensure_web,
+    CachedMedia, CategoryLimits, MediaCacheError, MediaCategory, MediaLimits, cache_root,
+    ensure_local, ensure_web,
 };

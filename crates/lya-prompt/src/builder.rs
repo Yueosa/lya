@@ -3,6 +3,7 @@
 use crate::identity::{
     format_persona_section, DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
+use crate::media::CHAT_MEDIA_HINT;
 use crate::input::PromptInput;
 
 /// 提示词组装器。
@@ -56,8 +57,8 @@ impl PromptBuilder {
 
     /// 组装完整 system prompt。
     ///
-    /// 顺序：系统认知 → 自我认知 → 时间锚点 → action → tools → mode → memory
-    /// → extra → 人设。
+    /// 顺序：系统认知 → 自我认知 → 时间锚点 → 聊天媒体 → action → tools → mode
+    /// → memory → extra → 人设。
     ///
     /// 记忆排在能力三段（action / tools / mode）之后：先讲「你能做什么」，
     /// 再讲「你已经知道什么」。
@@ -70,6 +71,7 @@ impl PromptBuilder {
         parts.push(SYSTEM_AWARENESS.trim().to_string());
         parts.push(SELF_AWARENESS.trim().to_string());
         parts.push(TIME_ANCHOR.trim().to_string());
+        parts.push(CHAT_MEDIA_HINT.trim().to_string());
 
         push_optional(&mut parts, input.action_section.as_deref());
         push_optional(&mut parts, input.tool_section.as_deref());
@@ -118,8 +120,10 @@ mod tests {
         let text = PromptBuilder::new().build(&PromptInput::new());
         let sys = text.find("=== [系统]").expect("system");
         let self_pos = text.find("=== [自我认知]").expect("self");
+        let media = text.find("=== [界面]").expect("media");
         let persona = text.find("=== [人设]").expect("persona");
-        assert!(sys < self_pos && self_pos < persona);
+        assert!(sys < self_pos && self_pos < media && media < persona);
+        assert!(text.contains("clip.mp4"));
         assert!(text.contains("lya"));
         assert!(text.contains("小恋"));
         assert!(text.contains(DEFAULT_PERSONA.trim().lines().next().unwrap()));

@@ -151,4 +151,26 @@ describe('renderMarkdown', () => {
     const path = decodeURIComponent(match![1]!.replace(/\+/g, ' '))
     expect(path).toBe('/home/me/foo bar.png')
   })
+
+  it('有 sessionId 时视频走会话 media 端点并渲染 controls', () => {
+    const html = renderMarkdown('![clip](/home/me/a.mp4)', SESSION)
+    expect(html).toContain('/api/sessions/sess-1/media/video')
+    expect(html).toContain('<video')
+    expect(html).toContain('controls')
+    expect(html).toContain('class="lya-chat-video"')
+  })
+
+  it('有 sessionId 时音频走会话 media 端点', () => {
+    const html = renderMarkdown('![song](/home/me/a.mp3)', SESSION)
+    expect(html).toContain('/api/sessions/sess-1/media/audio')
+    expect(html).toContain('<audio')
+    expect(html).toContain('class="lya-chat-audio"')
+  })
+
+  it('无 sessionId 时本地音视频不改写', () => {
+    const html = renderMarkdown('![clip](/home/me/a.mp4)\n\n![song](/home/me/a.mp3)', IMAGES)
+    expect(html).toContain('src="/home/me/a.mp4"')
+    expect(html).toContain('src="/home/me/a.mp3"')
+    expect(html).not.toContain('/api/sessions/')
+  })
 })

@@ -230,6 +230,19 @@ function headerBar(block: HTMLElement): HTMLElement {
   border-radius: var(--radius-sm);
 }
 
+.md :deep(video.lya-chat-video) {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.md :deep(audio.lya-chat-audio) {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+}
+
 .md :deep(table) {
   border-collapse: collapse;
   margin: 0.6em 0;

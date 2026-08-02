@@ -1,18 +1,19 @@
-//! 会话媒体端点：缓存并Serving 聊天里的本地/远程图片。
+//! 会话媒体端点：缓存并 Serving 聊天里的本地/远程图片、视频、音频。
 
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use lya_llm::LlmClient;
+use lya_media::{CategoryLimits, MediaCacheError, MediaCategory};
 use serde::Serialize;
 
 use lya_hub::SessionHub;
-use lya_media::MediaCacheError;
 
-use super::media_limits::image_limits;
+use super::media_limits::{audio_limits, image_limits, video_limits};
+use super::media_serve::serve_ranged_file;
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 
@@ -56,28 +57,41 @@ fn map_error(err: MediaCacheError) -> Response {
     }
 }
 
-/// 读取或缓存一张会话图片。
-pub async fn session_image(
+fn display_url(session_id: &str, segment: &str, query: &MediaQuery) -> String {
+    use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+    format!(
+        "/api/sessions/{session_id}/media/{segment}?kind={}&src={}&token={}",
+        utf8_percent_encode(&query.kind, NON_ALPHANUMERIC),
+        utf8_percent_encode(&query.src, NON_ALPHANUMERIC),
+        utf8_percent_encode(&query.token, NON_ALPHANUMERIC),
+    )
+}
+
+async fn session_media(
     State(hub): Hub,
     Path(session_id): Path<String>,
     Query(query): Query<MediaQuery>,
+    headers: HeaderMap,
+    category: MediaCategory,
+    segment: &'static str,
+    limits: CategoryLimits,
+    ranged: bool,
 ) -> Response {
     if query.token != hub.image_token() {
         return (StatusCode::FORBIDDEN, "令牌不对").into_response();
     }
 
-    // 会话必须存在
     if hub.snapshot(&session_id).is_err() {
         return (StatusCode::NOT_FOUND, "会话不存在").into_response();
     }
 
-    let limits = image_limits();
     let cached = match query.kind.as_str() {
-        "local" => lya_media::ensure_local(&session_id, &query.src, limits),
+        "local" => lya_media::ensure_local(&session_id, &query.src, category, limits),
         "web" => {
             lya_media::ensure_web(
                 &session_id,
                 &query.src,
+                category,
                 hub.http(),
                 hub.self_port(),
                 limits,
@@ -93,21 +107,18 @@ pub async fn session_image(
     };
 
     if query.meta.as_deref() == Some("1") {
-        use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
-        let display_url = format!(
-            "/api/sessions/{session_id}/media/image?kind={}&src={}&token={}",
-            utf8_percent_encode(&query.kind, NON_ALPHANUMERIC),
-            utf8_percent_encode(&query.src, NON_ALPHANUMERIC),
-            utf8_percent_encode(&query.token, NON_ALPHANUMERIC),
-        );
         return Json(MediaMeta {
             kind: cached.kind,
             filename: cached.filename,
             copy_path: cached.copy_path,
             copy_url: cached.copy_url,
-            display_url,
+            display_url: display_url(&session_id, segment, &query),
         })
         .into_response();
+    }
+
+    if ranged {
+        return serve_ranged_file(&cached.path, cached.mime, &headers).await;
     }
 
     match std::fs::read(&cached.path) {
@@ -121,4 +132,64 @@ pub async fn session_image(
             .into_response(),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
+}
+
+/// 读取或缓存一张会话图片。
+pub async fn session_image(
+    hub: Hub,
+    Path(session_id): Path<String>,
+    query: Query<MediaQuery>,
+    headers: HeaderMap,
+) -> Response {
+    session_media(
+        hub,
+        Path(session_id),
+        query,
+        headers,
+        MediaCategory::Image,
+        "image",
+        image_limits(),
+        false,
+    )
+    .await
+}
+
+/// 读取或缓存一段会话视频（支持 Range）。
+pub async fn session_video(
+    hub: Hub,
+    Path(session_id): Path<String>,
+    query: Query<MediaQuery>,
+    headers: HeaderMap,
+) -> Response {
+    session_media(
+        hub,
+        Path(session_id),
+        query,
+        headers,
+        MediaCategory::Video,
+        "video",
+        video_limits(),
+        true,
+    )
+    .await
+}
+
+/// 读取或缓存一段会话音频（支持 Range）。
+pub async fn session_audio(
+    hub: Hub,
+    Path(session_id): Path<String>,
+    query: Query<MediaQuery>,
+    headers: HeaderMap,
+) -> Response {
+    session_media(
+        hub,
+        Path(session_id),
+        query,
+        headers,
+        MediaCategory::Audio,
+        "audio",
+        audio_limits(),
+        true,
+    )
+    .await
 }
