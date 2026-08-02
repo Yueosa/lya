@@ -80,7 +80,8 @@ function startEditPersona(): void {
 async function savePersona(): Promise<void> {
   if (readOnly.value) return
   const text = draftPersona.value.trim()
-  await setPersona(text || null)
+  const ok = await setPersona(text || null)
+  if (!ok) return
   editing.value = false
   toast('人设已保存', 'success')
 }

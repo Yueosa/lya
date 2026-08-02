@@ -242,6 +242,30 @@ describe('buildTimeline', () => {
     expect(message?.branch).toEqual({ index: 1, total: 2, siblingIds: [a1.id, a2.id] })
   })
 
+  it('tool 节点不算进兄弟列表', () => {
+    reset()
+    const u = record(user('你好'), { parent: null })
+    const a1 = record(assistant('第一版'), { parent: u.id })
+    const tool = record(
+      {
+        v: 1,
+        role: 'tool',
+        kind: 'tool_result',
+        status: 'complete',
+        openai: { role: 'tool', content: 'ok', tool_call_id: 'c1' },
+        lya: {},
+      },
+      { parent: u.id },
+    )
+    const a2 = record(assistant('第二版'), { parent: u.id })
+    const items = buildTimeline({ messages: [u, a2], tree: [u, a1, tool, a2] })
+    expect(messageAt(items, 1)?.branch).toEqual({
+      index: 1,
+      total: 2,
+      siblingIds: [a1.id, a2.id],
+    })
+  })
+
   it('没有分叉就不给切换器', () => {
     reset()
     const u = record(user('你好'), { parent: null })

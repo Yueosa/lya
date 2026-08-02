@@ -195,9 +195,12 @@ function isPendingHitl(record: MessageRecord): boolean {
 }
 
 function findPendingHitl(messages: MessageRecord[]): number | null {
-  // 只看最后一条：树上同时只可能有一个未决 HITL，后端的 append 会拦住其余的
-  const last = messages.at(-1)
-  return last && isPendingHitl(last) ? last.id : null
+  // 待确认的工具可能后面还挂着同批其它 tool 的结果，不能只看最后一条
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const record = messages[i]
+    if (record && isPendingHitl(record)) return record.id
+  }
+  return null
 }
 
 /** 本轮是不是还在跑。 */

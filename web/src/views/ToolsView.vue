@@ -5,6 +5,7 @@ import type { ActionInfo, ToolInfo } from '../api/client'
 import { client } from '../app/useChat'
 import { schemaFields } from '../utils/schemaFields'
 import ViewHead from '../ui/ViewHead.vue'
+import { toast } from '../ui/useToast'
 import MarkdownBody from './MarkdownBody.vue'
 
 type CatalogItem = ToolInfo | ActionInfo
@@ -18,6 +19,8 @@ const selected = ref<CatalogItem | null>(null)
 onMounted(async () => {
   try {
     ;[tools.value, actions.value] = await Promise.all([client.tools(), client.actions()])
+  } catch {
+    toast('读取工具列表失败', 'error')
   } finally {
     loading.value = false
   }

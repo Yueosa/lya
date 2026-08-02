@@ -171,11 +171,17 @@ function collectToolResults(
 }
 
 /** 建一张「父节点 → 子节点们」的表，用来算分支切换器。 */
+function isBranchNode(record: MessageRecord): boolean {
+  const role = record.payload.role
+  return role === 'user' || role === 'assistant'
+}
+
 function indexSiblings(tree?: MessageRecord[]): Map<number | null, number[]> {
   const map = new Map<number | null, number[]>()
   if (!tree) return map
   const sorted = [...tree].sort((a, b) => a.sort_key - b.sort_key)
   for (const node of sorted) {
+    if (!isBranchNode(node)) continue
     const key = node.parent_id
     const list = map.get(key)
     if (list) list.push(node.id)

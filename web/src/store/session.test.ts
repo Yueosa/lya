@@ -93,6 +93,27 @@ describe('applySnapshot', () => {
     // 进程重启或换设备打开时，得知道现在正等着用户回答
     expect(applySnapshot(emptyState(), snapshot).pendingHitlId).toBe(2)
   })
+
+  it('待确认后面还有 tool 结果时仍能识别 HITL', () => {
+    const snapshot: Snapshot = {
+      session: null as never,
+      messages: [
+        record(1, finished('问你个事')),
+        record(2, pendingHitl(), 1),
+        record(3, {
+          v: 1,
+          role: 'tool',
+          kind: 'tool_result',
+          status: 'complete',
+          openai: { role: 'tool', content: 'ok', tool_call_id: 'c1' },
+          lya: {},
+        }, 2),
+      ],
+      running: null,
+    }
+    expect(applySnapshot(emptyState(), snapshot).pendingHitlId).toBe(2)
+    expect(canSend(applySnapshot(emptyState(), snapshot))).toBe(false)
+  })
 })
 
 describe('applyEvent', () => {
