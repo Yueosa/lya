@@ -6,7 +6,7 @@ use std::thread::{self, JoinHandle};
 
 use image::ImageFormat;
 use ksni::menu::{MenuItem, StandardItem};
-use ksni::{Icon, Tray};
+use ksni::{Icon, ToolTip, Tray};
 use ksni::blocking::TrayMethods;
 
 static TRAY_ICON: LazyLock<Icon> = LazyLock::new(load_tray_icon);
@@ -83,7 +83,15 @@ impl Tray for LyaTray {
     }
 
     fn title(&self) -> String {
-        "lya".into()
+        format!("lya · :{}", self.port)
+    }
+
+    fn tool_tip(&self) -> ToolTip {
+        ToolTip {
+            title: "lya".into(),
+            description: format!("http://127.0.0.1:{}/", self.port),
+            ..Default::default()
+        }
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
@@ -112,7 +120,9 @@ impl Tray for LyaTray {
 
 fn open_webui(port: u16) {
     let url = format!("http://127.0.0.1:{port}/");
-    if let Err(err) = open::that(&url) {
+    // `open::that` 会等 launcher 退出，部分浏览器会挂成 lya 的子进程——lya 退出时
+    // 整实例一起被杀。`that_detached` 用 setsid 脱离进程组。
+    if let Err(err) = open::that_detached(&url) {
         eprintln!("打不开 WebUI ({url})：{err}");
     }
 }
