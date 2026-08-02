@@ -199,7 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     print!("lya > ");
                     io::stdout().flush()?;
                 }
-                AgentEvent::AwaitHuman { message_id } => {
+                AgentEvent::AwaitHuman { message_id, .. } => {
                     println!("\n  需要你确认（消息 #{message_id}）——命令行版还没做交互，先跳过");
                 }
                 AgentEvent::TurnEnd { reason } => {
@@ -213,7 +213,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 AgentEvent::RoundStarted { .. }
                 | AgentEvent::MessageCommitted { .. }
                 | AgentEvent::MessageUpdated { .. }
-                | AgentEvent::MessageDeleted { .. } => {}
+                | AgentEvent::MessageDeleted { .. }
+                | AgentEvent::ToolBatchStarted { .. } => {}
             }
         }
     }

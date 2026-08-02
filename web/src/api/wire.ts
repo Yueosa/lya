@@ -96,6 +96,19 @@ export type HitlBlock =
     }
   | { type: 'mode_change'; to_mode: Mode; reason: string }
 
+export interface ToolBatchCall {
+  call_id: string
+  name: string
+  needs_review: boolean
+}
+
+/** assistant 上 `lya.meta.tool_batch` 的形状。 */
+export interface ToolBatchMeta {
+  id: string
+  call_ids: string[]
+  needs_review: string[]
+}
+
 /** lya 自己的扩展字段。 */
 export interface LyaExtras {
   /** 思考全文。落库但不回灌给模型，只用于展示。 */
@@ -219,7 +232,19 @@ export type LyaEvent =
   | { type: 'message_deleted'; id: number }
   | { type: 'call_started'; call_id: string; name: string; kind: 'tool' | 'action' }
   | { type: 'call_finished'; call_id: string; name: string; success: boolean }
-  | { type: 'await_human'; message_id: number }
+  | {
+      type: 'tool_batch_started'
+      batch_id: string
+      message_id: number
+      calls: ToolBatchCall[]
+    }
+  | {
+      type: 'await_human'
+      message_id: number
+      batch_id?: string
+      review_index?: number
+      review_total?: number
+    }
   | { type: 'turn_end'; reason: TurnEndReason }
 
 /** 事件信封。 */

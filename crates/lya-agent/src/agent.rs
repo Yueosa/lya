@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use crate::backend::ChatBackend;
 use crate::context::build_messages;
 use crate::error::AgentError;
-use crate::event::{AgentEvent, CallKind, CancelToken, TurnEndReason};
+use crate::event::{AgentEvent, BatchCallInfo, CallKind, CancelToken, TurnEndReason};
 
 /// 构造 [`Agent`] 所需的全部部件。
 pub struct AgentParts<B: ChatBackend> {
@@ -386,6 +386,20 @@ impl<B: ChatBackend> Agent<B> {
                 let finalized = bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
                 yield AgentEvent::MessageUpdated { record: Box::new(finalized.clone()) };
 
+                yield AgentEvent::ToolBatchStarted {
+                    batch_id: batch_id.clone(),
+                    message_id: draft.id,
+                    calls: calls
+                        .iter()
+                        .zip(&plans)
+                        .map(|(call, plan)| BatchCallInfo {
+                            call_id: call.id.clone(),
+                            name: call.name.clone(),
+                            needs_review: matches!(plan, Planned::Hitl(_)),
+                        })
+                        .collect(),
+                };
+
                 if calls.len() as u32 > self.max_parallel_tools {
                     for call in calls {
                         let kind = call_kind(&call.name, &self.actions);
@@ -498,6 +512,9 @@ impl<B: ChatBackend> Agent<B> {
                             yield AgentEvent::MessageCommitted { record: Box::new(record.clone()) };
                             yield AgentEvent::AwaitHuman {
                                 message_id: record.id,
+                                batch_id: Some(batch_id.clone()),
+                                review_index: Some(review_index),
+                                review_total: Some(review_total),
                             };
                             yield AgentEvent::CallFinished {
                                 call_id: call.id.clone(),

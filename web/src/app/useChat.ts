@@ -26,6 +26,7 @@ export {
   models,
   openSession,
   pendingHitl,
+  pendingHitlBatch,
   pendingHitlId,
   phase,
   readOnly,

@@ -27,6 +27,7 @@ import type {
   MessageStatus,
   Mode,
   Role,
+  ToolBatchMeta,
   TurnBuffer,
   TurnEndReason,
 } from '../api/wire'
@@ -68,6 +69,8 @@ export interface Message {
    * `fork_at` / `switch_leaf` 全都用不上。
    */
   branch?: { index: number; total: number; siblingIds: number[] }
+  /** 同批 tool_calls 元数据（仅 assistant 且 kind=tool_call 时有）。 */
+  toolBatch?: ToolBatchMeta
 }
 
 /** 能出现在滚动列表里的东西。 */
@@ -202,6 +205,11 @@ function toMessage(
     status: record.payload.status,
     createdAt: record.created_at,
     blocks: toBlocks(record, results),
+  }
+
+  const batchRaw = record.payload.lya.meta?.['tool_batch']
+  if (batchRaw && typeof batchRaw === 'object') {
+    message.toolBatch = batchRaw as ToolBatchMeta
   }
 
   const group = siblings.get(record.parent_id)

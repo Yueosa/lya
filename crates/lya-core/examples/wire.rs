@@ -157,7 +157,12 @@ fn dump_events() {
             record: Box::new(record),
         },
         AgentEvent::MessageDeleted { id: 7 },
-        AgentEvent::AwaitHuman { message_id: 8 },
+        AgentEvent::AwaitHuman {
+            message_id: 8,
+            batch_id: None,
+            review_index: None,
+            review_total: None,
+        },
         AgentEvent::TurnEnd {
             reason: TurnEndReason::Failed("HTTP 401".into()),
         },

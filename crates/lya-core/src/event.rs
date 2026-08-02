@@ -100,9 +100,36 @@ pub fn from_agent(session_id: &str, seq: u64, event: &AgentEvent) -> Option<Enve
             "call_finished",
             json!({ "call_id": call_id, "name": name, "success": success }),
         ),
-        AgentEvent::AwaitHuman { message_id } => {
-            ("await_human", json!({ "message_id": message_id }))
-        }
+        AgentEvent::ToolBatchStarted {
+            batch_id,
+            message_id,
+            calls,
+        } => (
+            "tool_batch_started",
+            json!({
+                "batch_id": batch_id,
+                "message_id": message_id,
+                "calls": calls.iter().map(|call| json!({
+                    "call_id": call.call_id,
+                    "name": call.name,
+                    "needs_review": call.needs_review,
+                })).collect::<Vec<_>>(),
+            }),
+        ),
+        AgentEvent::AwaitHuman {
+            message_id,
+            batch_id,
+            review_index,
+            review_total,
+        } => (
+            "await_human",
+            json!({
+                "message_id": message_id,
+                "batch_id": batch_id,
+                "review_index": review_index,
+                "review_total": review_total,
+            }),
+        ),
         AgentEvent::TurnEnd { reason } => ("turn_end", json!({ "reason": turn_reason(reason) })),
     };
     Some(Envelope::session(session_id, kind, seq, payload))
@@ -167,6 +194,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(done.payload["reason"]["kind"], "completed");
+    }
+
+    #[test]
+    fn tool_batch_started_event_shape() {
+        use lya_agent::{AgentEvent, BatchCallInfo};
+        let envelope = from_agent(
+            "abc",
+            5,
+            &AgentEvent::ToolBatchStarted {
+                batch_id: "b1".into(),
+                message_id: 3,
+                calls: vec![BatchCallInfo {
+                    call_id: "c1".into(),
+                    name: "bash".into(),
+                    needs_review: true,
+                }],
+            },
+        )
+        .unwrap();
+        assert_eq!(envelope.kind, "tool_batch_started");
+        assert_eq!(envelope.payload["batch_id"], "b1");
+        assert_eq!(envelope.payload["calls"][0]["needs_review"], true);
     }
 
     #[test]

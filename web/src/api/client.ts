@@ -17,6 +17,7 @@ import type {
   SessionMeta,
   SessionTree,
   Snapshot,
+  ToolBatchCall,
   TurnEndReason,
 } from './wire'
 
@@ -461,6 +462,7 @@ const EVENT_TYPES = [
   'message_deleted',
   'call_started',
   'call_finished',
+  'tool_batch_started',
   'await_human',
   'turn_end',
 ] as const satisfies readonly LyaEvent['type'][]
@@ -501,8 +503,23 @@ export function toEvent(envelope: Envelope): LyaEvent | null {
         name: p['name'] as string,
         success: p['success'] as boolean,
       }
-    case 'await_human':
-      return { type: 'await_human', message_id: p['message_id'] as number }
+    case 'tool_batch_started':
+      return {
+        type: 'tool_batch_started',
+        batch_id: p['batch_id'] as string,
+        message_id: p['message_id'] as number,
+        calls: p['calls'] as ToolBatchCall[],
+      }
+    case 'await_human': {
+      const event: Extract<LyaEvent, { type: 'await_human' }> = {
+        type: 'await_human',
+        message_id: p['message_id'] as number,
+      }
+      if (p['batch_id'] != null) event.batch_id = p['batch_id'] as string
+      if (p['review_index'] != null) event.review_index = p['review_index'] as number
+      if (p['review_total'] != null) event.review_total = p['review_total'] as number
+      return event
+    }
     case 'turn_end':
       return { type: 'turn_end', reason: p['reason'] as TurnEndReason }
     default:

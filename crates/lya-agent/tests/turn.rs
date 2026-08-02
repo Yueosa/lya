@@ -585,7 +585,7 @@ async fn form_suspends_the_turn_and_answer_resumes_it() {
 
     let events = fx.run().await;
     assert_eq!(end_reason(&events), TurnEndReason::AwaitingHuman);
-    let Some(AgentEvent::AwaitHuman { message_id }) = events
+    let Some(AgentEvent::AwaitHuman { message_id, .. }) = events
         .iter()
         .find(|e| matches!(e, AgentEvent::AwaitHuman { .. }))
         .cloned()

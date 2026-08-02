@@ -1,6 +1,7 @@
 /** 聊天时间线块相关的纯函数。 */
 
-import type { Block } from '../../model/timeline'
+import type { Block, Message } from '../../model/timeline'
+import type { MessageRecord, ToolBatchMeta } from '../../api/wire'
 import { parseFormCall } from '../../utils/parseFormCall'
 
 export function lineCount(text: string): number {
@@ -75,4 +76,38 @@ export function lastTextBlockIndex(blocks: Block[], prefs: {
     if (vis[i]?.type === 'text') return i
   }
   return -1
+}
+
+/** 调用组折叠标题，如「3 个工具 · 2 待确认」。 */
+export function toolBatchLabel(batch: ToolBatchMeta, messages: MessageRecord[]): string {
+  const total = batch.call_ids.length
+  const pending = batch.needs_review.filter((callId) =>
+    messages.some(
+      (m) =>
+        m.payload.role === 'hitl' &&
+        m.payload.status === 'pending' &&
+        m.payload.lya.meta?.['tool_call_id'] === callId,
+    ),
+  ).length
+  if (pending === 0) return `${total} 个工具`
+  return `${total} 个工具 · ${pending} 待确认`
+}
+
+export function toolBlocksInMessage(blocks: Block[]): Extract<Block, { type: 'tool' }>[] {
+  return blocks.filter((block): block is Extract<Block, { type: 'tool' }> => block.type === 'tool')
+}
+
+/** 有调用组时只在第一个 tool 块处渲染折叠外壳。 */
+export function isFirstToolBlockInBatch(message: Message, blockIndex: number, blocks: Block[]): boolean {
+  if (!message.toolBatch) return false
+  for (let i = 0; i < blockIndex; i++) {
+    if (blocks[i]?.type === 'tool') return false
+  }
+  return blocks[blockIndex]?.type === 'tool'
+}
+
+export function shouldSkipToolBlock(message: Message, blockIndex: number, blocks: Block[]): boolean {
+  if (!message.toolBatch) return false
+  if (blocks[blockIndex]?.type !== 'tool') return false
+  return !isFirstToolBlockInBatch(message, blockIndex, blocks)
 }

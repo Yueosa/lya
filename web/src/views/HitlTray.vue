@@ -14,7 +14,7 @@ import { computed, reactive, ref, watch } from 'vue'
 
 import type { FormAnswerItem } from '../api/client'
 import type { HitlBlock } from '../api/wire'
-import { pendingHitl, replyHitl } from '../app/useChat'
+import { pendingHitl, pendingHitlBatch, replyHitl } from '../app/useChat'
 import Icon from '../ui/Icon.vue'
 
 const busy = ref(false)
@@ -34,6 +34,8 @@ watch(pendingHitl, () => {
 })
 
 const block = computed<HitlBlock | null>(() => pendingHitl.value)
+
+const batchNav = computed(() => pendingHitlBatch.value)
 
 function toggle(questionId: string, key: string, multi: boolean): void {
   const current = picked[questionId] ?? []
@@ -154,6 +156,9 @@ async function answerMode(approved: boolean): Promise<void> {
 
     <!-- 工具确认 -->
     <template v-else-if="block.type === 'tool_confirm'">
+      <div v-if="batchNav" class="tray__batch-nav">
+        <span class="tray__batch-nav-label">‹ {{ batchNav.index }} / {{ batchNav.total }} ›</span>
+      </div>
       <h3 class="tray__title">要执行 {{ block.tool_name }} 吗</h3>
       <p class="tray__summary">{{ block.summary }}</p>
 
@@ -285,5 +290,16 @@ async function answerMode(approved: boolean): Promise<void> {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.tray__batch-nav {
+  display: flex;
+  justify-content: center;
+}
+
+.tray__batch-nav-label {
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }
 </style>

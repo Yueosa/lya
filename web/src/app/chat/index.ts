@@ -25,6 +25,7 @@ export {
   canSend,
   pendingHitlId,
   pendingHitl,
+  pendingHitlBatch,
   openSession,
   closeSession,
   replyHitl,

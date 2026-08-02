@@ -31,13 +31,18 @@ import {
   errorRetryable,
   formCall,
   hasText,
+  isFirstToolBlockInBatch,
   lastTextBlockIndex,
   lineCount,
   reasonLabel,
+  shouldSkipToolBlock,
+  toolBatchLabel,
+  toolBlocksInMessage,
   toolLabel,
   toolLineCount,
   visibleBlocks,
 } from './chatBlockHelpers'
+import { state } from '../../app/chat/state'
 
 const props = defineProps<{
   items: TimelineItem[]
@@ -180,8 +185,41 @@ function onEditKey(event: KeyboardEvent): void {
           </CollapsibleBlock>
         </div>
 
-        <div v-else-if="block.type === 'tool'" class="chat__aside">
+        <div
+          v-else-if="block.type === 'tool' && !shouldSkipToolBlock(item.message, at, item.message.blocks)"
+          class="chat__aside"
+        >
           <CollapsibleBlock
+            v-if="item.message.toolBatch && isFirstToolBlockInBatch(item.message, at, item.message.blocks)"
+            icon="tool"
+            :label="toolBatchLabel(item.message.toolBatch, state.messages)"
+            :busy="toolBlocksInMessage(item.message.blocks).some((tb) => !tb.call.result)"
+            :auto-collapse="prefs.autoCollapseAside"
+            :fold-threshold="prefs.asideFoldLineThreshold"
+          >
+            <div class="chat__tool-batch">
+              <CollapsibleBlock
+                v-for="(tb, ti) in toolBlocksInMessage(visibleBlocks(item.message.blocks, prefSlice))"
+                :key="ti"
+                icon="tool"
+                :label="toolLabel(tb)"
+                :busy="!tb.call.result"
+                :failed="tb.call.result?.ok === false"
+                :auto-collapse="true"
+                :fold-threshold="prefs.asideFoldLineThreshold"
+                :content-lines="toolLineCount(tb)"
+              >
+                <FormPreview
+                  v-if="formCall(tb)"
+                  :form="formCall(tb)!"
+                  :pending="!tb.call.result"
+                />
+                <template v-else>{{ tb.call.result?.content ?? '执行中…' }}</template>
+              </CollapsibleBlock>
+            </div>
+          </CollapsibleBlock>
+          <CollapsibleBlock
+            v-else-if="!item.message.toolBatch"
             icon="tool"
             :label="toolLabel(block)"
             :busy="!block.call.result"

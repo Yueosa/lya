@@ -41,4 +41,4 @@ pub use agent::{Agent, AgentParts};
 pub use backend::ChatBackend;
 pub use context::{INTERRUPTED_MARK, MISSING_RESULT, build_messages};
 pub use error::AgentError;
-pub use event::{AgentEvent, CallKind, CancelToken, TurnEndReason};
+pub use event::{AgentEvent, BatchCallInfo, CallKind, CancelToken, TurnEndReason};

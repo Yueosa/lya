@@ -22,9 +22,17 @@ import type {
   MessageRecord,
   SessionMeta,
   Snapshot,
+  ToolBatchCall,
   TurnBuffer,
   TurnEndReason,
 } from '../api/wire'
+
+/** 流式阶段收到的调用组摘要。 */
+export interface ActiveToolBatch {
+  batchId: string
+  messageId: number
+  calls: ToolBatchCall[]
+}
 
 /** 一个会话在前端的全部状态。 */
 export interface SessionState {
@@ -37,8 +45,10 @@ export interface SessionState {
   running: TurnBuffer | null
   /** 上一轮怎么结束的。 */
   endReason: TurnEndReason | null
-  /** 正等用户答复的 HITL 节点。 */
+  /** 正等用户答复的 HITL 节点（同批里取路径上第一条 pending）。 */
   pendingHitlId: number | null
+  /** 本轮 SSE 收到的调用组；落库后以 assistant 上的 meta 为准。 */
+  activeToolBatch: ActiveToolBatch | null
 }
 
 /** 什么都还没有的初始状态。 */
@@ -50,6 +60,7 @@ export function emptyState(): SessionState {
     running: null,
     endReason: null,
     pendingHitlId: null,
+    activeToolBatch: null,
   }
 }
 
@@ -68,6 +79,7 @@ export function applySnapshot(state: SessionState, snapshot: Snapshot): SessionS
     // 快照没带这两个，但它们描述的是「刚刚发生了什么」，重连后本就不该沿用旧的
     endReason: null,
     pendingHitlId: findPendingHitl(snapshot.messages),
+    activeToolBatch: null,
   }
 }
 
@@ -81,6 +93,7 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
         // 否则上一轮的工具会一直挂在界面上
         running: { round: event.round, message_id: null, content: '', reasoning: '', calls: [] },
         endReason: null,
+        activeToolBatch: null,
       }
 
     case 'message_delta':
@@ -95,15 +108,17 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
         reasoning: running.reasoning + event.text,
       }))
 
-    case 'message_committed':
+    case 'message_committed': {
+      const messages = upsert(state.messages, event.record)
       return {
         ...state,
-        messages: upsert(state.messages, event.record),
+        messages,
         running: state.running
           ? { ...state.running, message_id: state.running.message_id ?? event.record.id }
           : state.running,
-        pendingHitlId: isPendingHitl(event.record) ? event.record.id : state.pendingHitlId,
+        pendingHitlId: findPendingHitl(messages),
       }
+    }
 
     case 'message_updated': {
       const messages = upsert(state.messages, event.record)
@@ -112,21 +127,19 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
         messages,
         // 定稿了就把缓冲里那份丢掉，否则同一段正文会显示两遍
         running: state.running?.message_id === event.record.id ? null : state.running,
-        pendingHitlId: isPendingHitl(event.record)
-          ? event.record.id
-          : state.pendingHitlId === event.record.id
-            ? null
-            : state.pendingHitlId,
+        pendingHitlId: findPendingHitl(messages),
       }
     }
 
-    case 'message_deleted':
+    case 'message_deleted': {
+      const messages = state.messages.filter((m) => m.id !== event.id)
       return {
         ...state,
-        messages: state.messages.filter((m) => m.id !== event.id),
+        messages,
         running: state.running?.message_id === event.id ? null : state.running,
-        pendingHitlId: state.pendingHitlId === event.id ? null : state.pendingHitlId,
+        pendingHitlId: findPendingHitl(messages),
       }
+    }
 
     case 'call_started':
       return withRunning(state, (running) => ({
@@ -145,8 +158,20 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
         ),
       }))
 
-    case 'await_human':
-      return { ...state, pendingHitlId: event.message_id }
+    case 'tool_batch_started':
+      return {
+        ...state,
+        activeToolBatch: {
+          batchId: event.batch_id,
+          messageId: event.message_id,
+          calls: event.calls,
+        },
+      }
+
+    case 'await_human': {
+      const pendingHitlId = findPendingHitl(state.messages) ?? event.message_id
+      return { ...state, pendingHitlId }
+    }
 
     case 'turn_end':
       return {
@@ -154,6 +179,7 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
         endReason: event.reason,
         // 本轮结束，缓冲里该落库的都落了；还留着只会和真消息重影
         running: null,
+        activeToolBatch: null,
       }
   }
 }
@@ -194,11 +220,10 @@ function isPendingHitl(record: MessageRecord): boolean {
   return record.payload.role === 'hitl' && record.payload.status === 'pending'
 }
 
+/** 从根往叶找第一条 pending HITL，与同批审阅顺序一致。 */
 function findPendingHitl(messages: MessageRecord[]): number | null {
-  // 待确认的工具可能后面还挂着同批其它 tool 的结果，不能只看最后一条
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const record = messages[i]
-    if (record && isPendingHitl(record)) return record.id
+  for (const record of messages) {
+    if (isPendingHitl(record)) return record.id
   }
   return null
 }

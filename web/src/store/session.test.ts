@@ -176,6 +176,29 @@ describe('applyEvent', () => {
     expect(state.running).toBeNull()
   })
 
+  it('同批多条 HITL 时 pending 指向第一条', () => {
+    const hitl = (id: number, parent: number) =>
+      record(id, { ...pendingHitl(), kind: 'tool_confirm' }, parent)
+    const snapshot: Snapshot = {
+      session: null as never,
+      messages: [record(1, finished('批处理')), hitl(2, 1), hitl(3, 2)],
+      running: null,
+    }
+    expect(applySnapshot(emptyState(), snapshot).pendingHitlId).toBe(2)
+  })
+
+  it('记录 tool_batch_started', () => {
+    const state = applyEvents(emptyState(), [
+      {
+        type: 'tool_batch_started',
+        batch_id: 'b1',
+        message_id: 1,
+        calls: [{ call_id: 'c1', name: 'bash', needs_review: true }],
+      },
+    ])
+    expect(state.activeToolBatch?.batchId).toBe('b1')
+  })
+
   it('挂起与结清 HITL', () => {
     const suspended = applyEvents(emptyState(), [
       { type: 'message_committed', record: record(2, pendingHitl(), 1) },

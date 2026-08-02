@@ -101,10 +101,26 @@ pub enum AgentEvent {
         success: bool,
     },
 
+    /// 同一条 assistant 消息里的 tool_calls 成组开始处理。
+    ToolBatchStarted {
+        /// 组 id，与 assistant `lya.meta.tool_batch.id` 一致。
+        batch_id: String,
+        /// 承载这批 tool_calls 的助手消息 id。
+        message_id: i64,
+        /// 组内各 call 的摘要。
+        calls: Vec<BatchCallInfo>,
+    },
+
     /// 需要用户介入，HITL 节点已入树。
     AwaitHuman {
         /// HITL 消息节点 id。
         message_id: i64,
+        /// 所属调用组；非批内 HITL（如单独 form）时为 `None`。
+        batch_id: Option<String>,
+        /// 在 needs_review 子集里的序号（从 1 起）；无批上下文时为 `None`。
+        review_index: Option<u32>,
+        /// needs_review 总数；无批上下文时为 `None`。
+        review_total: Option<u32>,
     },
 
     /// 本轮结束。
@@ -112,4 +128,15 @@ pub enum AgentEvent {
         /// 结束原因。
         reason: TurnEndReason,
     },
+}
+
+/// 调用组里一条 call 的摘要。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BatchCallInfo {
+    /// 调用 id。
+    pub call_id: String,
+    /// 函数名。
+    pub name: String,
+    /// 是否需要用户确认后才执行。
+    pub needs_review: bool,
 }

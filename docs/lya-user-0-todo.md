@@ -29,7 +29,7 @@
 
 1. [x] **TIME_ANCHOR 澄清**：user=发送时刻，tool=结果落库时刻（≈执行结束）
 2. [x] **tool 调用组（后端）**：去 `already_awaiting` stub；auto 并行；多 HITL；批后并行 execute；`max_parallel_tools=3`
-3. [ ] **tool 调用组（前端）**：组卡片折叠 + HITL `‹ i/n ›` + SSE/状态
+3. [x] **tool 调用组（协议/前端）**：`tool_batch_started` SSE；组卡片折叠；HITL `‹ i/n ›`
 4. [ ] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 message_id 去重
 
 ## Backlog（Wave D 之后）

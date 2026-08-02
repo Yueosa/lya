@@ -41,6 +41,19 @@ export const pendingHitl = computed<HitlBlock | null>(() => {
   return record?.payload.lya.hitl ?? null
 })
 
+/** 当前待审工具在调用组里的序号（仅 tool_confirm 批内有效）。 */
+export const pendingHitlBatch = computed<{ index: number; total: number } | null>(() => {
+  const id = state.value.pendingHitlId
+  if (id === null) return null
+  const record = state.value.messages.find((message) => message.id === id)
+  const meta = record?.payload.lya.meta
+  if (!meta) return null
+  const index = meta['batch_index']
+  const total = meta['batch_total']
+  if (typeof index !== 'number' || typeof total !== 'number' || total <= 1) return null
+  return { index, total }
+})
+
 /** 打开一个会话并订阅 SSE。 */
 export async function openSession(id: string): Promise<void> {
   closeSession()

@@ -659,7 +659,9 @@ fn apply(buffer: &mut TurnBuffer, event: &AgentEvent) {
                 call.success = Some(*success);
             }
         }
-        AgentEvent::AwaitHuman { .. } | AgentEvent::TurnEnd { .. } => {}
+        AgentEvent::ToolBatchStarted { .. }
+        | AgentEvent::AwaitHuman { .. }
+        | AgentEvent::TurnEnd { .. } => {}
     }
 }
 
