@@ -7,9 +7,11 @@
 mod config;
 pub mod guard;
 mod image;
+mod media;
 mod introspect;
 mod memories;
 mod sessions;
+mod static_ui;
 
 use std::sync::Arc;
 
@@ -64,6 +66,11 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         .route("/api/models/probe", post(config::probe))
         // 本地图片：家目录内 + 令牌校验
         .route("/api/local-image", get(image::local_image))
+        // 会话媒体缓存（img_cache）
+        .route(
+            "/api/sessions/{id}/media/image",
+            get(media::session_image),
+        )
         // 全局事件：配置变更，以后还有桌面通知、会话列表变化
         .route("/api/events", get(sessions::subscribe_global))
         // 记忆：模型只能读写，删除只走这里
@@ -75,6 +82,7 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
                 .patch(memories::update)
                 .delete(memories::delete),
         )
+        .fallback(static_ui::serve_ui)
         .layer(axum::middleware::from_fn(guard::same_origin))
         .with_state(hub)
 }

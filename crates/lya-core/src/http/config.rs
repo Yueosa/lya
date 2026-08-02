@@ -68,13 +68,22 @@ pub struct Bootstrap {
     pub image_token: String,
     /// 家目录，前端据此判断一个路径是否属于本机可显示的图片。
     pub home: Option<String>,
+    /// `runtime.toml` 的默认模型 id；会话 `model_id` 为空时后端用这个。
+    pub default_model_id: Option<String>,
+    /// 默认模型的展示名。
+    pub default_model_name: Option<String>,
 }
 
 /// 前端启动握手。
 pub async fn bootstrap(State(hub): Hub) -> Json<Bootstrap> {
+    let default = load().ok().and_then(|config| {
+        config.default_model().map(|entry| (entry.id.clone(), entry.name.clone()))
+    });
     Json(Bootstrap {
         image_token: hub.image_token().to_string(),
         home: std::env::var_os("HOME").map(|home| home.to_string_lossy().into_owned()),
+        default_model_id: default.as_ref().map(|(id, _)| id.clone()),
+        default_model_name: default.map(|(_, name)| name),
     })
 }
 
@@ -136,6 +145,8 @@ pub async fn write_persona(
 }
 
 /// 取某个配置文件的原文，供「高级编辑」直接看 TOML。
+///
+/// `models` 会脱敏 `api_key`，避免完整密钥进浏览器。
 pub async fn raw(Path(file): Path<String>) -> Result<String, ApiError> {
     let name = match file.as_str() {
         "core" => lya_config::CORE_FILE,
@@ -145,8 +156,16 @@ pub async fn raw(Path(file): Path<String>) -> Result<String, ApiError> {
         other => return Err(HubError::Invalid(format!("没有名为 {other} 的配置文件")).into()),
     };
     let path = lya_config::data_root().map_err(invalid)?.join(name);
-    std::fs::read_to_string(&path)
-        .map_err(|err| HubError::Invalid(format!("{} 读取失败：{err}", path.display())).into())
+    let text = std::fs::read_to_string(&path).map_err(|err| {
+        ApiError::from(HubError::Invalid(format!(
+            "{} 读取失败：{err}",
+            path.display()
+        )))
+    })?;
+    if file == "models" {
+        return Ok(lya_config::redact_models_toml(&text).map_err(invalid)?);
+    }
+    Ok(text)
 }
 
 /// 探测入参。

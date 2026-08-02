@@ -27,10 +27,12 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal"] }
 
 lya-http = { workspace = true }
+lya-db = { workspace = true }
+lya-prompt = { workspace = true }
+percent-encoding = { workspace = true }
+rust-embed = { workspace = true }
+sha2 = { workspace = true }
 
 [dev-dependencies]
 async-stream = { workspace = true }
-lya-db = { workspace = true }
-
-lya-prompt = { workspace = true }
 tempfile = { workspace = true }

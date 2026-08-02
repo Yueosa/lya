@@ -5,8 +5,8 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU16, AtomicBool, Ordering};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use lya_action::ActionRegistry;
@@ -96,7 +96,11 @@ fn fixture() -> Fixture {
         .id;
     Fixture {
         _dir: dir,
-        hub: SessionHub::new(agent, lya_http::HttpClient::with_defaults().unwrap()),
+        hub: SessionHub::new(
+            agent,
+            lya_http::HttpClient::with_defaults().unwrap(),
+            Arc::new(AtomicU16::new(0)),
+        ),
         sessions,
         stop,
         session_id,

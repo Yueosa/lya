@@ -22,6 +22,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::event::{self, Envelope, Scope};
+use crate::media_cache::SelfPort;
 
 /// 广播通道容量。订阅者落后超过这么多条就会收到 `Lagged`，
 /// 届时重发一次快照即可对齐。
@@ -144,6 +145,8 @@ struct SessionChannel {
     tx: broadcast::Sender<Envelope>,
     /// 本轮的取消标志；`None` 表示当前没有轮次在跑。
     cancel: Option<CancelToken>,
+    /// HITL 放行后执行工具时的取消标志（与 LLM 轮次分开，Stop 也能中止）。
+    operation: Option<CancelToken>,
     /// 本轮的实时缓冲。
     buffer: Option<TurnBuffer>,
 }
@@ -163,12 +166,14 @@ pub struct SessionHub<B: ChatBackend = LlmClient> {
     global: broadcast::Sender<Envelope>,
     /// 本地图片端点的令牌，进程启动时随机生成。
     image_token: String,
+    /// HTTP 监听端口，供媒体抓取做 SSRF 判断。
+    self_port: SelfPort,
     seq: AtomicU64,
 }
 
 impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 用组装好的 agent 构造。
-    pub fn new(agent: Arc<Agent<B>>, http: HttpClient) -> Arc<Self> {
+    pub fn new(agent: Arc<Agent<B>>, http: HttpClient, self_port: SelfPort) -> Arc<Self> {
         let (global, _) = broadcast::channel(BROADCAST_CAPACITY);
         Arc::new(Self {
             agent,
@@ -176,6 +181,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             channels: Mutex::new(HashMap::new()),
             global,
             image_token: uuid::Uuid::new_v4().to_string(),
+            self_port,
             seq: AtomicU64::new(0),
         })
     }
@@ -191,6 +197,11 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 这点不便换来的是：泄露出去的链接活不过一次重启。
     pub fn image_token(&self) -> &str {
         &self.image_token
+    }
+
+    /// 当前 HTTP 监听端口；绑定前为 0。
+    pub fn self_port(&self) -> u16 {
+        self.self_port.load(Ordering::Relaxed)
     }
 
     /// 订阅全局事件。
@@ -217,10 +228,12 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         &self.agent
     }
 
-    /// 该会话是否有轮次在跑。
+    /// 该会话是否有轮次在跑，或正在执行挂起后放行的工具。
     pub fn is_running(&self, session_id: &str) -> bool {
-        self.channel_if_present(session_id)
-            .is_some_and(|channel| channel.lock().unwrap().cancel.is_some())
+        self.channel_if_present(session_id).is_some_and(|channel| {
+            let guard = channel.lock().unwrap();
+            guard.cancel.is_some() || guard.operation.is_some()
+        })
     }
 
     /// 读取一份快照。
@@ -278,18 +291,87 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         if self.agent.sessions().get_session(session_id)?.is_none() {
             return Err(HubError::NotFound(session_id.to_string()));
         }
+        let cancel = self.reserve_turn(session_id)?;
+        self.spawn_turn(session_id, cancel);
+        Ok(())
+    }
 
-        let channel = self.channel(session_id);
-        let cancel = CancelToken::new();
-        {
-            let mut guard = channel.lock().unwrap();
-            if guard.cancel.is_some() {
-                return Err(HubError::Busy(session_id.to_string()));
-            }
-            guard.cancel = Some(cancel.clone());
-            guard.buffer = Some(TurnBuffer::default());
+    /// 追加用户消息并开跑。先占轮次坑再写库，避免 Busy 后留下 orphan 消息。
+    pub fn send_user_message_and_start(
+        self: &Arc<Self>,
+        session_id: &str,
+        text: &str,
+    ) -> Result<(), HubError> {
+        if text.trim().is_empty() {
+            return Err(HubError::Invalid("消息不能为空".into()));
+        }
+        if self.agent.sessions().get_session(session_id)?.is_none() {
+            return Err(HubError::NotFound(session_id.to_string()));
         }
 
+        let cancel = self.reserve_turn(session_id)?;
+        let record = match self
+            .agent
+            .sessions()
+            .append(session_id, MessagePayload::user_text(text), false)
+        {
+            Ok(record) => record,
+            Err(err) => {
+                self.release_turn(session_id);
+                return Err(err.into());
+            }
+        };
+        self.publish(
+            session_id,
+            &AgentEvent::MessageCommitted {
+                record: Box::new(record),
+            },
+        );
+        self.spawn_turn(session_id, cancel);
+        Ok(())
+    }
+
+    /// 占住本轮坑位；失败时不改树。
+    fn reserve_turn(&self, session_id: &str) -> Result<CancelToken, HubError> {
+        let channel = self.channel(session_id);
+        let mut guard = channel.lock().unwrap();
+        if guard.cancel.is_some() || guard.operation.is_some() {
+            return Err(HubError::Busy(session_id.to_string()));
+        }
+        let cancel = CancelToken::new();
+        guard.cancel = Some(cancel.clone());
+        guard.buffer = Some(TurnBuffer::default());
+        Ok(cancel)
+    }
+
+    /// 追加消息失败时回滚占坑。
+    fn release_turn(&self, session_id: &str) {
+        let channel = self.channel(session_id);
+        let mut guard = channel.lock().unwrap();
+        guard.cancel = None;
+        guard.buffer = None;
+    }
+
+    /// 占住 HITL 放行后的工具执行，供 Stop 取消。
+    pub fn reserve_operation(&self, session_id: &str) -> Result<CancelToken, HubError> {
+        let channel = self.channel(session_id);
+        let mut guard = channel.lock().unwrap();
+        if guard.cancel.is_some() || guard.operation.is_some() {
+            return Err(HubError::Busy(session_id.to_string()));
+        }
+        let cancel = CancelToken::new();
+        guard.operation = Some(cancel.clone());
+        Ok(cancel)
+    }
+
+    /// 工具执行结束，释放 operation 坑位。
+    pub fn release_operation(&self, session_id: &str) {
+        if let Some(channel) = self.channel_if_present(session_id) {
+            channel.lock().unwrap().operation = None;
+        }
+    }
+
+    fn spawn_turn(self: &Arc<Self>, session_id: &str, cancel: CancelToken) {
         let hub = Arc::clone(self);
         let agent = Arc::clone(&self.agent);
         let id = session_id.to_string();
@@ -301,7 +383,6 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             }
             hub.finish(&id);
         });
-        Ok(())
     }
 
     // ── 分支 ─────────────────────────────────────────────────────
@@ -464,19 +545,21 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         Ok(())
     }
 
-    /// 停止当前轮；没有轮次在跑时返回 false。
+    /// 停止当前轮或正在执行的挂起工具；没有可取消的任务时返回 false。
     pub fn stop(&self, session_id: &str) -> bool {
         let Some(channel) = self.channel_if_present(session_id) else {
             return false;
         };
         let guard = channel.lock().unwrap();
-        match &guard.cancel {
-            Some(cancel) => {
-                cancel.cancel();
-                true
-            }
-            None => false,
+        if let Some(cancel) = &guard.cancel {
+            cancel.cancel();
+            return true;
         }
+        if let Some(cancel) = &guard.operation {
+            cancel.cancel();
+            return true;
+        }
+        false
     }
 
     /// 更新缓冲并广播。
@@ -507,6 +590,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         let idle = {
             let mut guard = channel.lock().unwrap();
             guard.cancel = None;
+            guard.operation = None;
             guard.buffer = None;
             guard.tx.receiver_count() == 0
         };
@@ -523,6 +607,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             Arc::new(Mutex::new(SessionChannel {
                 tx,
                 cancel: None,
+                operation: None,
                 buffer: None,
             }))
         }))
