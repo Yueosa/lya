@@ -13,6 +13,7 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { imageContext } from '../app/useChat'
 import { renderMarkdown } from '../model/markdown'
 import { bindChatImages } from '../ui/useImageLightbox'
+import { bindChatMediaPaths } from '../ui/useChatMedia'
 
 const props = withDefaults(
   defineProps<{
@@ -38,6 +39,7 @@ watch(
 /** 给还没处理过的代码块加高亮和复制按钮。 */
 function enhance(container: HTMLElement): void {
   bindChatImages(container)
+  bindChatMediaPaths(container)
   // NodeList 在当前 lib 设定下不可迭代，转成数组
   for (const block of Array.from(container.querySelectorAll<HTMLElement>('pre code'))) {
     // 流式时同一个块会被反复看到，标记一下免得重复高亮
@@ -241,6 +243,15 @@ function headerBar(block: HTMLElement): HTMLElement {
   display: block;
   width: 100%;
   max-width: 100%;
+}
+
+.md :deep(.lya-chat-media-path) {
+  margin: 4px 0 0.6em;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  word-break: break-all;
+  line-height: 1.4;
 }
 
 .md :deep(table) {

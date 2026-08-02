@@ -44,6 +44,12 @@ const form = ref({
   maxImageMb: 32,
   cacheLocal: true,
   cacheWeb: true,
+  maxVideoMb: 512,
+  cacheVideoLocal: true,
+  cacheVideoWeb: true,
+  maxAudioMb: 128,
+  cacheAudioLocal: true,
+  cacheAudioWeb: true,
 })
 
 onMounted(load)
@@ -74,6 +80,8 @@ function readForm(runtime: Record<string, unknown>): void {
   const shell = (runtime['shell'] ?? {}) as Record<string, unknown>
   const media = (runtime['media'] ?? {}) as Record<string, unknown>
   const image = (media['image'] ?? {}) as Record<string, unknown>
+  const video = (media['video'] ?? {}) as Record<string, unknown>
+  const audio = (media['audio'] ?? {}) as Record<string, unknown>
   form.value = {
     maxToolRounds: Number(agent['max_tool_rounds'] ?? 32),
     defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
@@ -84,6 +92,12 @@ function readForm(runtime: Record<string, unknown>): void {
     maxImageMb: bytesToMegabytes(Number(image['max_bytes'] ?? 32 * 1024 * 1024)),
     cacheLocal: image['cache_local'] !== false,
     cacheWeb: image['cache_web'] !== false,
+    maxVideoMb: bytesToMegabytes(Number(video['max_bytes'] ?? 512 * 1024 * 1024)),
+    cacheVideoLocal: video['cache_local'] !== false,
+    cacheVideoWeb: video['cache_web'] !== false,
+    maxAudioMb: bytesToMegabytes(Number(audio['max_bytes'] ?? 128 * 1024 * 1024)),
+    cacheAudioLocal: audio['cache_local'] !== false,
+    cacheAudioWeb: audio['cache_web'] !== false,
   }
 }
 
@@ -106,6 +120,16 @@ async function saveRuntime(): Promise<void> {
           max_bytes: megabytesToBytes(form.value.maxImageMb),
           cache_local: form.value.cacheLocal,
           cache_web: form.value.cacheWeb,
+        },
+        video: {
+          max_bytes: megabytesToBytes(form.value.maxVideoMb),
+          cache_local: form.value.cacheVideoLocal,
+          cache_web: form.value.cacheVideoWeb,
+        },
+        audio: {
+          max_bytes: megabytesToBytes(form.value.maxAudioMb),
+          cache_local: form.value.cacheAudioLocal,
+          cache_web: form.value.cacheAudioWeb,
         },
       },
     })) as Record<string, unknown>
@@ -243,7 +267,7 @@ watch(tab, (id) => {
           </div>
 
           <div class="panel form-panel">
-            <h3 class="form-panel__title">媒体</h3>
+            <h3 class="form-panel__title">媒体 · 图片</h3>
             <p class="page__hint">聊天图片与会话 <code>img_cache</code>；保存后立即生效。</p>
             <label class="field">
               <span class="field__label">单张图片上限（MB）</span>
@@ -259,6 +283,44 @@ watch(tab, (id) => {
               <span class="field__label">缓存远程图片</span>
               <input v-model="form.cacheWeb" type="checkbox" />
               <p class="field__note">关闭后每次访问重新拉取，不写入持久 web 缓存</p>
+            </label>
+          </div>
+
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">媒体 · 视频</h3>
+            <p class="page__hint">聊天 Markdown 视频与会话 <code>vdo_cache</code>。</p>
+            <label class="field">
+              <span class="field__label">单个视频上限（MB）</span>
+              <input v-model.number="form.maxVideoMb" class="input" type="number" min="1" max="4096" step="1" />
+            </label>
+            <label class="field field--check">
+              <span class="field__label">缓存本地视频</span>
+              <input v-model="form.cacheVideoLocal" type="checkbox" />
+              <p class="field__note">关闭后仍可读原路径，但不写入 vdo_cache/local</p>
+            </label>
+            <label class="field field--check">
+              <span class="field__label">缓存远程视频</span>
+              <input v-model="form.cacheVideoWeb" type="checkbox" />
+              <p class="field__note">关闭后每次播放重新拉取，不写入 vdo_cache/web</p>
+            </label>
+          </div>
+
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">媒体 · 音频</h3>
+            <p class="page__hint">聊天 Markdown 音频与会话 <code>ado_cache</code>。</p>
+            <label class="field">
+              <span class="field__label">单个音频上限（MB）</span>
+              <input v-model.number="form.maxAudioMb" class="input" type="number" min="1" max="1024" step="1" />
+            </label>
+            <label class="field field--check">
+              <span class="field__label">缓存本地音频</span>
+              <input v-model="form.cacheAudioLocal" type="checkbox" />
+              <p class="field__note">关闭后仍可读原路径，但不写入 ado_cache/local</p>
+            </label>
+            <label class="field field--check">
+              <span class="field__label">缓存远程音频</span>
+              <input v-model="form.cacheAudioWeb" type="checkbox" />
+              <p class="field__note">关闭后每次播放重新拉取，不写入 ado_cache/web</p>
             </label>
           </div>
 

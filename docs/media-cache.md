@@ -62,6 +62,7 @@ GET /api/sessions/{session_id}/media/audio
 - `ImageContext.sessionId` 存在时，Markdown 媒体改写为上述会话 URL（本地与远程均走缓存端点）。
 - 图片：点击 → lightbox（复制路径/URL、保存）。
 - 视频/音频：原生 `<video controls>` / `<audio controls>`（暂停、进度、全屏、倍速、下载由浏览器提供）。
+- 会话 media URL 下，播放器下方只读展示 `copy_path` 或 `copy_url`（不剪贴板）。
 - 旧端点 `/api/local-image` 保留，仅图片、且无 session 时兜底。
 
 ## 配置（`runtime.toml`）

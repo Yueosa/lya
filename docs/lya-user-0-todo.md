@@ -47,20 +47,27 @@
 
 - [x] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 `message_id` 去重
 
-实现：`lya-hub` 广播 `notify_*` 全局事件；`lya` 托盘订阅 `/api/events` 后调 `notify-send`。
+实现：`lya-hub` 广播 `notify_*` 全局事件；`lya` 托盘订阅 `/api/events` 后调 `notify-send`。**当前够用，不再扩展。**
 
-## Backlog（Wave F 之后）
+## 近期已完成（Wave F 之后）
 
-| # | 项 |
-|---|-----|
-| 1 | 每 tool/action **配置页** |
-| 2 | vdo/ado：**lya-media** 扩展 + 可选 **lya-tool** |
-| 3 | lianclaw 迁移 |
-| 4 | **上下文管理器**：`lya-token` + `lya-context` |
+| 项 | 状态 | 说明 |
+|----|------|------|
+| **web_fetch 翻页** | [x] | `start_line` / `end_line`，见 `lya-tool` `fetch.rs` |
+| **tool 配置 UI（Phase 1）** | [x] | ToolsView 全局默认；SessionSettings 展开 + 恢复全局；`toolLimits` 只读 |
+| **vdo/ado Phase 1** | [x] | 提示词、缓存端点、播放器、ConfigView、路径条；**无** tool |
+
+## Backlog
+
+| # | 项 | 说明 |
+|---|-----|------|
+| 1 | tool/action 配置 **Phase 2** | 每工具数值进 TOML — **明确不做** |
+| 2 | vdo/ado **tool**（`video_scan` 等） | Phase 1 不做；有真实需求再议 |
+| 3 | lianclaw 迁移 | 等清单 |
+| 4 | **上下文管理器** | `lya-token` + `lya-context` |
 
 | 项 | 说明 |
 |----|------|
-| web_fetch 翻页 | [x] |
 | 二进制体积 | 已做 slim 构建 |
 | models 字段 | `context_window` / `max_tokens` |
 
