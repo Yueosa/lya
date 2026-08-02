@@ -1195,6 +1195,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-api"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "axum",
+ "chrono",
+ "futures-util",
+ "lya-action",
+ "lya-agent",
+ "lya-config",
+ "lya-http",
+ "lya-hub",
+ "lya-llm",
+ "lya-media",
+ "lya-memory",
+ "lya-mode",
+ "lya-session",
+ "lya-storage",
+ "lya-tool",
+ "percent-encoding",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "lya-config"
 version = "0.1.0"
 dependencies = [
@@ -1211,30 +1241,22 @@ dependencies = [
 name = "lya-core"
 version = "0.1.0"
 dependencies = [
- "async-stream",
  "axum",
- "chrono",
- "futures-util",
  "lya-action",
  "lya-agent",
+ "lya-api",
  "lya-config",
  "lya-db",
  "lya-http",
+ "lya-hub",
  "lya-llm",
  "lya-memory",
- "lya-mode",
  "lya-prompt",
  "lya-session",
  "lya-tool",
- "percent-encoding",
- "rust-embed",
- "serde",
- "serde_json",
- "sha2",
  "tempfile",
  "thiserror",
  "tokio",
- "uuid",
 ]
 
 [[package]]
@@ -1260,6 +1282,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-hub"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "chrono",
+ "futures-util",
+ "lya-action",
+ "lya-agent",
+ "lya-config",
+ "lya-db",
+ "lya-http",
+ "lya-llm",
+ "lya-memory",
+ "lya-mode",
+ "lya-prompt",
+ "lya-session",
+ "lya-tool",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "lya-llm"
 version = "0.1.0"
 dependencies = [
@@ -1272,6 +1320,18 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "lya-media"
+version = "0.1.0"
+dependencies = [
+ "lya-config",
+ "lya-http",
+ "lya-tool",
+ "serde",
+ "sha2",
+ "thiserror",
 ]
 
 [[package]]
@@ -1313,6 +1373,15 @@ dependencies = [
  "tempfile",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "lya-storage"
+version = "0.1.0"
+dependencies = [
+ "lya-config",
+ "serde",
+ "thiserror",
 ]
 
 [[package]]

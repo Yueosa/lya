@@ -1,6 +1,6 @@
 # 开发待办
 
-活文档。完成项打 `[x]`，封存项见文末。
+活文档。完成项打 `[x]`，封存项见文末。crate 边界见 [`docs/architecture.md`](./architecture.md)。
 
 ## Wave A — 安全与测试 Bug（已完成）
 
@@ -17,29 +17,46 @@
 - [x] **models 配置**：模板与 UI 暴露 `max_tokens` 等透传字段示例
 - [x] **加载性能**：首屏抑制 stagger、尾部优先渲染、`content-visibility`
 
-## Wave C — 重构（已完成）
+## Wave C — 前端/文档（已完成）
 
 - [x] 前端 god-file 拆层：`useChat.ts` → `app/chat/*` 模块 + barrel
-- [x] 前端子组件化：`ChatView` → `views/chat/*`（Header、Timeline、Scroll、Drawer…）
-- [x] 后端 crate README（14 个 crate 均有 README，对齐 `docs/style.md`）
+- [x] 前端子组件化：`ChatView` → `views/chat/*`
+- [x] 后端 crate README（14 个 crate 均有 README）
 
-## Wave D — 调用组 + 通知（进行中）
+## Wave D — 调用组（已完成）
 
 设计见 [`docs/tool-batch.md`](./tool-batch.md)。
 
-1. [x] **TIME_ANCHOR 澄清**：user=发送时刻，tool=结果落库时刻（≈执行结束）
-2. [x] **tool 调用组（后端）**：去 `already_awaiting` stub；auto 并行；多 HITL；批后并行 execute；`max_parallel_tools=3`
-3. [x] **tool 调用组（协议/前端）**：`tool_batch_started` SSE；组卡片折叠；HITL `‹ i/n ›`
-4. [ ] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 message_id 去重
+1. [x] **TIME_ANCHOR 澄清**
+2. [x] **tool 调用组（后端）**
+3. [x] **tool 调用组（协议/前端）**
 
-## Backlog（Wave D 之后）
+## Wave E — 架构重构 ✅
+
+| 步骤 | 内容 | 状态 |
+|------|------|------|
+| E1 | 新建 `lya-hub`、`lya-api`、`lya-media`、`lya-storage` workspace 成员 | [x] |
+| E2 | 迁 **lya-media**：`media_cache` + 图片 serving | [x] |
+| E3 | 迁 **lya-hub**：`SessionHub` + `event` | [x] |
+| E4 | 迁 **lya-api**：全部 `http/*`、`guard`、`router` | [x] |
+| E5 | **lya-core** 瘦身为 `run.rs` + `start_server`（无 re-export） | [x] |
+| E6 | **lya-storage**：`scan_usage()` + `GET /api/storage/stats` | [x] |
+| E7 | 配置 **`[media.*]`** + 前端 **Storage** 扇形图（只读） | [x] |
+
+## Wave F — notify（Wave E 之后）
+
+- [ ] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 `message_id` 去重
+
+实现位置：**`lya-hub`**（事件语义）+ **`lya-api`**（若需 HTTP）+ 托盘二进制；**不进 lya-core 业务逻辑**。
+
+## Backlog（Wave F 之后）
 
 | # | 项 |
 |---|-----|
-| 5 | vdo_cache / ado_cache |
-| 6 | 每 tool/action 配置页 |
-| 7 | lianclaw 迁移 |
-| 8 | **上下文管理器**：`lya-token` + `lya-context` |
+| 1 | 每 tool/action **配置页** |
+| 2 | vdo/ado：**lya-media** 扩展 + 可选 **lya-tool** |
+| 3 | lianclaw 迁移 |
+| 4 | **上下文管理器**：`lya-token` + `lya-context` |
 
 | 项 | 说明 |
 |----|------|
@@ -55,7 +72,7 @@
 - Action cancel
 - 流式落库策略改动
 - HITL 长命令终端弹窗（近期）
-- HITL 确认超时自动拒绝（永久等人；见 tool-batch）
+- HITL 确认超时自动拒绝
 - embedding / 自动召回
 - 配置文件 watcher
 - 全局 SSE（会话级够用）
@@ -63,3 +80,4 @@
 - 递归删整枝（`delete_leaf` 够用）
 - 图片上传、会话导出、快捷键、移动端
 - notify 前台抑制（暂不做）
+- Storage 页「清除缓存」按钮（第一版不做）

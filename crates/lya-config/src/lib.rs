@@ -39,7 +39,8 @@ pub use write::{edit_file, merge_table, redact_models_toml, write_persona, write
 pub use models::{ModelCatalog, ModelEntry};
 pub use models::{CAPABILITY_TEXT, CAPABILITY_VISION};
 pub use runtime::{
-    AgentSettings, MemorySettings, RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings,
+    AgentSettings, AudioMediaSettings, ImageMediaSettings, MediaSettings, MemorySettings,
+    RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings, VideoMediaSettings,
 };
 
 use std::env;

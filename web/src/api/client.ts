@@ -5,8 +5,8 @@
  * `store/session.ts` 的事。两者看起来都叫「处理事件」，其实一个是传输、一个是
  * 领域逻辑，混在一起这层就会长成一个挂了 `fetch` 的 store。
  *
- * 路径和请求体都照着 `crates/lya-core/src/http/mod.rs` 的路由表写，形状照着
- * `cargo run -p lya-core --example wire` 打出的真实 JSON 写。
+ * 路径和请求体都照着 `crates/lya-api/src/http/mod.rs` 的路由表写，形状照着
+ * `cargo run -p lya-api --example wire` 打出的真实 JSON 写。
  */
 
 import type {
@@ -139,6 +139,20 @@ export interface ConfigView {
   models: ModelInfo[]
   persona: string | null
   core_readonly: boolean
+}
+
+/** 一项磁盘占用分类。 */
+export interface CategoryUsage {
+  id: string
+  label: string
+  bytes: number
+}
+
+/** `GET /api/storage/stats` 响应。 */
+export interface UsageReport {
+  root: string
+  total_bytes: number
+  categories: CategoryUsage[]
 }
 
 /** 探测一个模型能不能连通。 */
@@ -325,6 +339,11 @@ export class LyaClient {
   /** 某个配置文件的原文，供高级编辑直接看 TOML。 */
   rawConfig(file: 'core' | 'runtime' | 'models' | 'persona'): Promise<string> {
     return this.requestText('GET', `/api/config/raw/${file}`)
+  }
+
+  /** 数据目录占用（只读）。 */
+  storageStats(): Promise<UsageReport> {
+    return this.request('GET', '/api/storage/stats')
   }
 
   /**

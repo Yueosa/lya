@@ -9,8 +9,10 @@ use axum::response::{IntoResponse, Response};
 use lya_llm::LlmClient;
 use serde::Serialize;
 
-use crate::hub::SessionHub;
-use crate::media_cache::{self, MediaCacheError};
+use lya_hub::SessionHub;
+use lya_media::MediaCacheError;
+
+use super::media_limits::image_limits;
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 
@@ -69,14 +71,16 @@ pub async fn session_image(
         return (StatusCode::NOT_FOUND, "会话不存在").into_response();
     }
 
+    let limits = image_limits();
     let cached = match query.kind.as_str() {
-        "local" => media_cache::ensure_local(&session_id, &query.src),
+        "local" => lya_media::ensure_local(&session_id, &query.src, limits),
         "web" => {
-            media_cache::ensure_web(
+            lya_media::ensure_web(
                 &session_id,
                 &query.src,
                 hub.http(),
                 hub.self_port(),
+                limits,
             )
             .await
         }

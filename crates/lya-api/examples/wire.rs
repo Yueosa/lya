@@ -4,7 +4,7 @@
 //! 枚举的 tag 形式都可能对不上，而这类偏差要等联调时才炸。
 //!
 //! ```bash
-//! cargo run -p lya-core --example wire
+//! cargo run -p lya-api --example wire
 //! ```
 
 use chrono::{DateTime, Utc};
@@ -169,7 +169,7 @@ fn dump_events() {
     ];
 
     for (seq, event) in events.iter().enumerate() {
-        if let Some(envelope) = lya_core::event::from_agent("s1", seq as u64, event) {
+        if let Some(envelope) = lya_hub::event::from_agent("s1", seq as u64, event) {
             println!("\n// event: {}", envelope.kind);
             println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
         }

@@ -12,8 +12,8 @@ use lya_llm::LlmClient;
 use lya_memory::{Memory, MemoryHit, MemoryPatch, NewMemory};
 use serde::Deserialize;
 
-use crate::hub::{HubError, SessionHub};
-use crate::http::sessions::ApiError;
+use lya_hub::{HubError, SessionHub};
+use super::sessions::ApiError;
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 

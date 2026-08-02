@@ -13,6 +13,10 @@ members = [
     "crates/lya-action",
     "crates/lya-config",
     "crates/lya-agent",
+    "crates/lya-hub",
+    "crates/lya-api",
+    "crates/lya-media",
+    "crates/lya-storage",
     "crates/lya-core",
 ]
 
@@ -36,6 +40,10 @@ futures-util = "0.3"
 lya-action = { path = "crates/lya-action" }
 lya-agent = { path = "crates/lya-agent" }
 lya-config = { path = "crates/lya-config" }
+lya-api = { path = "crates/lya-api" }
+lya-hub = { path = "crates/lya-hub" }
+lya-media = { path = "crates/lya-media" }
+lya-storage = { path = "crates/lya-storage" }
 lya-core = { path = "crates/lya-core" }
 lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }

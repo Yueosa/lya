@@ -17,8 +17,8 @@ use lya_llm::LlmClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::http::sessions::ApiError;
-use crate::hub::{HubError, SessionHub};
+use lya_hub::{HubError, SessionHub};
+use super::sessions::ApiError;
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 

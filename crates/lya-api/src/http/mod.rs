@@ -8,17 +8,19 @@ mod config;
 pub mod guard;
 mod image;
 mod media;
+mod media_limits;
 mod introspect;
 mod memories;
 mod sessions;
 mod static_ui;
+mod storage;
 
 use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::{get, post};
 
-use crate::hub::SessionHub;
+use lya_hub::SessionHub;
 
 /// 组装路由。
 pub fn router(hub: Arc<SessionHub>) -> Router {
@@ -64,6 +66,8 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         .route("/api/config/raw/{file}", get(config::raw))
         .route("/api/models", get(config::models))
         .route("/api/models/probe", post(config::probe))
+        // 数据目录占用（只读）
+        .route("/api/storage/stats", get(storage::stats))
         // 本地图片：家目录内 + 令牌校验
         .route("/api/local-image", get(image::local_image))
         // 会话媒体缓存（img_cache）

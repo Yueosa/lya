@@ -18,6 +18,8 @@ pub struct RuntimeConfig {
     pub memory: MemorySettings,
     /// shell 命令的确认策略。
     pub shell: ShellSettings,
+    /// 媒体缓存与 serving（`[media.*]`）。
+    pub media: MediaSettings,
 }
 
 /// 什么时候要用户确认 shell 命令。
@@ -105,5 +107,67 @@ impl Default for MemorySettings {
             max_index_chars: 4000,
             index_summary_chars: 120,
         }
+    }
+}
+
+/// `runtime.toml` 的 `[media.*]` 根表。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaSettings {
+    /// 图片（`img_cache`）。
+    pub image: ImageMediaSettings,
+    /// 视频（预留）。
+    pub video: VideoMediaSettings,
+    /// 音频（预留）。
+    pub audio: AudioMediaSettings,
+}
+
+/// 图片缓存与大小限制。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ImageMediaSettings {
+    /// 单张图片大小上限（字节）；`/api/local-image` 与会话 media 端点共用。
+    pub max_bytes: u64,
+    /// 是否写入 `img_cache/local`。
+    pub cache_local: bool,
+    /// 是否下载并写入 `img_cache/web`。
+    pub cache_web: bool,
+}
+
+impl Default for ImageMediaSettings {
+    fn default() -> Self {
+        Self {
+            max_bytes: 32 * 1024 * 1024,
+            cache_local: true,
+            cache_web: true,
+        }
+    }
+}
+
+/// 视频缓存（预留，默认不缓存）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct VideoMediaSettings {
+    /// 是否写入 `vdo_cache`（尚未实现）。
+    pub cache: bool,
+}
+
+impl Default for VideoMediaSettings {
+    fn default() -> Self {
+        Self { cache: false }
+    }
+}
+
+/// 音频缓存（预留，默认不缓存）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AudioMediaSettings {
+    /// 是否写入 `ado_cache`（尚未实现）。
+    pub cache: bool,
+}
+
+impl Default for AudioMediaSettings {
+    fn default() -> Self {
+        Self { cache: false }
     }
 }

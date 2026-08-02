@@ -1,19 +1,23 @@
 # lya 路线图
 
-当前仓库的**活文档**。历史计划见 [`docs/archive/`](./archive/)。
+当前仓库的**活文档**。历史计划见 [`docs/archive/`](./archive/)。crate 边界见 [`docs/architecture.md`](./architecture.md)。
+
+## 当前优先
+
+**Wave F**：notify-send（Hub 边界已拆清）
 
 ## 已完成（近期）
 
 - 后端骨架、WebUI、托盘、Wave A–C
 - img_cache、二进制 slim、`web_fetch` 翻页、`context_window` 配置
-
-## 进行中：Wave D
-
-[`docs/tool-batch.md`](./tool-batch.md) — 同批 `tool_calls` 调用组（并行 + 多 HITL + `‹ i/n ›`），然后 **notify-send**。
+- **Wave D**：tool 调用组（后端 + SSE + 前端）
+- **Wave E**：架构拆分 + `[media.*]` + 存储扇形图
 
 ## 之后
 
-vdo/ado → tool 配置页 → lianclaw 迁移 → 上下文管理器（`lya-token` + `lya-context`）。
+1. vdo/ado（media + tool）
+2. lianclaw 迁移
+3. 上下文管理器（`lya-token` + `lya-context`）
 
 ## 刻意不做 / 封存
 

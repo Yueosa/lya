@@ -1,20 +1,23 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 
-import type { ConfigView as Config } from '../api/client'
+import type { ConfigView as Config, UsageReport } from '../api/client'
 import { client, refreshRuntimeDefaults } from '../app/useChat'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
 import RawToml from '../ui/RawToml.vue'
+import StoragePie from '../ui/StoragePie.vue'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
+import { bytesToMegabytes, megabytesToBytes } from '../utils/formatBytes'
 
-type Tab = 'persona' | 'runtime' | 'raw'
+type Tab = 'persona' | 'runtime' | 'storage' | 'raw'
 type RawFile = 'core' | 'runtime' | 'models' | 'persona'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'persona', label: '人设' },
   { id: 'runtime', label: '运行时' },
+  { id: 'storage', label: '存储' },
   { id: 'raw', label: '原始文件' },
 ]
 
@@ -27,6 +30,9 @@ const persona = ref('')
 const saving = ref(false)
 const rawName = ref<RawFile>('runtime')
 const rawText = ref('')
+const storage = ref<UsageReport | null>(null)
+const storageError = ref('')
+const storageLoading = ref(false)
 
 const form = ref({
   maxToolRounds: 32,
@@ -35,6 +41,9 @@ const form = ref({
   maxIndexChars: 4000,
   indexSummaryChars: 120,
   shellConfirm: 'unknown',
+  maxImageMb: 32,
+  cacheLocal: true,
+  cacheWeb: true,
 })
 
 onMounted(load)
@@ -63,6 +72,8 @@ function readForm(runtime: Record<string, unknown>): void {
   const agent = (runtime['agent'] ?? {}) as Record<string, unknown>
   const memory = (runtime['memory'] ?? {}) as Record<string, unknown>
   const shell = (runtime['shell'] ?? {}) as Record<string, unknown>
+  const media = (runtime['media'] ?? {}) as Record<string, unknown>
+  const image = (media['image'] ?? {}) as Record<string, unknown>
   form.value = {
     maxToolRounds: Number(agent['max_tool_rounds'] ?? 32),
     defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
@@ -70,6 +81,9 @@ function readForm(runtime: Record<string, unknown>): void {
     maxIndexChars: Number(memory['max_index_chars'] ?? 4000),
     indexSummaryChars: Number(memory['index_summary_chars'] ?? 120),
     shellConfirm: String(shell['confirm'] ?? 'unknown'),
+    maxImageMb: bytesToMegabytes(Number(image['max_bytes'] ?? 32 * 1024 * 1024)),
+    cacheLocal: image['cache_local'] !== false,
+    cacheWeb: image['cache_web'] !== false,
   }
 }
 
@@ -87,6 +101,13 @@ async function saveRuntime(): Promise<void> {
         index_summary_chars: form.value.indexSummaryChars,
       },
       shell: { confirm: form.value.shellConfirm },
+      media: {
+        image: {
+          max_bytes: megabytesToBytes(form.value.maxImageMb),
+          cache_local: form.value.cacheLocal,
+          cache_web: form.value.cacheWeb,
+        },
+      },
     })) as Record<string, unknown>
     readForm(applied)
     await refreshRuntimeDefaults()
@@ -119,9 +140,23 @@ async function loadRaw(file: RawFile): Promise<void> {
   }
 }
 
+async function loadStorage(): Promise<void> {
+  storageLoading.value = true
+  storageError.value = ''
+  try {
+    storage.value = await client.storageStats()
+  } catch (error) {
+    storage.value = null
+    storageError.value = errMsg(error)
+  } finally {
+    storageLoading.value = false
+  }
+}
+
 function pickTab(id: Tab): void {
   tab.value = id
   if (id === 'raw') void loadRaw(rawName.value)
+  if (id === 'storage') void loadStorage()
 }
 
 const workModeOptions: PickerOption[] = [
@@ -138,6 +173,7 @@ const shellConfirmOptions: PickerOption[] = [
 
 watch(tab, (id) => {
   if (id === 'raw') void loadRaw(rawName.value)
+  if (id === 'storage') void loadStorage()
 })
 </script>
 
@@ -207,6 +243,26 @@ watch(tab, (id) => {
           </div>
 
           <div class="panel form-panel">
+            <h3 class="form-panel__title">媒体</h3>
+            <p class="page__hint">聊天图片与会话 <code>img_cache</code>；保存后立即生效。</p>
+            <label class="field">
+              <span class="field__label">单张图片上限（MB）</span>
+              <input v-model.number="form.maxImageMb" class="input" type="number" min="1" max="256" step="0.5" />
+              <p class="field__note">同时作用于 local-image 与会话 media 端点</p>
+            </label>
+            <label class="field field--check">
+              <span class="field__label">缓存本地图片</span>
+              <input v-model="form.cacheLocal" type="checkbox" />
+              <p class="field__note">关闭后仍可读原路径，但不写入 img_cache/local</p>
+            </label>
+            <label class="field field--check">
+              <span class="field__label">缓存远程图片</span>
+              <input v-model="form.cacheWeb" type="checkbox" />
+              <p class="field__note">关闭后每次访问重新拉取，不写入持久 web 缓存</p>
+            </label>
+          </div>
+
+          <div class="panel form-panel">
             <h3 class="form-panel__title">命令执行</h3>
             <label class="field">
               <span class="field__label">什么时候要你确认</span>
@@ -221,10 +277,26 @@ watch(tab, (id) => {
           </div>
         </section>
 
+          <section v-else-if="tab === 'storage'" key="storage" class="page__pane">
+          <p class="page__hint">
+            只读统计 <code>~/.lya</code> 占用；第一版不提供清除按钮。
+          </p>
+          <p v-if="storageLoading" class="split-view__hint">正在扫描…</p>
+          <p v-else-if="storageError" class="page__error">{{ storageError }}</p>
+          <template v-else-if="storage">
+            <p class="page__hint">数据目录：<code>{{ storage.root }}</code></p>
+            <StoragePie :categories="storage.categories" :total-bytes="storage.total_bytes" />
+            <div class="row row--end">
+              <button class="btn btn--sm" @click="loadStorage">刷新</button>
+            </div>
+          </template>
+        </section>
+
           <section v-else key="raw" class="page__pane">
           <p class="page__hint">
             core 只读——改端口等需重启进程才生效。models 里
             <code>context_window</code> 是 lya 输入预算；<code>max_tokens</code> 等透传键会原样进 API 请求体。
+            若缺少 <code>[media.*]</code>，请对照模板合并 <code>runtime.toml</code>。
           </p>
           <div class="seg-row">
             <button
@@ -253,6 +325,15 @@ watch(tab, (id) => {
   line-height: var(--leading);
   resize: vertical;
   font-family: var(--font-mono);
+}
+
+.field--check {
+  align-items: center;
+}
+
+.field--check input[type='checkbox'] {
+  width: auto;
+  justify-self: start;
 }
 
 @media (max-width: 640px) {

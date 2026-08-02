@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use lya_action::ActionRegistry;
 use lya_agent::{Agent, AgentParts, ChatBackend};
-use lya_core::SessionHub;
+use lya_hub::SessionHub;
 use lya_db::Db;
 use lya_llm::{ChatEventStream, ChatMessage, LlmEndpoint, LlmError, StreamEvent};
 use lya_memory::MemoryStore;
@@ -126,7 +126,7 @@ async fn a_second_turn_is_refused_while_one_is_running() {
 
     let err = fx.hub.start_turn(&fx.session_id).unwrap_err();
     assert!(
-        matches!(err, lya_core::HubError::Busy(_)),
+        matches!(err, lya_hub::HubError::Busy(_)),
         "同一会话不能同时跑两轮：{err}"
     );
 
@@ -352,7 +352,7 @@ async fn only_user_messages_can_be_edited() {
         .hub
         .edit_and_resend(&fx.session_id, answer, "我来替你说")
         .unwrap_err();
-    assert!(matches!(err, lya_core::HubError::Invalid(_)), "{err}");
+    assert!(matches!(err, lya_hub::HubError::Invalid(_)), "{err}");
 }
 
 #[tokio::test]
@@ -365,15 +365,15 @@ async fn tree_edits_are_refused_while_a_turn_runs() {
     // 一边跑一边改树会让两者抢着往同一棵树上追加
     assert!(matches!(
         fx.hub.regenerate(&fx.session_id).unwrap_err(),
-        lya_core::HubError::Busy(_)
+        lya_hub::HubError::Busy(_)
     ));
     assert!(matches!(
         fx.hub.switch_branch(&fx.session_id, 1).unwrap_err(),
-        lya_core::HubError::Busy(_)
+        lya_hub::HubError::Busy(_)
     ));
     assert!(matches!(
         fx.hub.delete_message(&fx.session_id, 1).unwrap_err(),
-        lya_core::HubError::Busy(_)
+        lya_hub::HubError::Busy(_)
     ));
 
     fx.stop.store(true, Ordering::Relaxed);
@@ -404,7 +404,7 @@ async fn regenerate_needs_a_user_message() {
     let fx = fixture();
     assert!(matches!(
         fx.hub.regenerate(&fx.session_id).unwrap_err(),
-        lya_core::HubError::Invalid(_)
+        lya_hub::HubError::Invalid(_)
     ));
 }
 
@@ -503,10 +503,10 @@ async fn unknown_session_is_reported() {
     let fx = fixture();
     assert!(matches!(
         fx.hub.start_turn("nope").unwrap_err(),
-        lya_core::HubError::NotFound(_)
+        lya_hub::HubError::NotFound(_)
     ));
     assert!(matches!(
         fx.hub.snapshot("nope").unwrap_err(),
-        lya_core::HubError::NotFound(_)
+        lya_hub::HubError::NotFound(_)
     ));
 }

@@ -11,8 +11,8 @@ use lya_llm::LlmClient;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::hub::SessionHub;
-use crate::http::sessions::ApiError;
+use lya_hub::{HubError, SessionHub};
+use super::sessions::ApiError;
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 
@@ -77,7 +77,7 @@ pub async fn tools(
             let meta = agent
                 .sessions()
                 .get_session(id)?
-                .ok_or_else(|| crate::hub::HubError::NotFound(id.clone()))?;
+                .ok_or_else(|| HubError::NotFound(id.clone()))?;
             Some(agent.effective_tools(&meta))
         }
         None => None,
@@ -154,12 +154,12 @@ pub async fn toggle_tool(
 ) -> Result<Json<Vec<String>>, ApiError> {
     let agent = hub.agent();
     if agent.tools().get(&tool_name).is_none() {
-        return Err(crate::hub::HubError::Invalid(format!("没有名为 `{tool_name}` 的工具")).into());
+        return Err(HubError::Invalid(format!("没有名为 `{tool_name}` 的工具")).into());
     }
     let meta = agent
         .sessions()
         .get_session(&session_id)?
-        .ok_or_else(|| crate::hub::HubError::NotFound(session_id.clone()))?;
+        .ok_or_else(|| HubError::NotFound(session_id.clone()))?;
 
     let mut names = agent
         .effective_tools(&meta)

@@ -5,19 +5,31 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU16;
-use std::sync::Arc;
-
 use lya_config::data_root;
 use lya_http::HttpClient;
 use lya_tool::tools::web::net::{Reach, classify_literal, classify_resolved, split_host_port};
 use sha2::{Digest, Sha256};
 
-/// 单张图片大小上限（与 `/api/local-image` 一致）。
-const MAX_IMAGE_BYTES: u64 = 32 * 1024 * 1024;
+/// 图片 serving 限制（来自 `runtime.toml` 的 `[media.image]`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MediaLimits {
+    /// 单张图片大小上限（字节）。
+    pub max_image_bytes: u64,
+    /// 是否写入 `img_cache/local`。
+    pub cache_local: bool,
+    /// 是否写入 `img_cache/web`（关闭时仍临时拉取，但不进持久缓存目录）。
+    pub cache_web: bool,
+}
 
-/// 进程监听端口，供 SSRF 判断「访问 lya 自己」。
-pub type SelfPort = Arc<AtomicU16>;
+impl Default for MediaLimits {
+    fn default() -> Self {
+        Self {
+            max_image_bytes: 32 * 1024 * 1024,
+            cache_local: true,
+            cache_web: true,
+        }
+    }
+}
 
 /// 缓存或读取失败。
 #[derive(Debug, thiserror::Error)]
@@ -120,7 +132,7 @@ fn home_dir() -> Result<PathBuf, MediaCacheError> {
     Ok(PathBuf::from(home))
 }
 
-fn validate_home_file(path: &Path) -> Result<PathBuf, MediaCacheError> {
+fn validate_home_file(path: &Path, max_bytes: u64) -> Result<PathBuf, MediaCacheError> {
     let home = home_dir()?;
     let Ok(real) = std::fs::canonicalize(path) else {
         return Err(MediaCacheError::NotFound);
@@ -135,7 +147,7 @@ fn validate_home_file(path: &Path) -> Result<PathBuf, MediaCacheError> {
         return Err(MediaCacheError::Unsupported);
     }
     match std::fs::metadata(&real) {
-        Ok(meta) if meta.len() > MAX_IMAGE_BYTES => return Err(MediaCacheError::TooLarge),
+        Ok(meta) if meta.len() > max_bytes => return Err(MediaCacheError::TooLarge),
         Ok(meta) if !meta.is_file() => {
             return Err(MediaCacheError::Invalid("不是文件".into()))
         }
@@ -163,27 +175,43 @@ fn write_cached(source: &Path, dest: &Path) -> Result<(), MediaCacheError> {
 }
 
 /// 确保本地图片已缓存并返回元数据。
-pub fn ensure_local(session_id: &str, source_path: &str) -> Result<CachedMedia, MediaCacheError> {
+pub fn ensure_local(
+    session_id: &str,
+    source_path: &str,
+    limits: MediaLimits,
+) -> Result<CachedMedia, MediaCacheError> {
     let path = PathBuf::from(source_path);
-    let real = validate_home_file(&path)?;
+    let real = validate_home_file(&path, limits.max_image_bytes)?;
     let mime = mime_of(&real).ok_or(MediaCacheError::Unsupported)?;
     let ext = extension_of(&real);
-    let key = cache_key(source_path);
-    let dest = kind_dir(session_id, "local")?.join(format!("{key}{ext}"));
-    write_cached(&real, &dest)?;
     let filename = real
         .file_name()
         .and_then(|name| name.to_str())
         .unwrap_or("image")
         .to_string();
-    Ok(CachedMedia {
-        path: dest,
-        mime,
-        copy_path: Some(real.to_string_lossy().into_owned()),
-        copy_url: None,
-        filename,
-        kind: "local",
-    })
+
+    if limits.cache_local {
+        let key = cache_key(source_path);
+        let dest = kind_dir(session_id, "local")?.join(format!("{key}{ext}"));
+        write_cached(&real, &dest)?;
+        Ok(CachedMedia {
+            path: dest,
+            mime,
+            copy_path: Some(real.to_string_lossy().into_owned()),
+            copy_url: None,
+            filename,
+            kind: "local",
+        })
+    } else {
+        Ok(CachedMedia {
+            path: real,
+            mime,
+            copy_path: Some(path.to_string_lossy().into_owned()),
+            copy_url: None,
+            filename,
+            kind: "local",
+        })
+    }
 }
 
 fn reject_bad_scheme(url: &str) -> Option<MediaCacheError> {
@@ -260,16 +288,22 @@ pub async fn ensure_web(
     url: &str,
     http: &HttpClient,
     self_port: u16,
+    limits: MediaLimits,
 ) -> Result<CachedMedia, MediaCacheError> {
     let url = url.trim();
     ensure_public_url(url, self_port).await?;
 
     let key = cache_key(url);
     let dir = kind_dir(session_id, "web")?;
-    std::fs::create_dir_all(&dir)?;
+    let cache_dir = if limits.cache_web {
+        dir.clone()
+    } else {
+        dir.join(".ephemeral")
+    };
+    std::fs::create_dir_all(&cache_dir)?;
 
     // 已有缓存：找同 key 前缀的文件
-    if let Ok(read_dir) = std::fs::read_dir(&dir) {
+    if let Ok(read_dir) = std::fs::read_dir(&cache_dir) {
         for entry in read_dir.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
@@ -321,12 +355,12 @@ pub async fn ensure_web(
         .await
         .map_err(|err| MediaCacheError::Network(format!("读取响应失败：{err}")))?;
 
-    if bytes.len() as u64 > MAX_IMAGE_BYTES {
+    if bytes.len() as u64 > limits.max_image_bytes {
         return Err(MediaCacheError::TooLarge);
     }
 
     let ext = guess_ext(content_type.as_deref(), url);
-    let dest = dir.join(format!("{key}{ext}"));
+    let dest = cache_dir.join(format!("{key}{ext}"));
     if !dest.exists() {
         std::fs::write(&dest, &bytes)?;
     }

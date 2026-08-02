@@ -15,8 +15,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast::error::RecvError;
 
-use crate::event::Envelope;
-use crate::hub::{BranchInfo, HubError, SessionHub, SessionTree, Snapshot};
+use lya_hub::event::Envelope;
+use lya_hub::{BranchInfo, HubError, SessionHub, SessionTree, Snapshot};
 
 type Hub = State<Arc<SessionHub>>;
 

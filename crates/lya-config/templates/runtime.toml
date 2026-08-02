@@ -34,3 +34,19 @@ max_index_entries = 100
 max_index_chars = 4000
 # 索引里每条摘要截断到多少字符
 index_summary_chars = 120
+
+[media.image]
+# 单张图片大小上限（字节）；local-image 与会话 media 端点共用
+max_bytes = 33554432
+# 是否写入 sessions/{id}/img_cache/local
+cache_local = true
+# 是否下载并写入 img_cache/web
+cache_web = true
+
+[media.video]
+# 预留：视频缓存默认关闭
+cache = false
+
+[media.audio]
+# 预留：音频缓存默认关闭
+cache = false

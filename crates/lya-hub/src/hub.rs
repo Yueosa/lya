@@ -22,7 +22,7 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::event::{self, Envelope, Scope};
-use crate::media_cache::SelfPort;
+use lya_tool::tools::web::SelfPort;
 
 /// 广播通道容量。订阅者落后超过这么多条就会收到 `Lagged`，
 /// 届时重发一次快照即可对齐。

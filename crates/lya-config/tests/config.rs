@@ -20,6 +20,10 @@ fn missing_files_fall_back_to_defaults() {
     assert_eq!(config.core.http.timeout_secs, 120);
     assert_eq!(config.runtime.agent.max_tool_rounds, 32);
     assert_eq!(config.runtime.agent.default_work_mode, Mode::Agent);
+    assert_eq!(config.runtime.media.image.max_bytes, 32 * 1024 * 1024);
+    assert!(config.runtime.media.image.cache_local);
+    assert!(config.runtime.media.image.cache_web);
+    assert!(!config.runtime.media.video.cache);
     assert_eq!(config.runtime.tools.enabled, None, "键缺省表示启用全部工具");
     assert!(config.models.is_empty());
     assert_eq!(config.persona, None);
