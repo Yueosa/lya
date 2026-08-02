@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/lya",
     "crates/lya-http",
     "crates/lya-llm",
     "crates/lya-tool",
@@ -64,3 +65,7 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 toml = "1"
 toml_edit = "0.25"
 uuid = { version = "1", features = ["v4"] }
+rust-embed = "8"
+open = "5"
+image = { version = "0.25", default-features = false, features = ["png"] }
+ksni = "0.3.6"

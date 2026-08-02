@@ -1,0 +1,23 @@
+[package]
+name = "lya"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "lya — 本地 agent（HTTP + WebUI + 系统托盘）"
+
+[[bin]]
+name = "lya"
+path = "src/main.rs"
+
+[dependencies]
+lya-core = { workspace = true }
+image = { workspace = true }
+open = { workspace = true }
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = { workspace = true, features = ["blocking"] }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
