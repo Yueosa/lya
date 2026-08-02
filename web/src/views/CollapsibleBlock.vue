@@ -8,8 +8,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 
+import Icon from '../ui/Icon.vue'
+import type { IconKey } from '../ui/icons'
+
 const props = defineProps<{
-  icon: string
+  icon?: IconKey
   label: string
   /** 还在进行中。 */
   busy?: boolean
@@ -40,14 +43,16 @@ function toggle(): void {
 <template>
   <div class="fold" :class="{ 'fold--failed': failed }">
     <button class="fold__head" type="button" @click="toggle">
-      <span class="fold__icon">{{ icon }}</span>
+      <Icon v-if="icon" class="fold__icon" :name="icon" size="sm" />
       <span class="fold__label">{{ label }}</span>
       <span v-if="busy" class="fold__dot" />
-      <span class="fold__caret">{{ open ? '▾' : '▸' }}</span>
+      <Icon class="fold__caret" :name="open ? 'chevronDown' : 'chevronRight'" size="sm" />
     </button>
-    <div v-if="open" class="fold__body">
-      <slot />
-    </div>
+    <Transition enter-active-class="lya-fold-enter-active" leave-active-class="lya-fold-leave-active">
+      <div v-if="open" class="fold__body">
+        <slot />
+      </div>
+    </Transition>
   </div>
 </template>
 
@@ -56,7 +61,7 @@ function toggle(): void {
   min-width: 0;
   margin: 4px 0;
   border: var(--border-width) solid var(--border);
-  border-left: 3px solid var(--info);
+  border-left: var(--border-accent-width) solid var(--info);
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
   overflow: hidden;
@@ -83,6 +88,11 @@ function toggle(): void {
 
 .fold__head:hover {
   background: var(--surface-hover);
+}
+
+.fold__icon {
+  flex-shrink: 0;
+  color: var(--text-muted);
 }
 
 .fold__label {
@@ -114,6 +124,7 @@ function toggle(): void {
 }
 
 .fold__caret {
+  flex-shrink: 0;
   color: var(--text-faint);
 }
 

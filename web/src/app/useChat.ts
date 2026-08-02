@@ -51,11 +51,15 @@ export async function bootstrap(): Promise<void> {
 }
 
 /** 会话列表。 */
+/** 活跃会话列表。 */
 export const sessions = ref<SessionMeta[]>([])
+/** 已归档会话。 */
+export const archivedSessions = ref<SessionMeta[]>([])
 /** 当前打开的会话 id。 */
 export const currentId = ref<string | null>(null)
 /** 当前会话的全部状态。 */
-const state = ref<SessionState>(emptyState())
+/** 当前会话的完整状态（详情页统计用）。 */
+export const state = ref<SessionState>(emptyState())
 /** 正在加载会话列表或快照。 */
 export const loading = ref(false)
 
@@ -68,7 +72,8 @@ const unsubscribe = shallowRef<(() => void) | null>(null)
  * 不跟着事件流实时维护：分叉只在重新生成、编辑重发之后产生，那都是明确的用户
  * 操作，拉快照和收轮次结束时各刷一次就够了。
  */
-const tree = ref<MessageRecord[] | null>(null)
+/** 分支树缓存（详情页统计用）。 */
+export const tree = ref<MessageRecord[] | null>(null)
 
 /** 渲染用的时间线。 */
 export const timeline = computed<TimelineItem[]>(() =>
@@ -129,11 +134,33 @@ function report(error: unknown, what: string): void {
   toast(`${what}失败：${detail}`, 'error')
 }
 
+/** 运行时默认工作模式（新建会话用）。 */
+export const defaultWorkMode = ref<Mode>('agent')
+
+/** 从 runtime.toml 刷新默认工作模式。 */
+export async function refreshRuntimeDefaults(): Promise<void> {
+  try {
+    const cfg = await client.config()
+    const agent = (cfg.runtime['agent'] ?? {}) as Record<string, unknown>
+    const mode = agent['default_work_mode']
+    if (mode === 'ask' || mode === 'edit' || mode === 'agent') {
+      defaultWorkMode.value = mode
+    }
+  } catch {
+    // 读不到就保持上次值
+  }
+}
+
 /** 拉会话列表。 */
 export async function refreshSessions(): Promise<void> {
   loading.value = true
   try {
-    sessions.value = await client.listSessions()
+    const [active, archived] = await Promise.all([
+      client.listSessions(),
+      client.listArchived(),
+    ])
+    sessions.value = active
+    archivedSessions.value = archived
   } catch (error) {
     report(error, '读取会话列表')
   } finally {
@@ -144,7 +171,7 @@ export async function refreshSessions(): Promise<void> {
 /** 建一个新会话并打开它。 */
 export async function createSession(): Promise<void> {
   try {
-    const created = await client.createSession({})
+    const created = await client.createSession({ work_mode: defaultWorkMode.value })
     sessions.value = [created, ...sessions.value]
     await openSession(created.id)
   } catch (error) {
@@ -252,15 +279,15 @@ function stopClock(): void {
  * 从缓冲反推而不是让后端多发一种事件：有没在跑的调用就是在跑工具，有正文就是
  * 在说，只有思考就是在想。少一种事件类型，也少一处可能对不上的状态。
  */
-export const phase = computed<{ icon: string; text: string } | null>(() => {
+export const phase = computed<{ text: string } | null>(() => {
   const buffer = state.value.running
   if (!buffer) return null
 
   const active = buffer.calls.find((call) => call.ok === null)
-  if (active) return { icon: '🔧', text: `${active.name} 执行中` }
-  if (buffer.content) return { icon: '✍️', text: '正在回复' }
-  if (buffer.reasoning) return { icon: '💭', text: '正在思考' }
-  return { icon: '⏳', text: '等待模型' }
+  if (active) return { text: `${active.name} 执行中` }
+  if (buffer.content) return { text: '正在回复' }
+  if (buffer.reasoning) return { text: '正在思考' }
+  return { text: '等待模型' }
 })
 
 /** 本轮是第几轮 LLM 调用。工具用得多时会跑好几轮。 */
@@ -306,7 +333,35 @@ export async function deleteMessage(messageId: number): Promise<void> {
   }
 }
 
-/** 切到另一条分支。 */
+/**
+ * 切到某个兄弟节点所在的那条分支。
+ *
+ * 兄弟节点**不一定是叶子**——重新生成之后，旧回复下面往往还挂着后续消息。
+ * 而后端的切换只接受叶子（中间节点要分叉得用 fork_at）。所以先沿着那条分支
+ * 往下走到底，再切过去。直接把兄弟 id 传过去会得到「is not a leaf」。
+ */
+export async function switchToBranch(siblingId: number): Promise<void> {
+  // 树可能还没拉过（刚打开会话、用户立刻点 ‹ ›），先补齐再往下走
+  if (!tree.value) await refreshTree()
+  await switchBranch(leafUnder(siblingId) ?? siblingId)
+}
+
+/** 从某个节点一路往下，走到它那条分支最末端。 */
+function leafUnder(from: number): number | null {
+  const nodes = tree.value
+  if (!nodes) return null
+  let cursor = from
+  for (;;) {
+    const kids = nodes
+      .filter((node) => node.parent_id === cursor)
+      .sort((a, b) => a.sort_key - b.sort_key)
+    if (kids.length === 0) return cursor
+    // 有多个孩子说明这里又分了叉，跟最新的那支走
+    cursor = kids.at(-1)!.id
+  }
+}
+
+/** 切到某个叶节点。 */
 export async function switchBranch(leafId: number): Promise<void> {
   const id = currentId.value
   if (!id) return
@@ -379,7 +434,9 @@ export async function toggleTool(name: string, enabled: boolean): Promise<void> 
 /** 换工作模式。走 agent，会在树上留一条说明。 */
 export async function setMode(mode: Mode): Promise<void> {
   const id = currentId.value
-  if (!id) return
+  // 点的就是当前模式时什么都不做——每次切换都会往树里写一条说明，
+  // 反复点同一个会把消息树刷满「模式变更」
+  if (!id || meta.value?.work_mode === mode) return
   try {
     const updated = await client.patchSession(id, { work_mode: mode })
     state.value = { ...state.value, meta: updated }
@@ -410,9 +467,13 @@ export const readOnly = computed(() => state.value.meta?.status === 'archived')
 /** 归档或取回。归档后后端会拒绝一切写入，界面也收掉输入框。 */
 export async function setArchived(id: string, archived: boolean): Promise<void> {
   const updated = await client.patchSession(id, { status: archived ? 'archived' : 'active' })
-  sessions.value = archived
-    ? sessions.value.filter((item) => item.id !== id)
-    : [updated, ...sessions.value]
+  if (archived) {
+    sessions.value = sessions.value.filter((item) => item.id !== id)
+    archivedSessions.value = [updated, ...archivedSessions.value.filter((item) => item.id !== id)]
+  } else {
+    archivedSessions.value = archivedSessions.value.filter((item) => item.id !== id)
+    sessions.value = [updated, ...sessions.value.filter((item) => item.id !== id)]
+  }
   if (state.value.meta?.id === id) {
     state.value = { ...state.value, meta: updated }
   }
@@ -422,6 +483,7 @@ export async function setArchived(id: string, archived: boolean): Promise<void> 
 export async function removeSession(id: string): Promise<void> {
   await client.deleteSession(id)
   sessions.value = sessions.value.filter((item) => item.id !== id)
+  archivedSessions.value = archivedSessions.value.filter((item) => item.id !== id)
   if (currentId.value === id) closeSession()
 }
 
@@ -429,7 +491,22 @@ export async function removeSession(id: string): Promise<void> {
 export async function rename(id: string, title: string): Promise<void> {
   const updated = await client.patchSession(id, { title })
   sessions.value = sessions.value.map((item) => (item.id === id ? updated : item))
+  archivedSessions.value = archivedSessions.value.map((item) => (item.id === id ? updated : item))
   if (state.value.meta?.id === id) {
     state.value = { ...state.value, meta: updated }
+  }
+}
+
+/** 改会话人设；传 null 回退到全局默认。 */
+export async function setPersona(persona: string | null): Promise<void> {
+  const id = currentId.value
+  if (!id) return
+  try {
+    const updated = await client.patchSession(id, { persona })
+    if (state.value.meta?.id === id) {
+      state.value = { ...state.value, meta: updated }
+    }
+  } catch (error) {
+    report(error, '保存人设')
   }
 }

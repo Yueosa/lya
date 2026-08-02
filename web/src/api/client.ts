@@ -52,6 +52,8 @@ export interface PatchSession {
   model_id?: string | null
   /** 显式给 null 表示启用全部工具。 */
   enabled_tools?: string[] | null
+  /** 显式给 null 表示回退到全局人设。 */
+  persona?: string | null
   /** 归档或取回。归档后只能回看，后端会拒绝一切写入。 */
   status?: 'active' | 'archived'
 }
@@ -92,6 +94,8 @@ export interface ModelInfo {
   /** 还是模板里的占位符，说明这个模型不能用。 */
   api_key_placeholder: boolean
   capabilities: string[]
+  /** models.toml 里透传的请求体字段（含 model 名等）。 */
+  params?: Record<string, unknown>
 }
 
 /** 一个工具。`enabled` 只在按会话查询时才有。 */
@@ -103,6 +107,10 @@ export interface ToolInfo {
   permission: string
   /** 至少要哪个模式才看得到。 */
   min_mode: Mode
+  /** 详细用法（喂给模型的那段）。 */
+  prompt_hint?: string
+  /** JSON Schema。 */
+  parameters?: Record<string, unknown>
   enabled?: boolean
 }
 
@@ -115,6 +123,8 @@ export interface ActionInfo {
   flow: string
   /** 哪些模式下可见。 */
   visible_in: Mode[]
+  prompt_hint?: string
+  parameters?: Record<string, unknown>
 }
 
 /** 配置全貌。`core` 只读——改端口这类事需要重启才生效，界面上不给改。 */
@@ -173,15 +183,6 @@ export interface MemoryPatch {
 
 /** 全局事件类型。 */
 const GLOBAL_EVENTS = ['config_changed', 'sessions_changed'] as const
-
-/** 一个分支端点。 */
-export interface BranchInfo {
-  leaf_id: number
-  is_active: boolean
-  role: string
-  preview: string
-  created_at: string
-}
 
 export class LyaClient {
   constructor(private readonly base = '') {}
@@ -271,10 +272,6 @@ export class LyaClient {
     return this.request('DELETE', `/api/sessions/${id}/messages/${messageId}`)
   }
 
-  branches(id: string): Promise<BranchInfo[]> {
-    return this.request('GET', `/api/sessions/${id}/branches`)
-  }
-
   /** 切到另一个分支，返回切换后的快照。 */
   switchBranch(id: string, leafId: number): Promise<Snapshot> {
     return this.request('POST', `/api/sessions/${id}/branches`, { leaf_id: leafId })
@@ -311,7 +308,9 @@ export class LyaClient {
    * 所以返回的是**生效后**的值，不是你发过去那份。
    */
   writeRuntime(tables: Record<string, unknown>): Promise<unknown> {
-    return this.request('PUT', '/api/config/runtime', { tables })
+    // 后端用 #[serde(flatten)] 收顶层表名，不能再包一层 tables——
+    // 否则会写出 [tables.agent] 整段 runtime.toml 解析失败。
+    return this.request('PUT', '/api/config/runtime', tables)
   }
 
   writePersona(text: string): Promise<void> {
@@ -333,11 +332,6 @@ export class LyaClient {
     return this.request('POST', '/api/models/probe', { model_id: modelId })
   }
 
-  /** 测一对还没写进配置的新凭据。 */
-  probeCredentials(baseUrl: string, apiKey: string): Promise<ProbeResult> {
-    return this.request('POST', '/api/models/probe', { base_url: baseUrl, api_key: apiKey })
-  }
-
   // ── 记忆 ──────────────────────────────────────────────────────
 
   memories(): Promise<Memory[]> {
@@ -347,10 +341,6 @@ export class LyaClient {
   searchMemories(q: string, limit = 20): Promise<MemoryHit[]> {
     const query = new URLSearchParams({ q, limit: String(limit) })
     return this.request('GET', `/api/memories/search?${query}`)
-  }
-
-  readMemory(id: number): Promise<Memory> {
-    return this.request('GET', `/api/memories/${id}`)
   }
 
   createMemory(body: NewMemory): Promise<Memory> {
@@ -395,19 +385,6 @@ export class LyaClient {
 
   toggleTool(id: string, tool: string, enabled: boolean): Promise<void> {
     return this.request('PUT', `/api/sessions/${id}/tools/${tool}`, { enabled })
-  }
-
-  // ── 图片 ──────────────────────────────────────────────────────
-
-  /**
-   * 拼一个能给 `<img src>` 用的地址。
-   *
-   * 必须带令牌：`<img>` 请求按规范不带 `Origin`，跨站守卫拦不住它，所以这个
-   * 端点靠令牌把关。
-   */
-  localImageUrl(path: string, token: string): string {
-    const query = new URLSearchParams({ path, token })
-    return `${this.base}/api/local-image?${query}`
   }
 
   // ── 订阅 ──────────────────────────────────────────────────────

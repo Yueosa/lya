@@ -13,13 +13,11 @@ import { reactive, watch } from 'vue'
 
 /** 一组显示偏好。 */
 export interface Prefs {
-  /** 不显示模型的思考过程。有些模型思考很长，看正文时是噪音。 */
   hideReasoning: boolean
-  /** 不显示工具调用卡片。 */
   hideTools: boolean
-  /** 不显示历史里已经答复过的 HITL。 */
   hideResolvedHitl: boolean
-  /** 流式输出时自动滚到底。 */
+  /** 隐藏系统通知（含模式变更）。 */
+  hideNotices: boolean
   followStream: boolean
 }
 
@@ -29,6 +27,7 @@ const DEFAULTS: Prefs = {
   hideReasoning: false,
   hideTools: false,
   hideResolvedHitl: false,
+  hideNotices: false,
   followStream: true,
 }
 

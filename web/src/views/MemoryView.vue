@@ -1,37 +1,49 @@
-<!--
-  长期记忆。
-
-  模型只能读和写，**删除只走这里**——让它自己删记忆太容易一句话抹掉你要它记住
-  的东西。这一页是那道人工闸门。
-
-  摘要单独一栏是因为它进常驻提示词：正文按需读取，摘要每轮都在模型眼前。写得
-  含糊的话，模型根本不知道该不该去读正文。
--->
-
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 
 import { client } from '../app/useChat'
-import type { Memory } from '../api/client'
+import type { Memory, MemoryHit } from '../api/client'
 import { confirmAsync, prompt } from '../ui/useDialog'
 import { toast } from '../ui/useToast'
+import ViewHead from '../ui/ViewHead.vue'
 
 const items = ref<Memory[]>([])
+const hits = ref<MemoryHit[] | null>(null)
 const keyword = ref('')
 const loading = ref(false)
-const editing = ref<Memory | null>(null)
-/** 命中的字段，搜索结果才有。 */
-const hitField = ref<Map<number, string>>(new Map())
+const selected = ref<Memory | null>(null)
+const editing = ref(false)
+const tagsDraft = ref('')
 
 onMounted(refresh)
 
+watch(keyword, (value) => {
+  if (!value.trim()) {
+    hits.value = null
+    void refresh()
+  }
+})
+
+const FIELD_LABELS: Record<string, string> = {
+  title: '标题',
+  summary: '摘要',
+  body: '正文',
+  tags: '标签',
+}
+
+function fieldLabel(field: string): string {
+  return FIELD_LABELS[field] ?? field
+}
+
 async function refresh(): Promise<void> {
   loading.value = true
-  hitField.value = new Map()
   try {
     items.value = await client.memories()
+    if (selected.value) {
+      selected.value = items.value.find((m) => m.id === selected.value!.id) ?? null
+    }
   } catch {
-    toast('读取记忆失败', 'error')
+    toast('读取失败', 'error')
   } finally {
     loading.value = false
   }
@@ -39,12 +51,13 @@ async function refresh(): Promise<void> {
 
 async function search(): Promise<void> {
   const q = keyword.value.trim()
-  if (!q) return refresh()
+  if (!q) {
+    hits.value = null
+    return refresh()
+  }
   loading.value = true
   try {
-    const hits = await client.searchMemories(q)
-    items.value = hits.map((hit) => hit.memory)
-    hitField.value = new Map(hits.map((hit) => [hit.memory.id, hit.field]))
+    hits.value = await client.searchMemories(q)
   } catch {
     toast('搜索失败', 'error')
   } finally {
@@ -53,237 +66,197 @@ async function search(): Promise<void> {
 }
 
 async function create(): Promise<void> {
-  const title = await prompt({ title: '新建记忆', placeholder: '起个标题，全局唯一' })
+  const title = await prompt({ title: '新建记忆', placeholder: '标题' })
   if (title === null || !title.trim()) return
   try {
-    const created = await client.createMemory({
-      title: title.trim(),
-      summary: '',
-      body: '',
-      tags: [],
-    })
+    const created = await client.createMemory({ title: title.trim(), summary: '', body: '', tags: [] })
     items.value = [created, ...items.value]
-    editing.value = created
+    select(created)
+    editing.value = true
   } catch (error) {
     toast(`新建失败：${error instanceof Error ? error.message : error}`, 'error')
   }
 }
 
+function select(memory: Memory): void {
+  selected.value = { ...memory }
+  tagsDraft.value = memory.tags.join(', ')
+  editing.value = false
+}
+
 async function save(): Promise<void> {
-  const draft = editing.value
+  const draft = selected.value
   if (!draft) return
   try {
     const updated = await client.updateMemory(draft.id, {
       title: draft.title,
       summary: draft.summary,
       body: draft.body,
-      tags: draft.tags,
+      tags: parseTags(tagsDraft.value),
     })
     items.value = items.value.map((item) => (item.id === updated.id ? updated : item))
-    editing.value = null
+    selected.value = { ...updated }
+    tagsDraft.value = updated.tags.join(', ')
+    editing.value = false
     toast('已保存', 'success')
   } catch (error) {
     toast(`保存失败：${error instanceof Error ? error.message : error}`, 'error')
   }
 }
 
-async function remove(memory: Memory): Promise<void> {
+async function remove(): Promise<void> {
+  const memory = selected.value
+  if (!memory) return
   await confirmAsync({
-    title: `删除「${memory.title}」？`,
-    message: '模型以后就想不起这件事了，不可恢复。',
+    title: `删除「${memory.title}」`,
+    message: '不可恢复',
     confirmText: '删除',
     danger: true,
     run: async () => {
       await client.deleteMemory(memory.id)
       items.value = items.value.filter((item) => item.id !== memory.id)
-      if (editing.value?.id === memory.id) editing.value = null
+      selected.value = null
     },
   })
 }
 
-/** 编辑时标签用逗号分隔，比让人填 JSON 数组友好。 */
-function tagsText(memory: Memory): string {
-  return memory.tags.join('、')
-}
-
-function setTags(memory: Memory, text: string): void {
-  memory.tags = text
-    .split(/[、,，]/)
+function parseTags(text: string): string[] {
+  return text
+    .split(/[,，、]/)
     .map((tag) => tag.trim())
     .filter(Boolean)
 }
 </script>
 
 <template>
-  <div class="mem">
-    <header class="mem__head">
-      <h2 class="mem__title">记忆</h2>
-      <input
-        v-model="keyword"
-        class="input mem__search"
-        placeholder="搜标题、摘要、正文、标签…"
-        @keydown.enter="search"
-      />
-      <button class="btn" @click="search">搜索</button>
-      <button class="btn btn--primary" @click="create">新建</button>
-    </header>
+  <div class="split-view">
+    <ViewHead title="记忆">
+      <template #actions>
+        <button class="btn btn--sm" @click="refresh">刷新</button>
+      </template>
+    </ViewHead>
 
-    <p v-if="loading" class="mem__hint">正在读取…</p>
-    <p v-else-if="items.length === 0" class="mem__hint">
-      还没有记忆。模型会在对话里自己记下值得记的事，你也可以手动加。
-    </p>
-
-    <ul class="mem__list">
-      <li v-for="memory in items" :key="memory.id" class="panel mem__item">
-        <div class="mem__row">
-          <span class="mem__id">#{{ memory.id }}</span>
-          <strong class="mem__name">{{ memory.title }}</strong>
-          <span v-if="hitField.get(memory.id)" class="mem__hit">
-            命中 {{ hitField.get(memory.id) }}
-          </span>
-          <span class="mem__gap" />
-          <button class="btn btn--sm" @click="editing = { ...memory }">编辑</button>
-          <button class="btn btn--sm btn--danger" @click="remove(memory)">删除</button>
-        </div>
-        <p class="mem__summary">{{ memory.summary || '（没有摘要，模型看不出它值不值得读）' }}</p>
-        <div v-if="memory.tags.length" class="mem__tags">
-          <span v-for="tag in memory.tags" :key="tag" class="mem__tag">{{ tag }}</span>
-        </div>
-      </li>
-    </ul>
-
-    <!-- 编辑 -->
-    <div v-if="editing" class="overlay" @click.self="editing = null">
-      <div class="dialog mem__editor">
-        <h3 class="dialog__title">#{{ editing.id }}</h3>
-
-        <label class="mem__field">
-          <span>标题</span>
-          <input v-model="editing.title" class="input" />
-        </label>
-
-        <label class="mem__field">
-          <span>摘要</span>
-          <input v-model="editing.summary" class="input" placeholder="一句话，会常驻在提示词里" />
-        </label>
-
-        <label class="mem__field">
-          <span>标签</span>
+    <div class="split-view__body">
+      <aside class="split-view__list">
+        <div class="split-view__list-toolbar">
           <input
+            v-model="keyword"
             class="input"
-            :value="tagsText(editing)"
-            placeholder="用顿号或逗号分隔"
-            @input="setTags(editing, ($event.target as HTMLInputElement).value)"
+            placeholder="搜索…"
+            @keydown.enter="search"
           />
-        </label>
-
-        <label class="mem__field">
-          <span>正文</span>
-          <textarea v-model="editing.body" class="input mem__body" rows="10" />
-        </label>
-
-        <div class="dialog__actions">
-          <button class="btn" @click="editing = null">取消</button>
-          <button class="btn btn--primary" @click="save">保存</button>
+          <button class="btn btn--sm" @click="search">搜索</button>
+          <button class="btn btn--sm btn--primary" @click="create">新建</button>
         </div>
-      </div>
+
+        <div class="split-view__list-scroll">
+          <p v-if="loading" class="split-view__hint">加载中…</p>
+          <template v-if="hits">
+            <button
+              v-for="hit in hits"
+              :key="hit.memory.id"
+              class="split-view__list-item"
+              :class="{ 'split-view__list-item--on': selected?.id === hit.memory.id }"
+              @click="select(hit.memory)"
+            >
+              <span class="split-view__list-title">{{ hit.memory.title }}</span>
+              <span class="split-view__list-meta">命中 · {{ fieldLabel(hit.field) }}</span>
+            </button>
+          </template>
+          <template v-else>
+            <button
+              v-for="memory in items"
+              :key="memory.id"
+              class="split-view__list-item"
+              :class="{ 'split-view__list-item--on': selected?.id === memory.id }"
+              @click="select(memory)"
+            >
+              <span class="split-view__list-title">{{ memory.title }}</span>
+              <span v-if="memory.tags.length" class="split-view__list-meta">{{ memory.tags.slice(0, 3).join(' · ') }}</span>
+            </button>
+          </template>
+          <p v-if="!loading && (hits ? hits.length === 0 : items.length === 0)" class="split-view__hint">暂无记忆</p>
+        </div>
+      </aside>
+
+      <main class="split-view__main">
+        <Transition name="lya-split" mode="out-in">
+          <div v-if="!selected" key="_empty" class="split-view__empty">选择一条记忆</div>
+          <div v-else :key="selected.id" class="page__pane">
+          <header class="mem__detail-head">
+            <h3>{{ selected.title }}</h3>
+            <div class="mem__detail-actions">
+              <button v-if="!editing" class="btn btn--sm" @click="editing = true">编辑</button>
+              <template v-else>
+                <button class="btn btn--sm btn--primary" @click="save">保存</button>
+                <button class="btn btn--sm" @click="editing = false">取消</button>
+              </template>
+              <button class="btn btn--sm btn--danger" @click="remove">删除</button>
+            </div>
+          </header>
+
+          <template v-if="editing">
+            <div class="content-stack">
+              <label class="mem__field">
+                <span>标题</span>
+                <input v-model="selected.title" class="input" />
+              </label>
+              <label class="mem__field">
+                <span>摘要</span>
+                <input v-model="selected.summary" class="input" />
+              </label>
+              <label class="mem__field">
+                <span>标签</span>
+                <input v-model="tagsDraft" class="input" placeholder="逗号分隔" />
+              </label>
+              <label class="mem__field">
+                <span>正文</span>
+                <textarea v-model="selected.body" class="input mem__body" rows="12" />
+              </label>
+            </div>
+          </template>
+
+          <template v-else>
+            <section v-if="selected.summary" class="detail-section">
+              <h4 class="detail-section__title">摘要</h4>
+              <p class="prose">{{ selected.summary }}</p>
+            </section>
+            <section class="detail-section">
+              <h4 class="detail-section__title">标签</h4>
+              <div v-if="selected.tags.length" class="seg-row">
+                <span v-for="tag in selected.tags" :key="tag" class="mem__tag">{{ tag }}</span>
+              </div>
+              <p v-else class="prose muted">（无）</p>
+            </section>
+            <section class="detail-section">
+              <h4 class="detail-section__title">正文</h4>
+              <pre class="pre-block">{{ selected.body || '（空）' }}</pre>
+            </section>
+          </template>
+          </div>
+        </Transition>
+      </main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.mem {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.mem__head {
+.mem__detail-head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  margin-bottom: 0;
 }
 
-.mem__title {
+.mem__detail-head h3 {
   margin: 0;
-  font-size: var(--text-lg);
-}
-
-.mem__search {
   flex: 1;
-  max-width: 340px;
-}
-
-.mem__hint {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.mem__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.mem__item {
-  padding: 12px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.mem__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.mem__id {
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-.mem__name {
   font-size: var(--text-md);
 }
 
-.mem__hit {
-  color: var(--info);
-  font-size: var(--text-xs);
-}
-
-.mem__gap {
-  flex: 1;
-}
-
-.mem__summary {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.mem__tags {
+.mem__detail-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.mem__tag {
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-soft);
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-}
-
-.mem__editor {
-  width: 620px;
+  gap: 6px;
 }
 
 .mem__field {
@@ -294,11 +267,22 @@ function setTags(memory: Memory, text: string): void {
   color: var(--text-muted);
 }
 
+.mem__field span {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
 .mem__body {
   height: auto;
   padding: 8px 12px;
   resize: vertical;
   font-family: var(--font-mono);
-  line-height: var(--leading);
+}
+
+.mem__tag {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  font-size: var(--text-xs);
 }
 </style>

@@ -61,6 +61,26 @@ function escapeAttr(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
 }
 
+/** 列表项之间不要空行——否则 GFM 会产出 `<li><p>…</p></li>` 松散列表。 */
+function tightenListMarkdown(text: string): string {
+  return text.replace(
+    /^([ \t]*(?:[-*+]|\d+\.)[ \t].*)\n\n+(?=[ \t]*(?:[-*+]|\d+\.)[ \t])/gm,
+    '$1\n',
+  )
+}
+
+/** 松散列表再包一层 p 没必要，unwrap 后间距只由 li 控制。 */
+function unwrapLooseListItems(html: string): string {
+  return html.replace(/<li>\s*<p>([\s\S]*?)<\/p>\s*<\/li>/gi, '<li>$1</li>')
+}
+
+/** 去掉空段落，避免气泡里出现大块空白。 */
+function compactHtml(html: string): string {
+  return html
+    .replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/gi, '')
+    .replace(/>\s+</g, '><')
+}
+
 /**
  * 把 Markdown 渲染成可以直接塞进 DOM 的 HTML。
  *
@@ -70,16 +90,30 @@ function escapeAttr(value: string): string {
 export function renderMarkdown(text: string, images?: ImageContext): string {
   currentImages = images
   try {
-    const raw = marked.parse(text, { async: false })
-    return DOMPurify.sanitize(raw, {
-      ADD_ATTR: ['target'],
-      // style 也要挡：一段 CSS 足以把整个界面盖住做成钓鱼页
-      FORBID_TAGS: ['script', 'iframe', 'form', 'style', 'object', 'embed'],
-      FORBID_ATTR: ['onerror', 'onload', 'onclick'],
-    })
+    const raw = marked.parse(tightenListMarkdown(text), { async: false })
+    return compactHtml(
+      unwrapLooseListItems(
+        DOMPurify.sanitize(raw, {
+          ADD_ATTR: ['target'],
+          // style 也要挡：一段 CSS 足以把整个界面盖住做成钓鱼页
+          FORBID_TAGS: ['script', 'iframe', 'form', 'style', 'object', 'embed'],
+          FORBID_ATTR: ['onerror', 'onload', 'onclick'],
+        }),
+      ),
+    )
   } finally {
     currentImages = undefined
   }
+}
+
+/**
+ * 把家目录内的绝对路径转成 `/api/local-image` 地址；否则 `null`。
+ */
+export function localImageUrl(src: string, ctx?: ImageContext | null): string | null {
+  if (!ctx) return null
+  const path = localPath(src, ctx.home)
+  if (!path) return null
+  return `/api/local-image?${new URLSearchParams({ path, token: ctx.token })}`
 }
 
 /**

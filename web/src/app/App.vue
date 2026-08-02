@@ -10,70 +10,75 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import { shellFor } from '../shell/registry'
 import type { View } from '../shell/types'
-import { applyTheme, currentTheme, THEMES } from '../themes'
+import { themeId } from '../themes'
 import UiHost from '../ui/UiHost.vue'
 import ChatView from '../views/ChatView.vue'
 import ConfigView from '../views/ConfigView.vue'
+import HomeView from '../views/HomeView.vue'
 import MemoryView from '../views/MemoryView.vue'
+import ModelsView from '../views/ModelsView.vue'
 import SessionSettings from '../views/SessionSettings.vue'
+import ThemeView from '../views/ThemeView.vue'
+import ToolsView from '../views/ToolsView.vue'
 import SessionsView from '../views/SessionsView.vue'
-import { bootstrap, client, currentId, loadModels, refreshSessions } from './useChat'
+import {
+  bootstrap,
+  client,
+  currentId,
+  loadModels,
+  refreshRuntimeDefaults,
+  refreshSessions,
+} from './useChat'
 
-const theme = ref(currentTheme())
-const view = ref<View>('sessions')
+const view = ref<View>('home')
 
-const shell = computed(() => shellFor(theme.value))
+const shell = computed(() => shellFor(themeId.value))
 
 // 图片令牌要尽早拿，否则先渲染出来的本地图片会是坏的
 void bootstrap()
 void loadModels()
+void refreshRuntimeDefaults()
 
 // 全局事件：配置或会话列表在别处变了，这边跟着刷新。和会话流分开订阅——
 // 它们与「当前打开哪个会话」无关，换会话不该断掉
 onMounted(() => {
   const stop = client.subscribeGlobal((kind) => {
     if (kind === 'sessions_changed') void refreshSessions()
-    if (kind === 'config_changed') void loadModels()
+    if (kind === 'config_changed') {
+      void loadModels()
+      void refreshRuntimeDefaults()
+    }
   })
   onUnmounted(stop)
 })
 
 function navigate(next: View): void {
-  // 「开始对话」没有会话可开时先去列表，免得进到一个空白的聊天页
-  const needsSession = next === 'chat' || next === 'settings'
-  view.value = needsSession && !currentId.value ? 'sessions' : next
-}
-
-function switchTheme(id: string): void {
-  theme.value = id
-  applyTheme(id)
+  // 没有会话时会话设置无处可挂；对话页本身会显示空态，侧栏里再建
+  if (next === 'settings' && !currentId.value) {
+    view.value = 'chat'
+    return
+  }
+  view.value = next
 }
 </script>
 
 <template>
   <component :is="shell" :view="view" @navigate="navigate">
-    <ChatView v-if="view === 'chat'" />
-    <SessionsView v-else-if="view === 'sessions'" @opened="view = 'chat'" />
-    <SessionSettings v-else-if="view === 'settings' && currentId" :key="currentId" />
-    <MemoryView v-else-if="view === 'memory'" />
-    <ConfigView v-else-if="view === 'config'" />
-    <div v-else class="app__todo">
-      <p>先在会话列表里打开一个会话。</p>
-    </div>
+    <Transition name="lya-page" mode="out-in">
+      <HomeView v-if="view === 'home'" key="home" />
+      <ChatView v-else-if="view === 'chat'" :key="`chat-${currentId ?? 'none'}`" />
+      <SessionsView v-else-if="view === 'sessions'" key="sessions" @opened="view = 'chat'" />
+      <SessionSettings v-else-if="view === 'settings' && currentId" :key="`settings-${currentId}`" />
+      <MemoryView v-else-if="view === 'memory'" key="memory" />
+      <ToolsView v-else-if="view === 'tools'" key="tools" />
+      <ModelsView v-else-if="view === 'models'" key="models" />
+      <ThemeView v-else-if="view === 'theme'" key="theme" />
+      <ConfigView v-else-if="view === 'config'" key="config" />
+      <div v-else key="todo" class="app__todo">
+        <p>在左侧选一个会话，或点「新对话」开始。</p>
+      </div>
+    </Transition>
   </component>
-
-  <!-- 主题切换先挂在角上；显示偏好已经收进会话设置页 -->
-  <div class="app__themes panel">
-    <button
-      v-for="item in THEMES"
-      :key="item.id"
-      class="btn btn--sm"
-      :class="{ 'btn--primary': theme === item.id }"
-      @click="switchTheme(item.id)"
-    >
-      {{ item.label }}
-    </button>
-  </div>
 
   <UiHost />
 </template>
@@ -81,20 +86,7 @@ function switchTheme(id: string): void {
 <style scoped>
 .app__todo {
   padding: 24px;
-}
-
-.app__hint {
   color: var(--text-muted);
   font-size: var(--text-sm);
-}
-
-.app__themes {
-  position: fixed;
-  right: 12px;
-  bottom: 12px;
-  z-index: 40;
-  display: flex;
-  gap: 6px;
-  padding: 6px;
 }
 </style>

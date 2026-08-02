@@ -30,9 +30,7 @@ import type {
   TurnBuffer,
   TurnEndReason,
 } from '../api/wire'
-
-/** 隔多久插一行时间。 */
-const GAP_THRESHOLD_MS = 30 * 60 * 1000
+import { messageTimeSeparator } from '../utils/dateFormat'
 
 /** 一次工具或动作调用，已经把结果并进来了。 */
 export interface ToolCallView {
@@ -77,7 +75,7 @@ export type TimelineItem =
   /** 一条消息。 */
   | { kind: 'message'; message: Message }
   /** 距上一条消息隔得久了，插一行小灰字。 */
-  | { kind: 'time-gap'; at: string }
+  | { kind: 'time-gap'; at: string; text: string }
   /** 系统标记，如「用户把工作模式切换为 agent」。居中小灰字。 */
   | { kind: 'notice'; at: string; text: string }
   /**
@@ -106,17 +104,11 @@ export function buildTimeline(input: TimelineInput): TimelineItem[] {
   const siblings = indexSiblings(input.tree)
 
   const items: TimelineItem[] = []
-  let previousAt: number | null = null
+  let previousAt: string | null = null
 
   for (const record of input.messages) {
     // 工具结果已经并进了对应的调用块，别再单独占一行
     if (record.payload.role === 'tool') continue
-
-    const at = Date.parse(record.created_at)
-    if (previousAt !== null && shouldMarkTime(previousAt, at)) {
-      items.push({ kind: 'time-gap', at: record.created_at })
-    }
-    previousAt = at
 
     // 系统消息不是对话，是「为什么助手的行为边界变了」的说明
     if (record.payload.role === 'system') {
@@ -127,6 +119,10 @@ export function buildTimeline(input: TimelineInput): TimelineItem[] {
       })
       continue
     }
+
+    const gap = messageTimeSeparator(previousAt, record.created_at)
+    if (gap) items.push({ kind: 'time-gap', at: record.created_at, text: gap })
+    previousAt = record.created_at
 
     const message = toMessage(record, results, siblings)
 
@@ -148,12 +144,6 @@ export function buildTimeline(input: TimelineInput): TimelineItem[] {
     items.push({ kind: 'error', reason: input.endReason })
   }
   return items
-}
-
-/** 隔了半小时，或者跨了一天，就该提醒一下现在几点了。 */
-function shouldMarkTime(previous: number, current: number): boolean {
-  if (current - previous >= GAP_THRESHOLD_MS) return true
-  return new Date(previous).toDateString() !== new Date(current).toDateString()
 }
 
 /** `completed` 和 `awaiting_human` 是正常收尾，其余都要告诉用户。 */

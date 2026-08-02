@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { renderMarkdown } from './markdown'
+import { localImageUrl, renderMarkdown } from './markdown'
 
 const IMAGES = { token: 'tok', home: '/home/me' }
 
@@ -21,6 +21,18 @@ describe('renderMarkdown', () => {
     expect(html).toContain('<strong>粗</strong>')
     expect(html).toContain('<code>码</code>')
     expect(html).toContain('<li>')
+  })
+
+  it('松散列表不把空段落留进 HTML', () => {
+    const html = renderMarkdown('- 一\n\n- 二\n\n\n')
+    expect(html).not.toMatch(/<p>\s*<\/p>/)
+    expect(html).toContain('<li>')
+    expect(html).not.toMatch(/<li>\s*<p>/)
+  })
+
+  it('列表项之间空行会被收紧', () => {
+    const html = renderMarkdown('- ✅ a\n\n- ✅ b')
+    expect(html).toMatch(/<li>✅ a<\/li>\s*<li>✅ b<\/li>/)
   })
 
   it('不把中文里的波浪号当删除线', () => {
@@ -106,5 +118,11 @@ describe('renderMarkdown', () => {
   it('没有令牌时不硬拼一个必然 403 的地址', () => {
     const html = renderMarkdown('![](/home/me/a.png)')
     expect(html).not.toContain('/api/local-image')
+  })
+
+  it('localImageUrl 把家目录内路径转成接口地址', () => {
+    const url = localImageUrl('/home/me/Pictures/icon.jpg', IMAGES)
+    expect(url).toContain('/api/local-image?')
+    expect(url).toContain('token=tok')
   })
 })

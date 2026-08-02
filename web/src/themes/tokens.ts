@@ -14,7 +14,7 @@
  *
  * - 东京夜：`0 8px 24px rgba(0,0,0,.35)` 柔和模糊阴影，12px 圆角，1px 细边
  * - MTF：`-3px 3px 0 <粉>` **硬偏移阴影**，8px 圆角，2px 边
- * - 将来的像素风：无圆角，硬边，点阵字
+ * - Minecraft：无圆角，硬边，点阵字
  *
  * 那个偏移阴影是 MTF 的灵魂，不是配色的一部分。如果 token 层只管颜色，另外两套
  * 主题就得各自重写组件 CSS——那等于把界面做三遍，而不是换主题。所以阴影、圆角、
@@ -71,12 +71,13 @@ const text = group('文字', {
 /**
  * 线条。
  *
- * `border-width` 是 token 而不是写死 1px：MTF 用 2px 粉线，像素风要更粗。
+ * `border-width` 是 token 而不是写死 1px：MTF 用 2px 粉线，Minecraft 要更粗。
  */
 const lines = group('线条', {
   border: '常规描边',
   'border-strong': '需要强调的描边，如聚焦、选中',
   'border-width': '描边宽度',
+  'border-accent-width': '侧栏选中条、引用块等 accent 描边宽度',
 })
 
 /** 强调色与语义色。 */
@@ -94,7 +95,7 @@ const accents = group('语义色', {
  * 圆角。
  *
  * 气泡单列出来，因为形状差异很大：东京夜是 14px 加一个 4px 的尖角尾巴，
- * MTF 是均匀 18px 无尾巴，像素风是 0。
+ * MTF 是均匀 18px 无尾巴，Minecraft 是 0。
  */
 const radii = group('圆角', {
   'radius-sm': '小控件，如按钮、输入框',
@@ -113,7 +114,9 @@ const radii = group('圆角', {
 const shadows = group('阴影', {
   'shadow-card': '静止的卡片；可以是 none',
   'shadow-float': '浮层，如对话框、下拉菜单、右键菜单',
-  'shadow-focus': '聚焦光晕',
+  'shadow-focus': '输入框等元素聚焦',
+  'shadow-button': '主按钮等可点击控件的硬阴影',
+  'shadow-tooltip': '悬停提示，比卡片更轻',
 })
 
 /** 字体。 */
@@ -137,6 +140,8 @@ const fonts = group('字体', {
  * 不必每处手调 padding。
  */
 const controls = group('控件', {
+  'sidebar-width': '侧栏宽度',
+  'split-list-width': 'split-view 左侧列表宽度',
   'ctl-h-sm': '小号控件高度',
   'ctl-h-md': '中号控件高度',
   'ctl-h-lg': '大号控件高度',
@@ -148,6 +153,8 @@ const controls = group('控件', {
 /** 动效。 */
 const motion = group('动效', {
   transition: '常规过渡',
+  'duration-fast': '快速过渡，如关闭、离开',
+  'duration-normal': '常规进入动画',
 })
 
 /**

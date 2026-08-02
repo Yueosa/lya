@@ -1,11 +1,5 @@
 /**
- * MTF 简约。
- *
- * 暖奶油底配粉蓝，**硬偏移阴影**（`-3px 3px 0`，不带模糊）是它的灵魂——
- * 这一条正是 token 层必须覆盖结构属性的理由：如果只抽象颜色，这套风格就得
- * 重写每个组件的 CSS。
- *
- * 和东京夜的结构差异一目了然：圆角更小、描边更粗、气泡没有尖尾巴。
+ * MTF 简约 — 对齐 lianclaw 硬偏移阴影与粉边。
  */
 
 [data-theme='mtf'] {
@@ -18,15 +12,13 @@
 
   --text: #2d2d3f;
   --text-muted: #8b8b9e;
-  --text-faint: #85859a;
-  /* 粉底上要用深字。白字看着「干净」，实测对比度只有 1.87:1，远低于可读
-     标准的 4.5:1；换成正文色是 7.16:1。contrast.test.ts 钉着这条 */
+  --text-faint: #858599;
   --on-accent: #2d2d3f;
 
   --border: rgba(245, 169, 184, 0.35);
   --border-strong: #f5a9b8;
-  /* 比东京夜粗一倍，粉色分隔线是这套风格的一部分 */
   --border-width: 2px;
+  --border-accent-width: 3px;
 
   --accent: #f5a9b8;
   --accent-soft: rgba(245, 169, 184, 0.15);
@@ -41,21 +33,24 @@
   --radius-lg: 12px;
   --radius-pill: 24px;
   --bubble-radius: 18px;
-  /* 与 bubble-radius 相同即为无尾巴 */
-  --bubble-tail-radius: 18px;
+  --bubble-tail-radius: 4px;
 
-  --shadow-card: -2px 2px 0 var(--accent);
+  --shadow-card: -3px 3px 0 var(--accent);
   --shadow-float: -4px 4px 0 var(--accent);
-  --shadow-focus: 0 0 0 3px var(--accent-soft);
+  --shadow-focus: -2px 2px 0 var(--accent);
+  --shadow-button: 0 2px 0 var(--accent);
+  --shadow-tooltip: 0 1px 0 color-mix(in srgb, var(--accent) 55%, transparent);
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Noto Sans SC', sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-md: 13px;
-  --text-lg: 15px;
-  --leading: 1.65;
+  --text-xs: 13px;
+  --text-sm: 14px;
+  --text-md: 15px;
+  --text-lg: 18px;
+  --leading: 1.55;
 
+  --sidebar-width: 260px;
+  --split-list-width: 280px;
   --ctl-h-sm: 26px;
   --ctl-h-md: 32px;
   --ctl-h-lg: 38px;
@@ -65,6 +60,8 @@
 
   --text-shadow: none;
   --transition: 0.2s ease;
+  --duration-fast: 0.15s;
+  --duration-normal: 0.22s;
 
   --code-keyword: #a8306a;
   --code-string: #24704a;
@@ -73,4 +70,42 @@
   --code-function: #1f5e94;
   --code-type: #5b3f9c;
   --code-variable: #2d2d3f;
+}
+
+[data-theme='mtf'] .btn--primary:hover:not(:disabled) {
+  box-shadow: 0 3px 0 var(--accent);
+}
+
+[data-theme='mtf'] .btn--danger {
+  box-shadow: 0 2px 0 var(--danger);
+}
+
+[data-theme='mtf'] .toast {
+  box-shadow: var(--shadow-button);
+}
+
+/* ── 动效（MTF 优先做满；MC 靠 token 0s 关闭） ─────────────────── */
+
+[data-theme='mtf'] .lya-page-enter-active {
+  animation: lya-slide-in-up var(--duration-normal) ease both;
+}
+
+[data-theme='mtf'] .lya-drawer-enter-active {
+  animation: lya-panel-in var(--duration-normal) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+[data-theme='mtf'] .lya-drawer-leave-active {
+  animation: lya-panel-out var(--duration-fast) ease both;
+}
+
+[data-theme='mtf'] .split-view__list-item {
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    transform var(--transition),
+    box-shadow var(--transition);
+}
+
+[data-theme='mtf'] .split-view__list-item:active {
+  transform: translateY(1px);
 }

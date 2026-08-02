@@ -23,6 +23,7 @@
   --border: #2f334d;
   --border-strong: #565f89;
   --border-width: 1px;
+  --border-accent-width: 2px;
 
   --accent: #bb9af7;
   --accent-soft: rgba(187, 154, 247, 0.14);
@@ -43,6 +44,8 @@
   --shadow-card: none;
   --shadow-float: 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-focus: 0 0 0 3px var(--accent-soft);
+  --shadow-button: none;
+  --shadow-tooltip: 0 4px 12px rgba(0, 0, 0, 0.25);
 
   --font-ui: 'Inter', 'Noto Sans SC', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'Cascadia Code', monospace;
@@ -52,6 +55,8 @@
   --text-lg: 16px;
   --leading: 1.6;
 
+  --sidebar-width: 260px;
+  --split-list-width: 280px;
   --ctl-h-sm: 26px;
   --ctl-h-md: 32px;
   --ctl-h-lg: 38px;
@@ -61,6 +66,8 @@
 
   --text-shadow: none;
   --transition: 0.15s ease;
+  --duration-fast: 0.12s;
+  --duration-normal: 0.2s;
 
   --code-keyword: #bb9af7;
   --code-string: #9ece6a;
@@ -69,4 +76,213 @@
   --code-function: #7aa2f7;
   --code-type: #2ac3de;
   --code-variable: #c0caf5;
+}
+
+/*
+ * ── 逃生舱 ──────────────────────────────────────────────────────
+ *
+ * @scope to 边界：嵌套 ThemePreview 不被 html 上的东京夜规则污染（同 MC）。
+ */
+@scope ([data-theme='tokyo-night']) to ([data-theme]:not([data-theme='tokyo-night'])) {
+  /* 首页 / 对话：隐藏 DefaultShell 遗留的「展开侧栏」 */
+  .tokyo-shell .home__expand,
+  .tokyo-shell .chat__sidebar-btn {
+    display: none;
+  }
+
+  /* 管理页：左列表 → 顶部横向 chip，内容居中 */
+  .tokyo-shell--admin .tokyo-shell__body .view-head {
+    display: none;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view {
+    height: 100%;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__body {
+    flex-direction: column;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list {
+    width: 100%;
+    max-height: none;
+    flex-shrink: 0;
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+    background: color-mix(in srgb, var(--surface) 40%, transparent);
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-tabs,
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-toolbar {
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    justify-content: center;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-scroll {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    justify-content: center;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 12px 20px 14px;
+    max-height: none;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-item {
+    flex-shrink: 0;
+    width: auto;
+    min-width: 100px;
+    max-width: 200px;
+    margin: 0;
+    padding: 8px 16px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    text-align: center;
+    transition: var(--transition);
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-item:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+    background: var(--surface-hover);
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-item--on {
+    border-color: var(--accent);
+    background: var(--surface-active);
+    box-shadow: 0 0 14px var(--accent-soft);
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-item--on .split-view__list-title {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__list-meta {
+    margin-top: 2px;
+    font-size: var(--text-xs);
+    text-align: center;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__main {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    justify-content: center;
+    background: transparent;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .split-view__main > section,
+  .tokyo-shell--admin .tokyo-shell__body .split-view__main > p,
+  .tokyo-shell--admin .tokyo-shell__body .split-view__main > div {
+    width: 100%;
+    max-width: 880px;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .page__pane {
+    padding: 20px 24px 32px;
+    margin: 0 auto;
+  }
+
+  .tokyo-shell--admin .tokyo-shell__body .panel,
+  .tokyo-shell--admin .tokyo-shell__body .form-panel,
+  .tokyo-shell--admin .tokyo-shell__body .gateway-card {
+    border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
+    box-shadow: var(--shadow-float);
+  }
+
+  .picker__menu {
+    border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+    box-shadow: var(--shadow-float);
+  }
+
+  .lya-page-enter-active {
+    animation: lya-slide-in-up var(--duration-normal) ease both;
+  }
+
+  .lya-drawer-leave-active {
+    animation: lya-panel-out var(--duration-fast) ease both;
+  }
+
+  /* 外观预览：底栏地铁线缩略图 */
+  .theme-preview__tokyo-metro {
+    position: relative;
+    padding: 28px 16px 16px;
+    min-height: 88px;
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--bg-sunken) 80%, transparent);
+    border: 1px solid var(--border);
+  }
+
+  .theme-preview__tokyo-track {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    top: 20px;
+    display: flex;
+    gap: 2px;
+    height: 3px;
+  }
+
+  .theme-preview__tokyo-seg {
+    flex: 1;
+    height: 100%;
+    border-radius: var(--radius-pill);
+  }
+
+  .theme-preview__tokyo-seg--0 {
+    background: linear-gradient(90deg, var(--accent), var(--info));
+    box-shadow: 0 0 8px var(--accent-soft);
+  }
+
+  .theme-preview__tokyo-seg--1 {
+    background: linear-gradient(90deg, var(--info), color-mix(in srgb, var(--info) 55%, var(--success)));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--info) 25%, transparent);
+  }
+
+  .theme-preview__tokyo-seg--2 {
+    background: linear-gradient(90deg, color-mix(in srgb, var(--info) 45%, var(--success)), var(--success));
+    box-shadow: 0 0 8px color-mix(in srgb, var(--success) 25%, transparent);
+  }
+
+  .theme-preview__tokyo-stations {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+  }
+
+  .theme-preview__tokyo-station {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 36px;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    text-align: center;
+  }
+
+  .theme-preview__tokyo-station--on {
+    color: var(--accent);
+  }
+
+  .theme-preview__tokyo-station--on .theme-preview__tokyo-dot {
+    background: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 60%, white);
+    box-shadow: 0 0 0 3px var(--accent-soft), 0 0 10px var(--accent-soft);
+  }
+
+  .theme-preview__tokyo-dot {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    border: 2px solid color-mix(in srgb, var(--info) 38%, var(--border-strong));
+    background: color-mix(in srgb, var(--surface) 85%, var(--bg));
+  }
 }

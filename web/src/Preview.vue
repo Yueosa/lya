@@ -65,11 +65,11 @@ async function trySlowWork(): Promise<void> {
 
 function onContextMenu(event: MouseEvent): void {
   openContextMenu(event, [
-    { label: '重新生成', icon: '↻', onSelect: () => toast('重新生成', 'info') },
-    { label: '复制', icon: '⧉', onSelect: () => toast('已复制', 'success') },
-    { label: '暂时不可用', icon: '⋯', disabled: true, onSelect: () => {} },
+    { label: '重新生成', icon: 'refresh', onSelect: () => toast('重新生成', 'info') },
+    { label: '复制', icon: 'copy', onSelect: () => toast('已复制', 'success') },
+    { label: '暂时不可用', icon: 'info', disabled: true, onSelect: () => {} },
     { separator: true },
-    { label: '删除', icon: '✕', danger: true, onSelect: () => void tryConfirm(true) },
+    { label: '删除', icon: 'delete', danger: true, onSelect: () => void tryConfirm(true) },
   ])
 }
 </script>
@@ -268,14 +268,15 @@ function onContextMenu(event: MouseEvent): void {
 
 .bubble--user {
   align-self: flex-end;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: color-mix(in srgb, var(--info) 14%, var(--surface));
+  border: var(--border-width) solid color-mix(in srgb, var(--info) 38%, transparent);
+  color: var(--text);
   border-bottom-right-radius: var(--bubble-tail-radius);
 }
 
 .bubble--assistant {
   align-self: flex-start;
-  background: var(--surface-hover);
+  background: var(--accent-soft);
   border: var(--border-width) solid var(--border);
   border-bottom-left-radius: var(--bubble-tail-radius);
 }

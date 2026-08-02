@@ -7,11 +7,13 @@
  *
  * # 逃生舱
  *
- * 九成差异靠 token。剩下一成——像素风可能要 `border-image` 贴角图、要
+ * 九成差异靠 token。剩下一成——Minecraft 可能要 `border-image` 贴角图、要
  * `image-rendering: pixelated`，这类属性在别的主题里根本不存在，硬塞进 token
  * 很别扭——由主题自己的样式表针对语义类名补规则。所以组件的类名要稳定、要
  * 有语义，它们是主题的公开接口。
  */
+
+import { ref } from 'vue'
 
 import './tokyo-night.css'
 import './mtf.css'
@@ -30,7 +32,7 @@ export interface Theme {
 export const THEMES: Theme[] = [
   { id: 'tokyo-night', label: '东京夜', scheme: 'dark' },
   { id: 'mtf', label: 'MTF 简约', scheme: 'light' },
-  { id: 'mc', label: '方块世界', scheme: 'light' },
+  { id: 'mc', label: 'Minecraft', scheme: 'light' },
 ]
 
 const STORAGE_KEY = 'lya.theme'
@@ -38,9 +40,22 @@ const DEFAULT_THEME = 'tokyo-night'
 
 /** 当前主题 id；认不出的一律回退到默认，免得整个界面没有颜色。 */
 export function currentTheme(): string {
-  const saved = localStorage.getItem(STORAGE_KEY)
-  return THEMES.some((theme) => theme.id === saved) ? saved! : DEFAULT_THEME
+  try {
+    // 节点测试里可能没有 localStorage；缺了就当没存过
+    const saved = globalThis.localStorage?.getItem(STORAGE_KEY)
+    return THEMES.some((theme) => theme.id === saved) ? saved! : DEFAULT_THEME
+  } catch {
+    return DEFAULT_THEME
+  }
 }
+
+/**
+ * 响应式的当前主题。
+ *
+ * 设置页换主题时外壳（侧栏 / Minecraft 菜单）也要跟着换——只改 `data-theme` 不够，
+ * `App.vue` 还得靠这个选外壳组件。
+ */
+export const themeId = ref(currentTheme())
 
 /** 换主题并记住选择。 */
 export function applyTheme(id: string): void {
@@ -48,7 +63,12 @@ export function applyTheme(id: string): void {
   document.documentElement.dataset['theme'] = theme.id
   // 让原生滚动条、下拉、日期选择器跟着深浅走，否则浅色主题里会冒出深色控件
   document.documentElement.style.colorScheme = theme.scheme
-  localStorage.setItem(STORAGE_KEY, theme.id)
+  try {
+    globalThis.localStorage?.setItem(STORAGE_KEY, theme.id)
+  } catch {
+    // 测试环境或隐私模式写不进去就算了，内存里的 themeId 仍然有效
+  }
+  themeId.value = theme.id
 }
 
 /** 启动时调用一次。 */

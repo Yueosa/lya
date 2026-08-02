@@ -74,6 +74,9 @@ pub struct PatchBody {
     pub enabled_tools: Option<Option<Vec<String>>>,
     /// 归档或取回。归档后会话只能回看，不能再发消息。
     pub status: Option<SessionStatus>,
+    /// 会话专属人设；显式给 `null` 表示回退到全局默认。
+    #[serde(default, deserialize_with = "double_option")]
+    pub persona: Option<Option<String>>,
 }
 
 /// 区分「没给这个字段」和「给了 null」。
@@ -106,6 +109,9 @@ pub async fn patch(
     }
     if let Some(tools) = body.enabled_tools {
         sessions.set_enabled_tools(&id, tools.as_deref())?;
+    }
+    if let Some(persona) = body.persona {
+        sessions.set_persona(&id, persona.as_deref())?;
     }
     if let Some(status) = body.status {
         // 归档中途不该有轮次在跑，否则那一轮写回结果时会撞上只读

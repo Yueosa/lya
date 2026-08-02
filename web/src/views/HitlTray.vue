@@ -15,6 +15,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { FormAnswerItem } from '../api/client'
 import type { HitlBlock } from '../api/wire'
 import { pendingHitl, replyHitl } from '../app/useChat'
+import Icon from '../ui/Icon.vue'
 
 const busy = ref(false)
 /** 表单作答：题目 id → 选中的值。 */
@@ -70,30 +71,42 @@ async function submitForm(): Promise<void> {
     // 没作答的题直接不出现，后端允许
     .filter((item) => item.values.length > 0 || item.note)
 
-  await replyHitl({
-    kind: 'form',
-    answer: {
-      form_id: current.form_id,
-      items,
-      ...(remark.value.trim() ? { freetext: remark.value.trim() } : {}),
-    },
-  })
+  try {
+    await replyHitl({
+      kind: 'form',
+      answer: {
+        form_id: current.form_id,
+        items,
+        ...(remark.value.trim() ? { freetext: remark.value.trim() } : {}),
+      },
+    })
+  } finally {
+    busy.value = false
+  }
 }
 
 async function answerConfirm(approved: boolean): Promise<void> {
   if (busy.value) return
   busy.value = true
-  await replyHitl({
-    kind: 'confirm',
-    approved,
-    ...(remark.value.trim() ? { note: remark.value.trim() } : {}),
-  })
+  try {
+    await replyHitl({
+      kind: 'confirm',
+      approved,
+      ...(remark.value.trim() ? { note: remark.value.trim() } : {}),
+    })
+  } finally {
+    busy.value = false
+  }
 }
 
 async function answerMode(approved: boolean): Promise<void> {
   if (busy.value) return
   busy.value = true
-  await replyHitl({ kind: 'mode_change', approved })
+  try {
+    await replyHitl({ kind: 'mode_change', approved })
+  } finally {
+    busy.value = false
+  }
 }
 </script>
 
@@ -150,7 +163,7 @@ async function answerMode(approved: boolean): Promise<void> {
           <span v-if="step.connector" class="tray__connector">{{ step.connector }}</span>
           <code class="tray__raw">{{ step.raw }}</code>
           <span class="tray__explain">{{ step.explain }}</span>
-          <span v-if="step.risk" class="tray__risk">⚠ {{ step.risk }}</span>
+          <span v-if="step.risk" class="tray__risk"><Icon name="warning" size="sm" /> {{ step.risk }}</span>
         </li>
       </ol>
 
@@ -255,6 +268,9 @@ async function answerMode(approved: boolean): Promise<void> {
 }
 
 .tray__risk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--danger);
 }
 

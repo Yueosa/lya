@@ -1,0 +1,266 @@
+/**
+ * 全局动效。类名供视图复用，时长走 token。
+ * MC 主题把 --duration-* 设为 0s，等效关闭。
+ */
+
+@keyframes lya-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes lya-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes lya-slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes lya-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes lya-slide-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lya-slide-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lya-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes lya-panel-out {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+
+@keyframes lya-split-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes lya-split-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes lya-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes lya-modal-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.98) translateY(6px);
+  }
+}
+
+@keyframes lya-jump-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--success) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+
+/* MC 主菜单黄字 splash：缩放 + 轻弹 */
+@keyframes lya-mc-splash-bounce {
+  0%,
+  100% {
+    transform: rotate(-18deg) translateY(0) scale(1);
+  }
+  50% {
+    transform: rotate(-18deg) translateY(5px) scale(1.08);
+  }
+}
+
+@keyframes lya-mc-splash-bounce-mobile {
+  0%,
+  100% {
+    transform: rotate(-12deg) translateY(0) scale(1);
+  }
+  50% {
+    transform: rotate(-12deg) translateY(4px) scale(1.06);
+  }
+}
+
+.lya-enter-fade {
+  animation: lya-fade-in var(--duration-normal) ease both;
+  animation-delay: var(--local-enter-delay, 0ms);
+}
+
+.lya-enter-up {
+  animation: lya-slide-in-up var(--duration-normal) ease both;
+  animation-delay: var(--local-enter-delay, 0ms);
+}
+
+.lya-enter-down {
+  animation: lya-slide-in-down var(--duration-normal) ease both;
+  animation-delay: var(--local-enter-delay, 0ms);
+}
+
+.lya-enter-panel {
+  animation: lya-panel-in var(--duration-normal) ease both;
+}
+
+.lya-msg--assistant {
+  animation: lya-slide-in-left var(--duration-normal) ease both;
+  animation-delay: var(--local-msg-delay, 0ms);
+}
+
+.lya-msg--user {
+  animation: lya-slide-in-right var(--duration-normal) ease both;
+  animation-delay: var(--local-msg-delay, 0ms);
+}
+
+.lya-aside-enter {
+  animation: lya-slide-in-up var(--duration-normal) ease both;
+  animation-delay: var(--local-msg-delay, 0ms);
+}
+
+/* 页面切换 */
+.lya-page-enter-active {
+  animation: lya-fade-in var(--duration-normal) ease both;
+}
+
+.lya-page-leave-active {
+  animation: lya-fade-out var(--duration-fast) ease both;
+}
+
+/* 管理页详情切换 */
+.lya-split-enter-active {
+  animation: lya-split-in var(--duration-normal) ease both;
+}
+
+.lya-split-leave-active {
+  animation: lya-split-out var(--duration-fast) ease both;
+}
+
+/* 侧栏抽屉：详情 / 设置 / 分支 */
+.lya-drawer-enter-active {
+  animation: lya-panel-in var(--duration-normal) ease both;
+}
+
+.lya-drawer-leave-active {
+  animation: lya-panel-out var(--duration-fast) ease both;
+}
+
+/* 分支树节点弹窗 */
+.lya-modal-enter-active {
+  animation: lya-modal-in var(--duration-normal) ease both;
+}
+
+.lya-modal-leave-active {
+  animation: lya-modal-out var(--duration-fast) ease both;
+}
+
+/* 折叠块 */
+.lya-fold-enter-active {
+  animation: lya-slide-in-down var(--duration-normal) ease both;
+  overflow: hidden;
+}
+
+.lya-fold-leave-active {
+  animation: lya-fade-out var(--duration-fast) ease both;
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lya-enter-fade,
+  .lya-enter-up,
+  .lya-enter-down,
+  .lya-enter-panel,
+  .lya-msg--assistant,
+  .lya-msg--user,
+  .lya-aside-enter,
+  .lya-page-enter-active,
+  .lya-page-leave-active,
+  .lya-split-enter-active,
+  .lya-split-leave-active,
+  .lya-drawer-enter-active,
+  .lya-drawer-leave-active,
+  .lya-modal-enter-active,
+  .lya-modal-leave-active,
+  .lya-fold-enter-active,
+  .lya-fold-leave-active {
+    animation: none !important;
+  }
+}

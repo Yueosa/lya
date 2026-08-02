@@ -5,7 +5,7 @@
  * 远低于可读标准的 4.5:1，小字几乎糊在背景里。肉眼很难判断这种事，尤其是
  * 浅色主题上的浅色文字：它「看起来还行」，读起来才累。
  *
- * 所以按 WCAG 的相对亮度公式算，让机器判。将来加像素风时，这条会在第一时间
+ * 所以按 WCAG 的相对亮度公式算，让机器判。Minecraft 主题靠这条在第一时间
  * 拦下同样的问题。
  */
 
@@ -63,7 +63,7 @@ function contrast(a: string, b: string): number {
 const PAIRS: { fg: string; bg: string; min: number; where: string }[] = [
   { fg: 'text', bg: 'bg', min: 4.5, where: '正文压在页面上' },
   { fg: 'text', bg: 'surface', min: 4.5, where: '正文压在面板上' },
-  // 输入框与代码块都坐在 bg-sunken 上。第一版方块主题就漏在这里：
+  // 输入框与代码块都坐在 bg-sunken 上。第一版 Minecraft 主题就漏在这里：
   // 深字压在中灰上，输入的字几乎看不见，而当时的检查没覆盖这一对
   { fg: 'text', bg: 'bg-sunken', min: 4.5, where: '输入框里的字' },
   { fg: 'text-faint', bg: 'bg-sunken', min: 3, where: '输入框占位符' },

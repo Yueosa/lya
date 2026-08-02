@@ -10,6 +10,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 
 import './ui.css'
+import Icon from './Icon.vue'
 import {
   closeContextMenu,
   menuState,
@@ -109,7 +110,7 @@ function onKeydown(event: KeyboardEvent): void {
           :disabled="row.item.disabled"
           @click="selectItem(row.item)"
         >
-          <span v-if="row.item.icon">{{ row.item.icon }}</span>
+          <Icon v-if="row.item.icon" :name="row.item.icon" size="sm" />
           <span>{{ row.item.label }}</span>
         </button>
       </template>

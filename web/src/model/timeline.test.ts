@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { MessagePayload, MessageRecord, TurnBuffer } from '../api/wire'
-import { buildTimeline } from './timeline'
+import { buildTimeline, type TimelineItem } from './timeline'
 
 let nextId = 1
 let clock = Date.parse('2026-08-01T10:00:00Z')
@@ -73,15 +73,35 @@ function reset() {
   clock = Date.parse('2026-08-01T10:00:00Z')
 }
 
+function messageAt(items: TimelineItem[], index: number) {
+  const found = items.filter((item) => item.kind === 'message')[index]
+  return found?.kind === 'message' ? found.message : null
+}
+
+function lastMessageItem(items: TimelineItem[]) {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i]!
+    if (item.kind === 'message') return item
+  }
+  return null
+}
+
 describe('buildTimeline', () => {
   it('把用户与助手消息按顺序铺开', () => {
     reset()
     const items = buildTimeline({
       messages: [record(user('你好')), record(assistant('你好呀'))],
     })
-    expect(items).toHaveLength(2)
-    expect(items[0]).toMatchObject({ kind: 'message', message: { role: 'user' } })
-    expect(items[1]).toMatchObject({ kind: 'message', message: { role: 'assistant' } })
+    expect(items).toHaveLength(3)
+    expect(items[0]).toMatchObject({ kind: 'time-gap' })
+    expect(items[1]).toMatchObject({ kind: 'message', message: { role: 'user' } })
+    expect(items[2]).toMatchObject({ kind: 'message', message: { role: 'assistant' } })
+  })
+
+  it('第一条消息前插会话开始时间', () => {
+    reset()
+    const items = buildTimeline({ messages: [record(user('你好'))] })
+    expect(items.map((item) => item.kind)).toEqual(['time-gap', 'message'])
   })
 
   it('思考排在正文前面', () => {
@@ -89,7 +109,7 @@ describe('buildTimeline', () => {
     const items = buildTimeline({
       messages: [record(assistant('结论', { lya: { reasoning: '先想一想' } }))],
     })
-    const message = items[0]!.kind === 'message' ? items[0]!.message : null
+    const message = messageAt(items, 0)
     // 模型就是先想后说的，倒过来读着别扭
     expect(message?.blocks.map((b) => b.type)).toEqual(['reasoning', 'text'])
   })
@@ -104,9 +124,10 @@ describe('buildTimeline', () => {
       ],
     })
 
-    // 三条消息进来，出去只有两项——工具结果被吸收了
-    expect(items).toHaveLength(2)
-    const message = items[1]!.kind === 'message' ? items[1]!.message : null
+    // 三条消息进来，出去只有两项对话——工具结果被吸收了，开头多一条时间
+    expect(items.filter((item) => item.kind === 'message')).toHaveLength(2)
+    expect(items.some((item) => item.kind === 'time-gap')).toBe(true)
+    const message = messageAt(items, 1)
     expect(message?.blocks.map((b) => b.type)).toEqual(['text', 'tool'])
 
     const tool = message?.blocks.find((b) => b.type === 'tool')
@@ -120,7 +141,7 @@ describe('buildTimeline', () => {
     const items = buildTimeline({
       messages: [record(calling('', 'call_1', 'bash', '{坏掉的'))],
     })
-    const message = items[0]!.kind === 'message' ? items[0]!.message : null
+    const message = messageAt(items, 0)
     const tool = message?.blocks[0]
     expect(tool?.type === 'tool' && tool.call.arguments).toBeUndefined()
     expect(tool?.type === 'tool' && tool.call.rawArguments).toBe('{坏掉的')
@@ -131,7 +152,7 @@ describe('buildTimeline', () => {
     const items = buildTimeline({
       messages: [record(calling('稍等', 'call_1', 'bash', '{}'))],
     })
-    const message = items[0]!.kind === 'message' ? items[0]!.message : null
+    const message = messageAt(items, 0)
     const tool = message?.blocks.find((b) => b.type === 'tool')
     expect(tool?.type === 'tool' && tool.call.result).toBeUndefined()
   })
@@ -139,17 +160,25 @@ describe('buildTimeline', () => {
   it('隔太久插一行时间', () => {
     reset()
     const items = buildTimeline({
-      messages: [record(user('早')), record(assistant('早'), { skipMs: 45 * 60_000 })],
+      messages: [record(user('早')), record(assistant('早'), { skipMs: 61 * 60_000 })],
     })
-    expect(items.map((i) => i.kind)).toEqual(['message', 'time-gap', 'message'])
+    expect(items.map((i) => i.kind)).toEqual(['time-gap', 'message', 'time-gap', 'message'])
+  })
+
+  it('间隔超过 10 分钟插一行时间', () => {
+    reset()
+    const items = buildTimeline({
+      messages: [record(user('早')), record(assistant('晚'), { skipMs: 11 * 60_000 })],
+    })
+    expect(items.map((i) => i.kind)).toEqual(['time-gap', 'message', 'time-gap', 'message'])
   })
 
   it('隔得不久就不插', () => {
     reset()
     const items = buildTimeline({
-      messages: [record(user('早')), record(assistant('早'), { skipMs: 60_000 })],
+      messages: [record(user('早')), record(assistant('早'), { skipMs: 9 * 60_000 })],
     })
-    expect(items.map((i) => i.kind)).toEqual(['message', 'message'])
+    expect(items.map((i) => i.kind)).toEqual(['time-gap', 'message', 'message'])
   })
 
   it('跨天即使间隔不到半小时也要插', () => {
@@ -161,7 +190,7 @@ describe('buildTimeline', () => {
     const items = buildTimeline({
       messages: [record(user('睡了'), { skipMs: 0 }), record(assistant('晚安'), { skipMs: 20 * 60_000 })],
     })
-    expect(items.map((i) => i.kind)).toEqual(['message', 'time-gap', 'message'])
+    expect(items.map((i) => i.kind)).toEqual(['time-gap', 'message', 'time-gap', 'message'])
   })
 
   it('系统消息变成居中提示而不是对话气泡', () => {
@@ -176,7 +205,7 @@ describe('buildTimeline', () => {
     }
     const items = buildTimeline({ messages: [record(user('切模式')), record(system)] })
     // 不显示的话，用户会看到助手突然能用某些工具却毫无提示
-    expect(items[1]).toMatchObject({ kind: 'notice', text: '用户把工作模式切换为 agent。' })
+    expect(items[2]).toMatchObject({ kind: 'notice', text: '用户把工作模式切换为 agent。' })
   })
 
   it('HITL 节点带上用户当时的原始作答', () => {
@@ -192,7 +221,7 @@ describe('buildTimeline', () => {
       },
     }
     const items = buildTimeline({ messages: [record(hitl)] })
-    const message = items[0]!.kind === 'message' ? items[0]!.message : null
+    const message = messageAt(items, 0)
     const block = message?.blocks[0]
     expect(block?.type).toBe('hitl')
     // 回看时要能原样回显勾选项，不必从渲染后的中文里反解
@@ -209,7 +238,7 @@ describe('buildTimeline', () => {
 
     // 当前分支走的是第二版，但整棵树里有两个兄弟
     const items = buildTimeline({ messages: [u, a2], tree: [u, a1, a2] })
-    const message = items[1]!.kind === 'message' ? items[1]!.message : null
+    const message = messageAt(items, 1)
     expect(message?.branch).toEqual({ index: 1, total: 2, siblingIds: [a1.id, a2.id] })
   })
 
@@ -218,14 +247,14 @@ describe('buildTimeline', () => {
     const u = record(user('你好'), { parent: null })
     const a = record(assistant('回答'), { parent: u.id })
     const items = buildTimeline({ messages: [u, a], tree: [u, a] })
-    const message = items[1]!.kind === 'message' ? items[1]!.message : null
+    const message = messageAt(items, 1)
     expect(message?.branch).toBeUndefined()
   })
 
   it('没给整棵树时不显示切换器而不是报错', () => {
     reset()
     const items = buildTimeline({ messages: [record(user('你好'))] })
-    const message = items[0]!.kind === 'message' ? items[0]!.message : null
+    const message = messageAt(items, 0)
     expect(message?.branch).toBeUndefined()
   })
 
@@ -239,7 +268,7 @@ describe('buildTimeline', () => {
       calls: [],
     }
     const items = buildTimeline({ messages: [record(user('你好'))], running })
-    const last = items.at(-1)
+    const last = lastMessageItem(items)
     expect(last).toMatchObject({ kind: 'message', message: { status: 'streaming' } })
     const message = last?.kind === 'message' ? last.message : null
     expect(message?.blocks.map((b) => b.type)).toEqual(['reasoning', 'text'])
@@ -259,7 +288,7 @@ describe('buildTimeline', () => {
     }
 
     const items = buildTimeline({ messages: [u, draft], running })
-    const last = items.at(-1)
+    const last = lastMessageItem(items)
     const message = last?.kind === 'message' ? last.message : null
 
     // 只渲染落库那条的话，这里会是空的——那正是「发了消息但没有流式输出」
@@ -282,7 +311,7 @@ describe('buildTimeline', () => {
       calls: [{ call_id: 'c1', name: 'bash', kind: 'tool', ok: null }],
     }
     const items = buildTimeline({ messages: [draft], running })
-    const message = items[0]?.kind === 'message' ? items[0].message : null
+    const message = messageAt(items, 0)
     const tool = message?.blocks.find((b) => b.type === 'tool')
     expect(tool?.type === 'tool' && tool.call.name).toBe('bash')
     // ok still null 表示还在跑
@@ -301,7 +330,8 @@ describe('buildTimeline', () => {
       calls: [],
     }
     const items = buildTimeline({ messages: [u, a], running })
-    expect(items).toHaveLength(2)
+    expect(items.filter((item) => item.kind === 'message')).toHaveLength(2)
+    expect(items.some((item) => item.kind === 'time-gap')).toBe(true)
   })
 
   it('失败要出错误项，否则界面转个圈就什么都没发生', () => {
@@ -343,7 +373,7 @@ describe('buildTimeline', () => {
     const items = buildTimeline({
       messages: [record(assistant('说到一半', { status: 'interrupted' }))],
     })
-    const message = items[0]!.kind === 'message' ? items[0]!.message : null
+    const message = messageAt(items, 0)
     // 不区分的话，用户分不清模型是说完了还是被打断了
     expect(message?.status).toBe('interrupted')
   })

@@ -1,298 +1,264 @@
-<!--
-  全局配置。
-
-  三层里 **core 只读**：端口、日志级别这些改了要重启才生效，在界面上给个能改却
-  不生效的输入框比不给更糟。runtime 和人设可写，模型清单只读加一个连通性探测。
-
-  写回走后端的 `toml_edit`，注释和排版都保得住——手写过的配置文件不该因为在
-  界面上点了一下就被格式化成另一副样子。
--->
-
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 
-import type { ConfigView as Config, ProbeResult } from '../api/client'
-import { client, loadModels } from '../app/useChat'
+import type { ConfigView as Config } from '../api/client'
+import { client, refreshRuntimeDefaults } from '../app/useChat'
+import Picker from '../ui/Picker.vue'
+import type { PickerOption } from '../ui/Picker.vue'
+import RawToml from '../ui/RawToml.vue'
 import { toast } from '../ui/useToast'
+import ViewHead from '../ui/ViewHead.vue'
 
+type Tab = 'persona' | 'runtime' | 'raw'
+type RawFile = 'core' | 'runtime' | 'models' | 'persona'
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'persona', label: '人设' },
+  { id: 'runtime', label: '运行时' },
+  { id: 'raw', label: '原始文件' },
+]
+
+const RAW_FILES: RawFile[] = ['core', 'runtime', 'models', 'persona']
+
+const tab = ref<Tab>('persona')
 const config = ref<Config | null>(null)
+const loadError = ref('')
 const persona = ref('')
-const runtimeText = ref('')
-const savingPersona = ref(false)
-const savingRuntime = ref(false)
-const probing = ref<string | null>(null)
-const probeResult = ref<Map<string, ProbeResult>>(new Map())
-const rawFile = ref<{ name: string; text: string } | null>(null)
+const saving = ref(false)
+const rawName = ref<RawFile>('runtime')
+const rawText = ref('')
+
+const form = ref({
+  maxToolRounds: 32,
+  defaultWorkMode: 'agent',
+  maxIndexEntries: 100,
+  maxIndexChars: 4000,
+  indexSummaryChars: 120,
+  shellConfirm: 'unknown',
+})
 
 onMounted(load)
 
 async function load(): Promise<void> {
+  loadError.value = ''
   try {
     const data = await client.config()
     config.value = data
     persona.value = data.persona ?? ''
-    runtimeText.value = JSON.stringify(data.runtime, null, 2)
+    readForm(data.runtime)
   } catch (error) {
-    toast(`读取配置失败：${error instanceof Error ? error.message : error}`, 'error')
+    const msg = errMsg(error)
+    loadError.value = msg.includes('[tables]')
+      ? `${msg}\n\n请编辑 ~/.lya/runtime.toml，删除 [tables] 整段后重试。`
+      : msg
+    toast(`读取配置失败：${msg}`, 'error')
   }
 }
 
-async function savePersona(): Promise<void> {
-  savingPersona.value = true
-  try {
-    await client.writePersona(persona.value)
-    toast('人设已保存', 'success')
-  } catch (error) {
-    toast(`保存失败：${error instanceof Error ? error.message : error}`, 'error')
-  } finally {
-    savingPersona.value = false
+function errMsg(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function readForm(runtime: Record<string, unknown>): void {
+  const agent = (runtime['agent'] ?? {}) as Record<string, unknown>
+  const memory = (runtime['memory'] ?? {}) as Record<string, unknown>
+  const shell = (runtime['shell'] ?? {}) as Record<string, unknown>
+  form.value = {
+    maxToolRounds: Number(agent['max_tool_rounds'] ?? 32),
+    defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
+    maxIndexEntries: Number(memory['max_index_entries'] ?? 100),
+    maxIndexChars: Number(memory['max_index_chars'] ?? 4000),
+    indexSummaryChars: Number(memory['index_summary_chars'] ?? 120),
+    shellConfirm: String(shell['confirm'] ?? 'unknown'),
   }
 }
 
 async function saveRuntime(): Promise<void> {
-  let tables: Record<string, unknown>
+  saving.value = true
   try {
-    tables = JSON.parse(runtimeText.value)
-  } catch {
-    toast('这段 JSON 有语法错误，先改好再保存', 'error')
-    return
-  }
-  savingRuntime.value = true
-  try {
-    // 后端写完会回读一次验证，返回的是生效后的值而不是我们发过去那份
-    const applied = await client.writeRuntime(tables)
-    runtimeText.value = JSON.stringify(applied, null, 2)
+    const applied = (await client.writeRuntime({
+      agent: {
+        max_tool_rounds: form.value.maxToolRounds,
+        default_work_mode: form.value.defaultWorkMode,
+      },
+      memory: {
+        max_index_entries: form.value.maxIndexEntries,
+        max_index_chars: form.value.maxIndexChars,
+        index_summary_chars: form.value.indexSummaryChars,
+      },
+      shell: { confirm: form.value.shellConfirm },
+    })) as Record<string, unknown>
+    readForm(applied)
+    await refreshRuntimeDefaults()
     toast('已保存并生效', 'success')
   } catch (error) {
-    toast(`保存失败：${error instanceof Error ? error.message : error}`, 'error')
+    toast(`保存失败：${errMsg(error)}`, 'error')
   } finally {
-    savingRuntime.value = false
+    saving.value = false
   }
 }
 
-/**
- * 探一下这个模型通不通。
- *
- * 后端拿服务器上存的真密钥去打一次 `GET /models`，界面这边始终只看得到脱敏后的
- * 那串——密钥不该为了测一下就发到浏览器里再发回去。
- */
-async function probe(modelId: string): Promise<void> {
-  probing.value = modelId
+async function savePersona(): Promise<void> {
+  saving.value = true
   try {
-    const result = await client.probeModel(modelId)
-    probeResult.value = new Map(probeResult.value).set(modelId, result)
+    await client.writePersona(persona.value)
+    toast('人设已保存', 'success')
   } catch (error) {
-    probeResult.value = new Map(probeResult.value).set(modelId, {
-      ok: false,
-      models: [],
-      error: error instanceof Error ? error.message : String(error),
-    })
+    toast(`保存失败：${errMsg(error)}`, 'error')
   } finally {
-    probing.value = null
-    void loadModels()
+    saving.value = false
   }
 }
 
-async function showRaw(file: 'core' | 'runtime' | 'models' | 'persona'): Promise<void> {
+async function loadRaw(file: RawFile): Promise<void> {
+  rawName.value = file
   try {
-    rawFile.value = { name: file, text: await client.rawConfig(file) }
+    rawText.value = await client.rawConfig(file)
   } catch (error) {
-    toast(`读取失败：${error instanceof Error ? error.message : error}`, 'error')
+    rawText.value = `读取失败：${errMsg(error)}`
   }
 }
+
+function pickTab(id: Tab): void {
+  tab.value = id
+  if (id === 'raw') void loadRaw(rawName.value)
+}
+
+const workModeOptions: PickerOption[] = [
+  { value: 'ask', label: '问答 — 只能看' },
+  { value: 'edit', label: '编辑 — 能读写文件' },
+  { value: 'agent', label: '代理 — 含执行命令' },
+]
+
+const shellConfirmOptions: PickerOption[] = [
+  { value: 'always', label: '每条都问' },
+  { value: 'unknown', label: '已知只读的直接放行，其余都问' },
+  { value: 'risky', label: '只有命中风险规则才问' },
+]
+
+watch(tab, (id) => {
+  if (id === 'raw') void loadRaw(rawName.value)
+})
 </script>
 
 <template>
-  <div class="cfg">
-    <h2 class="cfg__title">设置</h2>
-    <p v-if="!config" class="cfg__hint">正在读取…</p>
+  <div class="split-view">
+    <ViewHead title="设置" />
 
-    <template v-else>
-      <section class="panel cfg__card">
-        <h3 class="cfg__section">人设</h3>
-        <p class="cfg__hint">
-          它排在系统提示词最后，只影响说话的样子，不能改变行为准则与工具权限。
-        </p>
-        <textarea v-model="persona" class="input cfg__text" rows="4" />
-        <div class="cfg__actions">
-          <button class="btn btn--primary" :disabled="savingPersona" @click="savePersona">
-            {{ savingPersona ? '保存中…' : '保存' }}
+    <div class="split-view__body">
+      <aside class="split-view__list">
+        <div class="split-view__list-scroll" style="padding-top: 8px">
+          <button
+            v-for="item in TABS"
+            :key="item.id"
+            class="split-view__list-item"
+            :class="{ 'split-view__list-item--on': tab === item.id }"
+            @click="pickTab(item.id)"
+          >
+            <span class="split-view__list-title">{{ item.label }}</span>
           </button>
         </div>
-      </section>
+      </aside>
 
-      <section class="panel cfg__card">
-        <h3 class="cfg__section">模型</h3>
-        <p class="cfg__hint">
-          密钥存在 <code>~/.lya/models.toml</code>（权限 0600），界面上只看得到末几位。
-        </p>
-        <div v-for="model in config.models" :key="model.id" class="cfg__model">
-          <div class="cfg__row">
-            <strong>{{ model.name }}</strong>
-            <code class="cfg__dim">{{ model.id }}</code>
-            <span class="cfg__gap" />
-            <code class="cfg__dim">{{ model.api_key_masked }}</code>
-            <button class="btn btn--sm" :disabled="probing === model.id" @click="probe(model.id)">
-              {{ probing === model.id ? '测试中…' : '测一下' }}
+      <main class="split-view__main">
+        <p v-if="loadError" class="page__error">{{ loadError }}</p>
+        <p v-else-if="!config" class="split-view__hint">正在读取…</p>
+
+        <Transition v-else name="lya-split" mode="out-in">
+          <section v-if="tab === 'persona'" key="persona" class="page__pane">
+          <p class="page__hint">全局人设，写入 <code>persona.toml</code>，所有新会话默认继承。</p>
+          <textarea v-model="persona" class="input cfg-text" rows="12" placeholder="全局人设" />
+          <div class="row row--end">
+            <button class="btn btn--primary" :disabled="saving" @click="savePersona">
+              {{ saving ? '保存中…' : '保存' }}
             </button>
           </div>
-          <p class="cfg__hint">
-            {{ model.base_url }} · 能力：{{ model.capabilities.join('、') || '未标注' }}
-          </p>
-          <p v-if="model.api_key_placeholder" class="cfg__warn">
-            密钥还是模板里的占位符，这个模型用不了。
-          </p>
-          <p v-if="probeResult.get(model.id)" class="cfg__hint">
-            <template v-if="probeResult.get(model.id)!.ok">
-              ✓ 通了，对方声明支持 {{ probeResult.get(model.id)!.models.length }} 个模型
-            </template>
-            <span v-else class="cfg__warn">✕ {{ probeResult.get(model.id)!.error }}</span>
-          </p>
-        </div>
-      </section>
+        </section>
 
-      <section class="panel cfg__card">
-        <h3 class="cfg__section">运行时</h3>
-        <p class="cfg__hint">
-          各模块的默认值。写回时用 <code>toml_edit</code>，你在文件里写的注释不会丢。
-        </p>
-        <textarea v-model="runtimeText" class="input cfg__text cfg__code" rows="14" />
-        <div class="cfg__actions">
-          <button class="btn btn--primary" :disabled="savingRuntime" @click="saveRuntime">
-            {{ savingRuntime ? '保存中…' : '保存' }}
-          </button>
-        </div>
-      </section>
+          <section v-else-if="tab === 'runtime'" key="runtime" class="page__pane">
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">对话</h3>
+            <label class="field">
+              <span class="field__label">新会话默认模式</span>
+              <Picker v-model="form.defaultWorkMode" :options="workModeOptions" />
+            </label>
+            <label class="field">
+              <span class="field__label">单轮最多调几次工具</span>
+              <input v-model.number="form.maxToolRounds" class="input" type="number" min="1" max="200" />
+              <p class="field__note">到上限就停下，防止模型自己转圈停不下来</p>
+            </label>
+          </div>
 
-      <section class="panel cfg__card">
-        <h3 class="cfg__section">核心（只读）</h3>
-        <p class="cfg__hint">
-          端口、日志级别这些改了要重启才生效，所以界面上不给改——给一个点了不算数的
-          输入框比不给更糟。要改就直接编辑 <code>~/.lya/core.toml</code>。
-        </p>
-        <pre class="cfg__readonly">{{ JSON.stringify(config.core, null, 2) }}</pre>
-      </section>
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">记忆索引</h3>
+            <p class="page__hint">索引常驻在提示词里，越大越占 token。</p>
+            <label class="field">
+              <span class="field__label">最多列几条</span>
+              <input v-model.number="form.maxIndexEntries" class="input" type="number" min="1" />
+            </label>
+            <label class="field">
+              <span class="field__label">索引总字数上限</span>
+              <input v-model.number="form.maxIndexChars" class="input" type="number" min="200" />
+            </label>
+            <label class="field">
+              <span class="field__label">每条摘要字数</span>
+              <input v-model.number="form.indexSummaryChars" class="input" type="number" min="20" />
+            </label>
+          </div>
 
-      <section class="panel cfg__card">
-        <h3 class="cfg__section">原始文件</h3>
-        <div class="cfg__row">
-          <button
-            v-for="file in (['core', 'runtime', 'models', 'persona'] as const)"
-            :key="file"
-            class="btn btn--sm"
-            @click="showRaw(file)"
-          >
-            {{ file }}.toml
-          </button>
-        </div>
-      </section>
-    </template>
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">命令执行</h3>
+            <label class="field">
+              <span class="field__label">什么时候要你确认</span>
+              <Picker v-model="form.shellConfirm" :options="shellConfirmOptions" />
+            </label>
+          </div>
 
-    <div v-if="rawFile" class="overlay" @click.self="rawFile = null">
-      <div class="dialog cfg__raw">
-        <h3 class="dialog__title">{{ rawFile.name }}.toml</h3>
-        <pre class="cfg__readonly">{{ rawFile.text }}</pre>
-        <div class="dialog__actions">
-          <button class="btn" @click="rawFile = null">关闭</button>
-        </div>
-      </div>
+          <div class="row row--end">
+            <button class="btn btn--primary" :disabled="saving" @click="saveRuntime">
+              {{ saving ? '保存中…' : '保存' }}
+            </button>
+          </div>
+        </section>
+
+          <section v-else key="raw" class="page__pane">
+          <p class="page__hint">core 只读——改端口等需重启进程才生效。</p>
+          <div class="seg-row">
+            <button
+              v-for="file in RAW_FILES"
+              :key="file"
+              class="btn btn--sm"
+              :class="{ 'btn--primary': rawName === file }"
+              @click="loadRaw(file)"
+            >
+              {{ file }}.toml
+            </button>
+          </div>
+          <RawToml :text="rawText" />
+          </section>
+        </Transition>
+      </main>
     </div>
   </div>
 </template>
 
 <style scoped>
-.cfg {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  max-width: 860px;
-}
-
-.cfg__title {
-  margin: 0;
-  font-size: var(--text-lg);
-}
-
-.cfg__card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.cfg__section {
-  margin: 0;
-  font-size: var(--text-md);
-}
-
-.cfg__hint {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-
-.cfg__warn {
-  color: var(--danger);
-}
-
-.cfg__dim {
-  color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-.cfg__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.cfg__gap {
-  flex: 1;
-}
-
-.cfg__model {
-  padding: 8px 0;
-  border-top: var(--border-width) solid var(--border);
-}
-
-.cfg__model:first-of-type {
-  border-top: none;
-}
-
-.cfg__text {
+.cfg-text {
+  width: 100%;
   height: auto;
-  padding: 8px 12px;
-  resize: vertical;
-  line-height: var(--leading);
-}
-
-.cfg__code {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-.cfg__readonly {
-  margin: 0;
   padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-sunken);
+  line-height: var(--leading);
+  resize: vertical;
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  max-height: 380px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
-.cfg__actions {
-  display: flex;
-  justify-content: flex-end;
-}
+@media (max-width: 640px) {
+  .field {
+    grid-template-columns: 1fr;
+  }
 
-.cfg__raw {
-  width: 720px;
+  .field__note {
+    grid-column: 1;
+  }
 }
 </style>

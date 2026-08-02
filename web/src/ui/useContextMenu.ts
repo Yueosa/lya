@@ -8,14 +8,15 @@
 
 import { reactive, readonly } from 'vue'
 
+import type { IconKey } from './icons'
 import { placeNear, type Size } from './placement'
 
 /** 菜单里的一项。 */
 export interface MenuItem {
   /** 显示文案。 */
   label: string
-  /** 前置图标，可以是 emoji。 */
-  icon?: string
+  /** 前置图标。 */
+  icon?: IconKey
   /** 破坏性操作，显示为危险色。 */
   danger?: boolean
   /** 灰掉不可点。 */

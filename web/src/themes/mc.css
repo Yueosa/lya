@@ -1,5 +1,5 @@
 /**
- * 方块世界。
+ * Minecraft。
  *
  * 照着游戏真实界面来：**深灰按钮、白字、一圈硬黑投影**。那圈投影是它的招牌，
  * 少了它怎么调配色都不像。第一版我做反了——浅灰底配深字，既不像也不好看，
@@ -32,9 +32,9 @@
   --bg: #313131;
   /* 代码块与输入框：游戏里的文本框就是近黑的 */
   --bg-sunken: #1a1a1a;
-  /* 按钮与面板的石灰面 */
+  /* 按钮与面板的石灰面（面板用较深灰保对比度；按钮逃生舱可再略亮） */
   --surface: #6e6e6e;
-  --surface-hover: #8a8a8a;
+  --surface-hover: #8b8fad;
   --surface-active: #5a5a5a;
   --overlay: rgba(0, 0, 0, 0.7);
 
@@ -47,6 +47,7 @@
   --border: #000000;
   --border-strong: #ffffff;
   --border-width: 3px;
+  --border-accent-width: 3px;
 
   /* 草绿比游戏原色深一档：原色配白字只有 3.3:1，读不清 */
   --accent: #3e7a28;
@@ -57,7 +58,7 @@
   --warning: #ffaa00;
   --info: #55ffff;
 
-  /* 方块世界里没有圆角 */
+  /* Minecraft 里没有圆角 */
   --radius-sm: 0;
   --radius-md: 0;
   --radius-lg: 0;
@@ -69,10 +70,12 @@
   --shadow-card: inset -3px -3px 0 rgba(0, 0, 0, 0.45), inset 3px 3px 0 rgba(255, 255, 255, 0.28);
   --shadow-float: 6px 6px 0 rgba(0, 0, 0, 0.6);
   --shadow-focus: 0 0 0 3px #ffffff;
+  --shadow-button: inset 2px 2px 0 rgba(255, 255, 255, 0.38), inset -2px -2px 0 rgba(0, 0, 0, 0.55);
+  --shadow-tooltip: 4px 4px 0 rgba(0, 0, 0, 0.6);
 
   --font-ui: 'Zpix', ui-monospace, monospace;
   --font-mono: 'Zpix', ui-monospace, 'Cascadia Code', monospace;
-  /* 点阵字要落在整数倍字号上才不糊，Zpix 的字身是 12px */
+  /* 点阵字要落在整数倍字号上才不糊，Zpix 的字身是 12px；控件略放大补偿常见 80% 缩放 */
   --text-xs: 12px;
   --text-sm: 12px;
   --text-md: 12px;
@@ -81,16 +84,20 @@
   /* 招牌的那圈硬投影 */
   --text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.65);
 
-  /* 按钮比另外两套敦实，方块感的一部分 */
-  --ctl-h-sm: 28px;
-  --ctl-h-md: 38px;
-  --ctl-h-lg: 46px;
-  --ctl-pad-x-sm: 12px;
-  --ctl-pad-x-md: 18px;
-  --ctl-pad-x-lg: 24px;
+  /* 按钮比另外两套敦实，Minecraft 风格的一部分 */
+  --sidebar-width: 280px;
+  --split-list-width: 300px;
+  --ctl-h-sm: 32px;
+  --ctl-h-md: 42px;
+  --ctl-h-lg: 54px;
+  --ctl-pad-x-sm: 14px;
+  --ctl-pad-x-md: 20px;
+  --ctl-pad-x-lg: 28px;
 
-  /* 像素风不该有平滑过渡，一格是一格 */
+  /* Minecraft 不该有平滑过渡，一格是一格 */
   --transition: 0s;
+  --duration-fast: 0s;
+  --duration-normal: 0s;
 
   /* 游戏自带的 16 色，压在近黑代码块上正合适 */
   --code-keyword: #ff55ff;
@@ -107,38 +114,345 @@
  *
  * token 表达不了、只有这套主题需要的东西。它们针对**语义类名**——所以类名是
  * 主题的公开接口，改名字会悄悄破坏这里。
+ *
+ * @scope 的 to 边界：嵌套的 [data-theme] 预览岛（外观页 ThemePreview）不再被
+ * html 上的 MC 规则污染；预览 MC 时该岛自己就是 scope 根。
  */
+@scope ([data-theme='mc']) to ([data-theme]:not([data-theme='mc'])) {
+  /* 点阵字不能抗锯齿，糊了就没有像素感了 */
+  :scope {
+    -webkit-font-smoothing: none;
+    font-smooth: never;
+  }
 
-/* 点阵字不能抗锯齿，糊了就没有像素感了 */
-[data-theme='mc'] {
-  -webkit-font-smoothing: none;
-  font-smooth: never;
-}
+  /* 代码块不加投影：等宽小字本来就密，再糊一层就读不动了 */
+  pre,
+  code {
+    text-shadow: none;
+  }
 
-/* 代码块不加投影：等宽小字本来就密，再糊一层就读不动了 */
-[data-theme='mc'] pre,
-[data-theme='mc'] code {
-  text-shadow: none;
-}
+  /*
+   * 主菜单 / 会话列表 / 管理页按钮：石灰 3D 斜角 + 白字硬投影；
+   * 悬停变蓝灰底 + 黄字，对齐 Java 版主界面。
+   */
+  .btn {
+    border: 2px solid #000000;
+    background-color: #737373;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.06) 50%, transparent 50%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.04) 50%, transparent 50%);
+    background-size: 2px 2px;
+    box-shadow: var(--shadow-button);
+    color: #e8e8e8;
+    text-shadow: 2px 2px 0 #1a1a1a;
+  }
 
-/* 按下去往下陷一格，斜角同时翻个面，像真把按钮摁了进去 */
-[data-theme='mc'] .btn:active:not(:disabled) {
-  transform: translate(1px, 1px);
-  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.45), inset -3px -3px 0 rgba(255, 255, 255, 0.2);
-}
+  .btn:hover:not(:disabled) {
+    background-color: #8b8fad;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.08) 50%, transparent 50%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.05) 50%, transparent 50%);
+    border-color: #000000;
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+    filter: none;
+    transform: none;
+  }
 
-/* 主按钮与危险按钮是纯色，白高光压上去会脏，只留暗侧 */
-[data-theme='mc'] .btn--primary,
-[data-theme='mc'] .btn--danger {
-  box-shadow: inset -3px -3px 0 rgba(0, 0, 0, 0.4);
-}
+  .btn--primary,
+  .btn--danger {
+    background-color: #737373;
+    border-color: #000000;
+    color: #e8e8e8;
+    box-shadow: var(--shadow-button);
+  }
 
-/* 输入框是凹进去的，斜角与按钮相反 */
-[data-theme='mc'] .input {
-  box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.55), inset -3px -3px 0 rgba(255, 255, 255, 0.15);
-}
+  .btn--primary:hover:not(:disabled),
+  .btn--danger:hover:not(:disabled) {
+    background-color: #8b8fad;
+    border-color: #000000;
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+    filter: none;
+    transform: none;
+  }
 
-/* 缩放图片不插值，保住像素边缘 */
-[data-theme='mc'] img {
-  image-rendering: pixelated;
+  .btn--ghost {
+    background: transparent;
+    background-image: none;
+    border-color: transparent;
+    box-shadow: none;
+  }
+
+  .btn--ghost:hover:not(:disabled) {
+    background-color: #8b8fad;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.08) 50%, transparent 50%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.05) 50%, transparent 50%);
+    background-size: 2px 2px;
+    border-color: #000000;
+    color: #ffff55;
+    box-shadow: var(--shadow-button);
+    text-shadow: 2px 2px 0 #3f3f00;
+  }
+
+  .btn--on {
+    border-color: #ffffff;
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+    box-shadow: var(--shadow-focus), var(--shadow-button);
+  }
+
+  .btn--on:hover:not(:disabled) {
+    background-color: #8b8fad;
+    border-color: #ffffff;
+    color: #ffff55;
+  }
+
+  .btn:focus-visible {
+    box-shadow: var(--shadow-focus), var(--shadow-button);
+  }
+
+  .btn:active:not(:disabled) {
+    transform: translate(1px, 1px);
+    box-shadow: inset 2px 2px 0 rgba(0, 0, 0, 0.55), inset -2px -2px 0 rgba(255, 255, 255, 0.18);
+  }
+
+  .btn:disabled {
+    opacity: 0.42;
+    color: #a8a8a8;
+    text-shadow: 1px 1px 0 #1a1a1a;
+  }
+
+  .btn:disabled:hover {
+    background-color: #737373;
+    color: #a8a8a8;
+    text-shadow: 1px 1px 0 #1a1a1a;
+  }
+
+  /* 输入框是凹进去的，斜角与按钮相反 */
+  .input {
+    box-shadow: inset 3px 3px 0 rgba(0, 0, 0, 0.55), inset -3px -3px 0 rgba(255, 255, 255, 0.15);
+  }
+
+  /* 缩放图片不插值，保住像素边缘 */
+  img {
+    image-rendering: pixelated;
+  }
+
+  /* ── 主菜单（McShell） ─────────────────────────────────────────── */
+
+  .mc-shell__panorama {
+    background:
+      radial-gradient(120% 80% at 50% 100%, rgba(62, 122, 40, 0.55), transparent 55%),
+      radial-gradient(90% 60% at 78% 18%, rgba(255, 170, 80, 0.45), transparent 50%),
+      linear-gradient(180deg, #1b1238 0%, #5a2878 18%, #c96a38 42%, #e8b060 52%, #3d5c34 100%);
+  }
+
+  .mc-shell__logo {
+    color: #d8d8d8;
+    text-shadow:
+      0 2px 0 #666,
+      0 4px 0 #555,
+      2px 4px 0 #444,
+      4px 6px 0 #333,
+      4px 8px 0 #222,
+      6px 10px 0 #000;
+  }
+
+  .mc-shell__edition {
+    color: #d0d0d0;
+  }
+
+  .mc-shell__splash {
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+  }
+
+  .mc-shell__foot-left,
+  .mc-shell__foot-right {
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.65);
+  }
+
+  .sessions__panel {
+    background: rgba(0, 0, 0, 0.42);
+  }
+
+  .sessions__row--on {
+    box-shadow: var(--shadow-focus);
+  }
+
+  /* ── 管理页（记忆 / 工具 / 模型 / 设置 / 外观） ───────────────── */
+
+  .mc-shell__body .view-head {
+    display: none;
+  }
+
+  .mc-shell__body .split-view {
+    height: 100%;
+  }
+
+  .mc-shell__body .split-view__list {
+    border-right: 2px solid #000000;
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .mc-shell__body .split-view__list-tabs {
+    padding: 8px;
+    border-bottom: 2px solid #000000;
+    gap: 4px;
+  }
+
+  .mc-shell__body .split-view__list-tabs .btn--primary {
+    border-color: #ffffff;
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+    box-shadow: var(--shadow-focus), var(--shadow-button);
+  }
+
+  .mc-shell__body .split-view__list-scroll {
+    padding: 8px;
+  }
+
+  .mc-shell__body .split-view__list-toolbar {
+    border-bottom: 2px solid #000000;
+  }
+
+  .mc-shell__body .split-view__list-item {
+    margin-bottom: 6px;
+    border: 2px solid #000000;
+    border-radius: 0;
+    background-color: #737373;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.06) 50%, transparent 50%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.04) 50%, transparent 50%);
+    background-size: 2px 2px;
+    box-shadow: var(--shadow-button);
+    color: #e8e8e8;
+    text-shadow: 2px 2px 0 #1a1a1a;
+  }
+
+  .mc-shell__body .split-view__list-item:hover {
+    background-color: #8b8fad;
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+  }
+
+  .mc-shell__body .split-view__list-item--on {
+    border-color: #ffffff;
+    background-color: #737373;
+    box-shadow: var(--shadow-focus), var(--shadow-button);
+  }
+
+  .mc-shell__body .split-view__list-item--on .split-view__list-title {
+    color: #ffff55;
+    font-weight: normal;
+  }
+
+  .mc-shell__body .split-view__list-item--on .split-view__list-meta {
+    color: #e8e8e8;
+  }
+
+  .mc-shell__body .split-view__list-meta {
+    color: #d0d0d0;
+    text-shadow: 1px 1px 0 #1a1a1a;
+  }
+
+  .mc-shell__body .split-view__main {
+    background: rgba(0, 0, 0, 0.12);
+  }
+
+  .mc-shell__body .page__pane {
+    padding: 12px 16px 20px;
+  }
+
+  .mc-shell__body .panel:not(.picker__menu),
+  .mc-shell__body .form-panel,
+  .mc-shell__body .gateway-card {
+    background: rgba(0, 0, 0, 0.38);
+    border: 2px solid #000000;
+    box-shadow: var(--shadow-card);
+  }
+
+  /* 下拉菜单浮在表单上，必须不透明 */
+  .picker__menu {
+    background-color: #525252;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.06) 50%, transparent 50%),
+      linear-gradient(90deg, rgba(0, 0, 0, 0.04) 50%, transparent 50%);
+    background-size: 2px 2px;
+    border: 2px solid #000000;
+    box-shadow: var(--shadow-float);
+  }
+
+  .picker__option {
+    color: #e8e8e8;
+    text-shadow: 1px 1px 0 #1a1a1a;
+    border-radius: 0;
+  }
+
+  .picker__option:hover:not(:disabled) {
+    background-color: #8b8fad;
+    color: #ffff55;
+    text-shadow: 2px 2px 0 #3f3f00;
+  }
+
+  .picker__option--on {
+    background-color: rgba(255, 255, 85, 0.18);
+    color: #ffff55;
+    box-shadow: inset 0 0 0 1px #ffffff;
+  }
+
+  .picker__hint {
+    color: #d0d0d0;
+  }
+
+  .mc-shell__body .gateway-card__head {
+    background: rgba(0, 0, 0, 0.28);
+    border-bottom-color: #000000;
+  }
+
+  .mc-shell__body .schema-table th,
+  .mc-shell__body .schema-table td,
+  .mc-shell__body .models-table th,
+  .mc-shell__body .models-table td {
+    border: 2px solid #000000;
+  }
+
+  .mc-shell__body .schema-table th,
+  .mc-shell__body .models-table th {
+    background: #5a5a5a;
+    color: #e8e8e8;
+  }
+
+  .mc-shell__body .schema-table td,
+  .mc-shell__body .models-table td {
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .mc-shell__body .models-table tbody tr:hover td {
+    background: rgba(139, 143, 173, 0.35);
+  }
+
+  .mc-shell__body .detail-section__title,
+  .mc-shell__body .page__hint {
+    text-shadow: var(--text-shadow);
+  }
+
+  /* ── 外观预览：MC 主菜单缩略图 ─────────────────────────────────── */
+
+  .theme-preview__mc-menu {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+
+  .theme-preview__mc-entry {
+    width: 100%;
+    min-height: var(--ctl-h-md);
+  }
+
+  .theme-preview__mc-entry--wide {
+    grid-column: 1 / -1;
+  }
 }

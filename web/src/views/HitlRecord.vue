@@ -88,7 +88,7 @@ const title = computed(() => {
 .record {
   padding: 8px 12px;
   border: var(--border-width) solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-left: var(--border-accent-width) solid var(--accent);
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
   font-size: var(--text-sm);

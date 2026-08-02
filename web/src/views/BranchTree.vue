@@ -1,52 +1,42 @@
-<!--
-  分支树：SVG 图，从上往下长。
-
-  布局用经典的 tidy-tree 递归摆放——叶子按顺序占位，父节点居中对齐到子节点的
-  中点。上一代也是这个算法，概念没问题，问题出在节点太胖（236×64 塞两行预览），
-  几个分叉就铺满一屏。这里把节点压到 168×40 只放一行，横向密度高一倍多。
-
-  面板从右侧推进来、可拖宽。做成侧栏而不是弹窗，是为了能一边看树一边看对话
-  ——切分支之后想立刻确认切对了没有。
--->
-
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import type { MessageRecord } from '../api/wire'
-import { currentId, loadTree, switchBranch } from '../app/useChat'
+import { currentId, loadTree, readOnly, switchToBranch } from '../app/useChat'
+import { projectVisibleTree, treeNode } from '../model/branchTree'
+import Icon from '../ui/Icon.vue'
 
 const props = defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
 
-/** 节点尺寸。比上一代小一半多，一屏能看下更多分支。 */
 const NODE_W = 168
 const NODE_H = 40
 const GAP_X = 22
 const GAP_Y = 34
 const PAD = 16
+const TEXT_X = 30
+const TEXT_RIGHT = 18
 
 const nodes = ref<MessageRecord[]>([])
+const rawNodes = ref<MessageRecord[]>([])
 const activeLeaf = ref<number | null>(null)
-const leaves = ref<Set<number>>(new Set())
 const loading = ref(false)
 const picked = ref<MessageRecord | null>(null)
-/** 折叠起来的子树。 */
-const collapsed = ref<Set<number>>(new Set())
-
+const switching = ref(false)
 const width = ref(Number(localStorage.getItem('lya.tree.width')) || 460)
-const dragging = ref(false)
+const resizing = ref(false)
 
 watch(() => props.open, (open) => void (open && refresh()), { immediate: true })
 watch(currentId, () => void (props.open && refresh()))
-onMounted(() => void (props.open && refresh()))
 
 async function refresh(): Promise<void> {
   loading.value = true
   const data = await loadTree()
   if (data) {
-    nodes.value = data.nodes
-    activeLeaf.value = data.active_leaf_id
-    leaves.value = new Set(data.leaves)
+    rawNodes.value = data.nodes
+    const projected = projectVisibleTree(data.nodes, data.nodes.filter(treeNode), data.active_leaf_id)
+    nodes.value = projected.nodes
+    activeLeaf.value = projected.activeLeaf
   }
   loading.value = false
 }
@@ -56,8 +46,7 @@ interface Placed {
   x: number
   y: number
   onPath: boolean
-  hasChildren: boolean
-  folded: boolean
+  isLeaf: boolean
 }
 
 interface Edge {
@@ -68,18 +57,16 @@ interface Edge {
   onPath: boolean
 }
 
-/** 摆位置。 */
 const layout = computed(() => {
-  const all = [...nodes.value].sort((a, b) => a.sort_key - b.sort_key)
-  const byId = new Map(all.map((node) => [node.id, node]))
+  const visibleNodes = [...nodes.value].sort((a, b) => a.sort_key - b.sort_key)
+  const byId = new Map(visibleNodes.map((node) => [node.id, node]))
   const children = new Map<number | null, MessageRecord[]>()
-  for (const node of all) {
+  for (const node of visibleNodes) {
     const list = children.get(node.parent_id) ?? []
     list.push(node)
     children.set(node.parent_id, list)
   }
 
-  // 当前分支：从激活叶一路往上，用来把主干高亮出来
   const onPath = new Set<number>()
   let cursor = activeLeaf.value
   while (cursor !== null) {
@@ -87,14 +74,18 @@ const layout = computed(() => {
     cursor = byId.get(cursor)?.parent_id ?? null
   }
 
+  const leafIds = new Set<number>()
+  for (const node of visibleNodes) {
+    if ((children.get(node.id) ?? []).length === 0) leafIds.add(node.id)
+  }
+
   const centers = new Map<number, number>()
   const depths = new Map<number, number>()
   let cursorX = 0
 
-  /** 叶子按顺序占位，父节点居中对齐到首尾子节点的中点。 */
   const place = (id: number, depth: number): number => {
     depths.set(id, depth)
-    const kids = collapsed.value.has(id) ? [] : (children.get(id) ?? [])
+    const kids = children.get(id) ?? []
     if (kids.length === 0) {
       const center = cursorX + NODE_W / 2
       cursorX += NODE_W + GAP_X
@@ -109,22 +100,25 @@ const layout = computed(() => {
 
   for (const root of children.get(null) ?? []) place(root.id, 0)
 
-  const placed: Placed[] = all
+  const placed: Placed[] = visibleNodes
     .filter((node) => centers.has(node.id))
     .map((node) => ({
       record: node,
       x: centers.get(node.id)! - NODE_W / 2 + PAD,
       y: PAD + depths.get(node.id)! * (NODE_H + GAP_Y),
       onPath: onPath.has(node.id),
-      hasChildren: (children.get(node.id) ?? []).length > 0,
-      folded: collapsed.value.has(node.id),
+      isLeaf: leafIds.has(node.id),
     }))
 
+  const placedIds = new Set(placed.map((p) => p.record.id))
   const edges: Edge[] = []
   for (const item of placed) {
-    const parent = item.record.parent_id
+    let parent = item.record.parent_id
+    while (parent !== null && !placedIds.has(parent)) {
+      parent = byId.get(parent)?.parent_id ?? null
+    }
     if (parent === null) continue
-    const from = placed.find((candidate) => candidate.record.id === parent)
+    const from = placed.find((c) => c.record.id === parent)
     if (!from) continue
     edges.push({
       x1: from.x + NODE_W / 2,
@@ -138,58 +132,55 @@ const layout = computed(() => {
   return {
     placed,
     edges,
-    w: Math.max(...placed.map((item) => item.x + NODE_W), 0) + PAD,
-    h: Math.max(...placed.map((item) => item.y + NODE_H), 0) + PAD,
+    w: Math.max(...placed.map((i) => i.x + NODE_W), NODE_W) + PAD,
+    h: Math.max(...placed.map((i) => i.y + NODE_H), NODE_H) + PAD,
   }
 })
 
+const canSwitchPicked = computed(() => {
+  if (!picked.value || readOnly.value) return false
+  if (picked.value.id === activeLeaf.value) return false
+  return layout.value.placed.some((item) => item.record.id === picked.value!.id)
+})
+
 function preview(record: MessageRecord): string {
-  const text = record.payload.openai?.content?.trim()
-  if (text) return text.replace(/\s+/g, ' ').slice(0, 22)
-  if (record.payload.lya.hitl) return '等你决定'
-  if (record.payload.openai?.tool_calls?.length) {
-    return record.payload.openai.tool_calls.map((call) => call.function.name).join(' ')
+  return (record.payload.openai?.content ?? '').replace(/\s+/g, ' ').slice(0, 28)
+}
+
+function roleIcon(record: MessageRecord): 'user' | 'bot' {
+  return record.payload.role === 'user' ? 'user' : 'bot'
+}
+
+function openNode(record: MessageRecord): void {
+  picked.value = record
+}
+
+function closeModal(): void {
+  picked.value = null
+}
+
+async function confirmSwitch(): Promise<void> {
+  const record = picked.value
+  if (!record || !canSwitchPicked.value) return
+  switching.value = true
+  try {
+    await switchToBranch(record.id)
+    await refresh()
+    closeModal()
+  } finally {
+    switching.value = false
   }
-  return '（无正文）'
 }
 
-function icon(record: MessageRecord): string {
-  switch (record.payload.role) {
-    case 'user':
-      return '🧑'
-    case 'assistant':
-      return record.payload.openai?.tool_calls?.length ? '🔧' : '🤖'
-    case 'tool':
-      return '↩'
-    case 'hitl':
-      return '✋'
-    default:
-      return '·'
-  }
-}
-
-function toggleFold(id: number): void {
-  const next = new Set(collapsed.value)
-  if (!next.delete(id)) next.add(id)
-  collapsed.value = next
-}
-
-async function jump(record: MessageRecord): Promise<void> {
-  if (!leaves.value.has(record.id) || record.id === activeLeaf.value) return
-  await switchBranch(record.id)
-  await refresh()
-}
-
-/** 拖左边缘调宽度。 */
 function startResize(event: PointerEvent): void {
-  dragging.value = true
+  resizing.value = true
   const startX = event.clientX
   const startWidth = width.value
   const move = (moved: PointerEvent): void => {
     width.value = Math.min(Math.max(320, startWidth - (moved.clientX - startX)), window.innerWidth * 0.8)
   }
   const up = (): void => {
-    dragging.value = false
+    resizing.value = false
     localStorage.setItem('lya.tree.width', String(Math.round(width.value)))
     window.removeEventListener('pointermove', move)
     window.removeEventListener('pointerup', up)
@@ -200,21 +191,34 @@ function startResize(event: PointerEvent): void {
 </script>
 
 <template>
-  <aside class="panel-tree" :class="{ 'panel-tree--open': open }" :style="{ '--local-w': `${width}px` }">
+  <aside
+    class="panel-tree"
+    :class="{ 'panel-tree--open': open, 'panel-tree--resizing': resizing }"
+    :style="{ '--local-w': `${width}px` }"
+  >
     <div v-if="open" class="panel-tree__grip" @pointerdown.prevent="startResize" />
 
     <header class="panel-tree__head">
       <strong>分支</strong>
       <span class="panel-tree__gap" />
-      <button class="btn btn--sm btn--ghost" title="刷新" @click="refresh">↻</button>
-      <button class="btn btn--sm btn--ghost" title="关闭" @click="$emit('close')">›</button>
+      <button class="btn btn--sm btn--ghost" v-tip="'刷新'" @click="refresh">
+        <Icon name="refresh" size="sm" />
+      </button>
+      <button class="btn btn--sm btn--ghost" @click="$emit('close')">
+        <Icon name="chevronRight" size="sm" />
+      </button>
     </header>
 
-    <p v-if="loading" class="panel-tree__hint">正在读取…</p>
-    <p v-else-if="layout.placed.length === 0" class="panel-tree__hint">这个会话还没有消息。</p>
+    <p v-if="loading" class="panel-tree__hint">加载中…</p>
+    <p v-else-if="layout.placed.length === 0" class="panel-tree__hint">暂无分支</p>
 
     <div v-else class="panel-tree__scroll">
       <svg :width="layout.w" :height="layout.h">
+        <defs>
+          <clipPath v-for="item in layout.placed" :id="`tree-clip-${item.record.id}`" :key="item.record.id">
+            <rect :x="TEXT_X" y="0" :width="NODE_W - TEXT_X - TEXT_RIGHT" :height="NODE_H" />
+          </clipPath>
+        </defs>
         <line
           v-for="(edge, at) in layout.edges"
           :key="at"
@@ -223,75 +227,72 @@ function startResize(event: PointerEvent): void {
           :x2="edge.x2"
           :y2="edge.y2"
           class="edge"
-          :class="{ 'edge--on': edge.onPath }"
+          :class="{ 'edge--path': edge.onPath }"
         />
-
         <g
           v-for="item in layout.placed"
           :key="item.record.id"
           class="node"
           :class="{
-            'node--on': item.onPath,
-            'node--leaf': leaves.has(item.record.id),
+            'node--path': item.onPath && item.record.id !== activeLeaf,
             'node--here': item.record.id === activeLeaf,
           }"
           :transform="`translate(${item.x}, ${item.y})`"
+          @click="openNode(item.record)"
         >
-          <rect
-            :width="NODE_W"
-            :height="NODE_H"
-            rx="6"
-            @click="picked = item.record"
-            @dblclick="jump(item.record)"
-          />
-          <text class="node__icon" x="10" y="25">{{ icon(item.record) }}</text>
-          <text class="node__text" x="30" y="25">{{ preview(item.record) }}</text>
-
-          <!-- 折叠：子树多了之后，收起看不到的部分 -->
-          <g
-            v-if="item.hasChildren"
-            class="node__fold"
-            :transform="`translate(${NODE_W - 14}, ${NODE_H - 12})`"
-            @click.stop="toggleFold(item.record.id)"
+          <rect :width="NODE_W" :height="NODE_H" rx="6" />
+          <foreignObject x="6" y="11" width="20" height="20">
+            <Icon :name="roleIcon(item.record)" size="sm" />
+          </foreignObject>
+          <text
+            class="node__text"
+            :x="TEXT_X"
+            y="25"
+            :clip-path="`url(#tree-clip-${item.record.id})`"
           >
-            <circle r="7" />
-            <text y="4">{{ item.folded ? '+' : '−' }}</text>
-          </g>
+            {{ preview(item.record) }}
+          </text>
         </g>
       </svg>
     </div>
 
-    <p class="panel-tree__foot">单击看详情，双击叶节点切过去</p>
+    <p class="panel-tree__foot">单击节点查看详情；在弹窗内切换分支</p>
+  </aside>
 
-    <!-- 详情 -->
-    <div v-if="picked" class="overlay" @click.self="picked = null">
-      <div class="dialog panel-tree__detail">
+  <Transition name="lya-modal">
+    <div v-if="picked" class="overlay" @click.self="closeModal">
+    <div class="dialog tree-modal">
+      <header class="tree-modal__head">
         <h3 class="dialog__title">#{{ picked.id }} · {{ picked.payload.role }}</h3>
-        <p class="dialog__message">{{ new Date(picked.created_at).toLocaleString('zh-CN') }}</p>
+        <button class="btn btn--sm btn--ghost" @click="closeModal">
+          <Icon name="close" size="sm" />
+        </button>
+      </header>
 
-        <pre v-if="picked.payload.lya.reasoning" class="panel-tree__block">💭 {{ picked.payload.lya.reasoning }}</pre>
-        <pre v-if="picked.payload.openai?.content" class="panel-tree__block">{{ picked.payload.openai.content }}</pre>
-        <div v-for="call in picked.payload.openai?.tool_calls ?? []" :key="call.id" class="panel-tree__block">
-          🔧 {{ call.function.name }}
-          <pre class="panel-tree__args">{{ call.function.arguments }}</pre>
-        </div>
-        <pre v-if="picked.payload.lya.hitl" class="panel-tree__block">{{
-          JSON.stringify(picked.payload.lya.hitl, null, 2)
-        }}</pre>
+      <section v-if="picked.payload.lya.reasoning" class="tree-modal__section">
+        <h4>思考</h4>
+        <pre class="tree-modal__block">{{ picked.payload.lya.reasoning }}</pre>
+      </section>
+      <section v-if="picked.payload.openai?.content" class="tree-modal__section">
+        <h4>正文</h4>
+        <pre class="tree-modal__block">{{ picked.payload.openai.content }}</pre>
+      </section>
 
-        <div class="dialog__actions">
-          <button
-            v-if="leaves.has(picked.id) && picked.id !== activeLeaf"
-            class="btn btn--primary"
-            @click="jump(picked!).then(() => (picked = null))"
-          >
-            切到这条分支
-          </button>
-          <button class="btn" @click="picked = null">关闭</button>
-        </div>
+      <div class="tree-modal__actions">
+        <button
+          v-if="canSwitchPicked"
+          class="btn btn--primary"
+          :disabled="switching"
+          @click="confirmSwitch"
+        >
+          {{ switching ? '切换中…' : '切换到此分支' }}
+        </button>
+        <button v-else-if="picked.id === activeLeaf" class="btn" disabled>当前分支</button>
+        <button class="btn" @click="closeModal">关闭</button>
       </div>
     </div>
-  </aside>
+  </div>
+  </Transition>
 </template>
 
 <style scoped>
@@ -312,7 +313,10 @@ function startResize(event: PointerEvent): void {
   border-left-width: var(--border-width);
 }
 
-/* 左边缘的拖拽把手 */
+.panel-tree--resizing {
+  transition: none;
+}
+
 .panel-tree__grip {
   position: absolute;
   left: 0;
@@ -321,10 +325,6 @@ function startResize(event: PointerEvent): void {
   width: 6px;
   cursor: col-resize;
   z-index: 2;
-}
-
-.panel-tree__grip:hover {
-  background: var(--accent-soft);
 }
 
 .panel-tree__head {
@@ -342,7 +342,7 @@ function startResize(event: PointerEvent): void {
 .panel-tree__hint,
 .panel-tree__foot {
   margin: 0;
-  padding: 10px 12px;
+  padding: 8px 12px;
   color: var(--text-faint);
   font-size: var(--text-xs);
 }
@@ -359,93 +359,89 @@ function startResize(event: PointerEvent): void {
 }
 
 .edge {
-  stroke: var(--border-strong);
-  stroke-width: 1.5;
-  stroke-opacity: 0.5;
+  stroke: var(--info);
+  stroke-opacity: 0.45;
+  stroke-width: 1.7;
+  stroke-linecap: round;
 }
 
-/* 主干高亮，一眼看出当前走的是哪条 */
-.edge--on {
+.edge--path {
   stroke: var(--accent);
-  stroke-width: 2.5;
+  stroke-width: 2.4;
   stroke-opacity: 1;
+}
+
+.node {
+  cursor: pointer;
 }
 
 .node rect {
   fill: var(--surface);
   stroke: var(--border);
-  stroke-width: 1;
-  cursor: pointer;
+  stroke-width: 1.1;
 }
 
 .node:hover rect {
   fill: var(--surface-hover);
 }
 
-.node--on rect {
+.node--path:not(.node--here) rect {
   stroke: var(--accent);
   stroke-width: 2;
   fill: var(--accent-soft);
 }
 
-/* 当前所在的那一片叶子单独标出来 */
 .node--here rect {
   stroke: var(--info);
-  stroke-width: 2.5;
-}
-
-.node--leaf:not(.node--here) rect {
-  stroke-dasharray: none;
+  stroke-width: 2;
+  fill: color-mix(in srgb, var(--info) 14%, var(--surface));
 }
 
 .node__icon,
 .node__text {
-  font-size: 11px;
+  font-size: 12px;
   fill: var(--text);
   pointer-events: none;
 }
 
-.node__text {
-  font-family: var(--font-ui);
+.tree-modal {
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
 }
 
-.node__fold {
-  cursor: pointer;
+.tree-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.node__fold circle {
-  fill: var(--bg-sunken);
-  stroke: var(--border-strong);
-  stroke-width: 1;
+.tree-modal__section h4 {
+  margin: 0 0 6px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
 }
 
-.node__fold text {
-  font-size: 11px;
-  fill: var(--text-muted);
-  text-anchor: middle;
-}
-
-.panel-tree__detail {
-  width: 620px;
-}
-
-.panel-tree__block {
+.tree-modal__block {
   margin: 0;
-  padding: 8px 10px;
+  padding: 10px 12px;
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
+  border: var(--border-width) solid var(--border);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
+  line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 220px;
+  max-height: 240px;
   overflow: auto;
 }
 
-.panel-tree__args {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-  white-space: pre-wrap;
-  word-break: break-all;
+.tree-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 </style>

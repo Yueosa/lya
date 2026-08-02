@@ -9,10 +9,12 @@ import type { Component } from 'vue'
 
 import DefaultShell from './DefaultShell.vue'
 import McShell from './McShell.vue'
+import TokyoShell from './TokyoShell.vue'
 
 /** 需要另一种排版的主题登记在这里；没登记的用默认外壳。 */
 const OVERRIDES: Record<string, Component> = {
   mc: McShell,
+  'tokyo-night': TokyoShell,
 }
 
 /** 取某套主题的外壳。 */
