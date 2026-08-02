@@ -82,6 +82,10 @@ pub fn merge_table(
         return Err(ConfigError::Invalid(format!("{table} 不是一张表")));
     };
     for (key, value) in values {
+        if value.is_null() {
+            target.remove(key);
+            continue;
+        }
         set_preserving_decor(target, key, to_item(value)?);
     }
     Ok(())
@@ -263,6 +267,22 @@ mod tests {
         let parsed: toml::Value = toml::from_str(&after).unwrap();
         assert_eq!(parsed["tools"]["enabled"][1].as_str(), Some("bash"));
         assert_eq!(parsed["tools"]["nested"]["a"].as_integer(), Some(1));
+    }
+
+    #[test]
+    fn null_in_merge_table_removes_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("runtime.toml");
+        fs::write(&path, "[tools]\nenabled = [\"bash\"]\n").unwrap();
+
+        edit_file(&path, |doc| {
+            merge_table(doc, "tools", json!({ "enabled": null }).as_object().unwrap())
+        })
+        .unwrap();
+
+        let after = fs::read_to_string(&path).unwrap();
+        let parsed: toml::Value = toml::from_str(&after).unwrap();
+        assert!(parsed.get("tools").and_then(|t| t.get("enabled")).is_none());
     }
 
     #[test]

@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue'
 
 import type { ActionInfo } from '../api/client'
-import { client, loadTools, meta, readOnly, toggleTool, tools } from '../app/useChat'
+import { client, currentId, loadTools, meta, readOnly, toggleTool, tools } from '../app/useChat'
 import { prefs } from '../app/usePrefs'
+import { toast } from '../ui/useToast'
 
 const actions = ref<ActionInfo[]>([])
+const resetting = ref(false)
 
 onMounted(async () => {
   await loadTools()
@@ -25,6 +27,21 @@ function outOfReach(minMode: string): boolean {
   return order.indexOf(minMode) > current
 }
 
+async function resetToGlobalDefault(): Promise<void> {
+  const id = currentId.value
+  if (!id || readOnly.value) return
+  resetting.value = true
+  try {
+    await client.patchSession(id, { enabled_tools: null })
+    await loadTools()
+    toast('已恢复为全局默认', 'success')
+  } catch (error) {
+    toast(`恢复失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+  } finally {
+    resetting.value = false
+  }
+}
+
 const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
   { key: 'hideReasoning', label: '隐藏思考' },
   { key: 'hideTools', label: '隐藏工具调用' },
@@ -38,37 +55,64 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
 <template>
   <div class="settings">
     <section>
-      <h3 class="settings__title">工具</h3>
-      <label v-for="tool in reachable" :key="tool.name" class="settings__card">
-        <div class="settings__card-head">
+      <div class="settings__head">
+        <h3 class="settings__title">本会话 · 工具</h3>
+        <button
+          v-if="!readOnly"
+          class="btn btn--sm"
+          :disabled="resetting"
+          @click="resetToGlobalDefault"
+        >
+          {{ resetting ? '恢复中…' : '恢复全局默认' }}
+        </button>
+      </div>
+      <p class="settings__lead">
+        只影响当前会话；全局默认在「工具」页的「全局默认」里配置。
+      </p>
+
+      <details v-for="tool in reachable" :key="tool.name" class="settings__card panel">
+        <summary class="catalog-card__summary settings__summary">
           <input
             type="checkbox"
             :checked="tool.enabled !== false"
+            :disabled="readOnly"
+            @click.stop
             @change="toggleTool(tool.name, ($event.target as HTMLInputElement).checked)"
           />
           <span class="settings__name">{{ tool.raw_name }}</span>
           <code class="settings__perm">{{ tool.permission }}</code>
+        </summary>
+        <div class="settings__body">
+          <p class="settings__desc">{{ tool.description }}</p>
+          <p class="settings__meta">最低模式 · {{ tool.min_mode }}</p>
         </div>
-        <p class="settings__desc">{{ tool.description }}</p>
-      </label>
-      <div v-for="tool in blocked" :key="`b-${tool.name}`" class="settings__card settings__card--off">
-        <div class="settings__card-head">
+      </details>
+
+      <details v-for="tool in blocked" :key="`b-${tool.name}`" class="settings__card settings__card--off panel">
+        <summary class="catalog-card__summary settings__summary">
           <span class="settings__name">{{ tool.raw_name }}</span>
           <code class="settings__perm">需 {{ tool.min_mode }}</code>
+        </summary>
+        <div class="settings__body">
+          <p class="settings__desc">{{ tool.description }}</p>
+          <p class="settings__meta">当前模式 {{ meta?.work_mode ?? '—' }} 下不可启用</p>
         </div>
-        <p class="settings__desc">{{ tool.description }}</p>
-      </div>
+      </details>
     </section>
 
     <section>
       <h3 class="settings__title">动作</h3>
-      <div v-for="action in actions" :key="action.name" class="settings__card settings__card--off">
-        <div class="settings__card-head">
+      <p class="settings__lead">动作不可关闭；展开查看说明。</p>
+      <details v-for="action in actions" :key="action.name" class="settings__card settings__card--off panel">
+        <summary class="catalog-card__summary settings__summary">
           <span class="settings__name">{{ action.raw_name }}</span>
           <code class="settings__perm">{{ action.flow === 'await_human' ? 'HITL' : 'auto' }}</code>
+        </summary>
+        <div class="settings__body">
+          <p class="settings__desc">{{ action.description }}</p>
+          <p class="settings__meta">可见模式 · {{ action.visible_in.join('、') }}</p>
         </div>
-        <p class="settings__desc">{{ action.description }}</p>
-      </div>
+      </details>
     </section>
 
     <section>
@@ -109,36 +153,48 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
   gap: 18px;
 }
 
+.settings__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 .settings__title {
   margin: 0 0 8px;
   font-size: var(--text-md);
   font-weight: 600;
 }
 
+.settings__head .settings__title {
+  margin: 0;
+}
+
+.settings__lead {
+  margin: 0 0 10px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  line-height: var(--leading);
+}
+
 .settings__card {
-  display: block;
-  padding: 10px 12px;
   margin-bottom: 6px;
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
-  cursor: pointer;
-}
-
-.settings__card:hover {
-  background: var(--surface-hover);
 }
 
 .settings__card--off {
   opacity: 0.65;
-  cursor: default;
 }
 
-.settings__card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
+.settings__summary {
+  padding: 10px 12px;
+}
+
+.settings__body {
+  padding: 0 12px 12px 36px;
 }
 
 .settings__name {
@@ -154,13 +210,18 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
 }
 
 .settings__desc {
-  margin: 0;
-  padding-left: 24px;
+  margin: 0 0 6px;
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: 1.5;
   white-space: normal;
   word-break: break-word;
+}
+
+.settings__meta {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
 }
 
 .settings__row {
