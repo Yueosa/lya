@@ -70,12 +70,19 @@ pub(super) fn has_children(conn: &Connection, msg_id: i64) -> Result<bool, Sessi
     Ok(n > 0)
 }
 
-/// 从叶往根找最近一条未决 HITL（同批 tool 结果可能挂在它后面）。
+/// 从根往叶找第一条未决 HITL（同批按 call 顺序审；后面可能挂了 tool 结果）。
 pub(super) fn find_pending_hitl_in_path(path: &[MessageRecord]) -> Option<i64> {
     path.iter()
-        .rev()
         .find(|msg| msg.payload.is_pending_hitl())
         .map(|msg| msg.id)
+}
+
+/// 路径上所有未决 HITL，按出现顺序。
+pub(super) fn find_all_pending_hitl_in_path(path: &[MessageRecord]) -> Vec<i64> {
+    path.iter()
+        .filter(|msg| msg.payload.is_pending_hitl())
+        .map(|msg| msg.id)
+        .collect()
 }
 
 /// 沿 `parent_id` 从叶回溯到根，再按 `sort_key` 正序输出。

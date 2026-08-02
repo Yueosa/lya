@@ -96,6 +96,8 @@ export interface ModelInfo {
   /** 还是模板里的占位符，说明这个模型不能用。 */
   api_key_placeholder: boolean
   capabilities: string[]
+  /** 输入上下文上限（token）；lya 元数据，不透传 API。 */
+  context_window?: number | null
   /** models.toml 里透传的请求体字段（含 model 名等）。 */
   params?: Record<string, unknown>
 }

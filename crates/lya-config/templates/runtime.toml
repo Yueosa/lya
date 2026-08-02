@@ -6,6 +6,8 @@
 [agent]
 # 单次用户输入内，LLM 与工具/动作最多来回几轮。防死循环用，别设太大
 max_tool_rounds = 32
+# 同一条 assistant 消息里最多几个 tool_calls；超出则整组失败回灌给模型
+max_parallel_tools = 3
 # 新会话的默认工作模式：ask 只读 / edit 可写 / agent 可执行
 default_work_mode = "agent"
 # 默认使用哪个模型，填 models.toml 里的 id

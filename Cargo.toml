@@ -65,7 +65,12 @@ tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
 toml = "1"
 toml_edit = "0.25"
 uuid = { version = "1", features = ["v4"] }
-rust-embed = "8"
+rust-embed = { version = "8", features = ["compression"] }
 open = "5"
 image = { version = "0.25", default-features = false, features = ["png"] }
 ksni = "0.3.6"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1

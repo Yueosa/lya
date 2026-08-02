@@ -49,6 +49,8 @@ pub struct ShellSettings {
 pub struct AgentSettings {
     /// 单次用户输入内，LLM 与工具/动作最多来回几轮；防死循环。
     pub max_tool_rounds: u32,
+    /// 同一条 assistant 消息里 `tool_calls` 数量上限；超出则整组失败回灌。
+    pub max_parallel_tools: u32,
     /// 新会话的默认工作模式。
     pub default_work_mode: Mode,
     /// 默认模型 id，指向 `models.toml` 里的某一条。
@@ -59,6 +61,7 @@ impl Default for AgentSettings {
     fn default() -> Self {
         Self {
             max_tool_rounds: 32,
+            max_parallel_tools: 3,
             // 与 sessions 表的默认值保持一致；Mode::default() 是 Ask，
             // 那个默认服务于「凭空造一个 Mode」，不适合当新会话默认
             default_work_mode: Mode::Agent,

@@ -15,17 +15,9 @@
  */
 
 /*
- * 中文点阵字。
- *
- * 只在这套主题的 `--font-ui` 里引用，所以用另外两套主题的人根本不会下载它——
- * 浏览器只在字体真被用到时才拉。6.9 MB 从 localhost 读是瞬间的事，真正的代价
- * 是将来嵌进二进制会大这么多。
+ * 中文点阵字 Zpix 由 `mcFont.ts` 按需注入；默认 release 构建会从 dist 裁掉约 7MB
+ * 的 ttf，此时下面 font 栈会落到 ui-monospace。要像素字时用 `npm run build:full`。
  */
-@font-face {
-  font-family: 'Zpix';
-  src: url('../assets/fonts/zpix.ttf') format('truetype');
-  font-display: swap;
-}
 
 [data-theme='mc'] {
   /* 暗底，像游戏里被压暗的菜单背景 */

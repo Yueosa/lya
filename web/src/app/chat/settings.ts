@@ -3,17 +3,9 @@ import { computed } from 'vue'
 import type { Mode } from '../../api/wire'
 import { report } from './errors'
 import { refreshSnapshot } from './snapshot'
-import { closeSession } from './subscription'
+import { meta } from './subscription'
 import { client } from './client'
-import {
-  archivedSessions,
-  currentId,
-  meta,
-  models,
-  sessions,
-  state,
-  tools,
-} from './state'
+import { currentId, models, state, tools } from './state'
 
 export { models, tools }
 

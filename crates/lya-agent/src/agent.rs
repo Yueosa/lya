@@ -1,6 +1,6 @@
 //! [`Agent`]：一轮对话的驱动器。
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use futures_core::Stream;
@@ -44,6 +44,8 @@ pub struct AgentParts<B: ChatBackend> {
     pub prompt: PromptBuilder,
     /// 单轮内 LLM 与工具最多来回几次。
     pub max_tool_rounds: u32,
+    /// 同一条 assistant 消息里 tool_calls 数量上限。
+    pub max_parallel_tools: u32,
     /// 会话没自定义工具列表时用的默认值。
     ///
     /// `None` 表示默认启用全部。
@@ -65,6 +67,7 @@ pub struct Agent<B: ChatBackend> {
     actions: Arc<ActionRegistry>,
     prompt: PromptBuilder,
     max_tool_rounds: u32,
+    max_parallel_tools: u32,
     default_enabled_tools: Option<Vec<String>>,
 }
 
@@ -101,6 +104,7 @@ impl<B: ChatBackend> Agent<B> {
             actions: parts.actions,
             prompt: parts.prompt,
             max_tool_rounds: parts.max_tool_rounds,
+            max_parallel_tools: parts.max_parallel_tools,
             default_enabled_tools: parts.default_enabled_tools,
         })
     }
@@ -336,67 +340,189 @@ impl<B: ChatBackend> Agent<B> {
                     return;
                 }
 
-                let payload = assistant_payload(&completion);
-                let finalized = bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
-                yield AgentEvent::MessageUpdated { record: Box::new(finalized) };
+                let calls = &completion.tool_calls;
+                let mut payload = assistant_payload(&completion);
 
                 // 不带 tool_calls 就是本轮说完了
-                if completion.tool_calls.is_empty() {
+                if calls.is_empty() {
+                    let finalized = bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
+                    yield AgentEvent::MessageUpdated { record: Box::new(finalized) };
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::Completed };
                     return;
                 }
 
-                // ── 分发调用 ────────────────────────────────────
-                let mut awaiting: Option<i64> = None;
-                for call in &completion.tool_calls {
-                    let kind = if self.actions.get(&call.name).is_some() {
-                        CallKind::Action
-                    } else {
-                        CallKind::Tool
-                    };
+                // ── 分发调用组 ────────────────────────────────────
+                let mut plans = Vec::with_capacity(calls.len());
+                for call in calls {
+                    plans.push(
+                        self.classify_call(
+                            &session_id,
+                            meta.work_mode,
+                            &mode_bundle.tools,
+                            &call.name,
+                            &call.arguments,
+                        )
+                        .await,
+                    );
+                }
+
+                let batch_id = uuid::Uuid::new_v4().to_string();
+                let call_ids: Vec<String> = calls.iter().map(|c| c.id.clone()).collect();
+                let needs_review: Vec<String> = calls
+                    .iter()
+                    .zip(&plans)
+                    .filter(|(_, plan)| matches!(plan, Planned::Hitl(_)))
+                    .map(|(call, _)| call.id.clone())
+                    .collect();
+                let review_total = needs_review.len() as u32;
+                payload.lya.meta = Some(json!({
+                    "tool_batch": {
+                        "id": batch_id,
+                        "call_ids": call_ids,
+                        "needs_review": needs_review,
+                    }
+                }));
+
+                let finalized = bail!(self.sessions.update_payload(&session_id, draft.id, &payload));
+                yield AgentEvent::MessageUpdated { record: Box::new(finalized.clone()) };
+
+                if calls.len() as u32 > self.max_parallel_tools {
+                    for call in calls {
+                        let kind = call_kind(&call.name, &self.actions);
+                        yield AgentEvent::CallStarted {
+                            call_id: call.id.clone(),
+                            name: call.name.clone(),
+                            kind,
+                        };
+                        let msg = format!(
+                            "本批 {} 个工具调用超过上限 max_parallel_tools={}，整组未执行。请拆成更小的批次。",
+                            calls.len(),
+                            self.max_parallel_tools
+                        );
+                        let record = bail!(self.sessions.append(
+                            &session_id,
+                            MessagePayload::tool_result(&call.id, msg),
+                            true,
+                        ));
+                        yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                        yield AgentEvent::CallFinished {
+                            call_id: call.id.clone(),
+                            name: call.name.clone(),
+                            success: false,
+                        };
+                    }
+                    continue;
+                }
+
+                // auto 项并行执行（纯工具；动作在 classify 阶段已执行完毕）
+                let auto_items: Vec<(String, String, Value)> = calls
+                    .iter()
+                    .zip(&plans)
+                    .filter_map(|(call, plan)| {
+                        if let Planned::Auto { name, args } = plan {
+                            Some((call.id.clone(), name.clone(), args.clone()))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                let auto_results: HashMap<String, (String, bool)> = futures_util::future::join_all(
+                    auto_items.iter().map(|(call_id, name, args)| async {
+                        let result = self
+                            .execute_auto(
+                                meta.work_mode,
+                                &mode_bundle.tools,
+                                name,
+                                args.clone(),
+                                ToolCtx::new(cancel.clone()),
+                            )
+                            .await;
+                        (call_id.clone(), result)
+                    }),
+                )
+                .await
+                .into_iter()
+                .collect();
+
+                let mut review_index = 0u32;
+                let mut awaiting = false;
+                for (call, plan) in calls.iter().zip(&plans) {
+                    let kind = call_kind(&call.name, &self.actions);
                     yield AgentEvent::CallStarted {
                         call_id: call.id.clone(),
                         name: call.name.clone(),
                         kind,
                     };
 
-                    let outcome = self
-                        .dispatch(
-                            &session_id,
-                            meta.work_mode,
-                            &mode_bundle.tools,
-                            &call.name,
-                            &call.arguments,
-                            awaiting.is_some(),
-                            ToolCtx::new(cancel.clone()),
-                        )
-                        .await;
-
-                    let (payload, success, hitl) = match outcome {
-                        Dispatched::Result { content, success } => (
-                            MessagePayload::tool_result(&call.id, content),
-                            success,
-                            None,
-                        ),
-                        Dispatched::AwaitHuman(block) => {
-                            (hitl_payload(&call.id, *block), true, Some(()))
+                    match plan {
+                        Planned::Done { content, success } => {
+                            let record = bail!(self.sessions.append(
+                                &session_id,
+                                MessagePayload::tool_result(&call.id, content.clone()),
+                                true,
+                            ));
+                            yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                            yield AgentEvent::CallFinished {
+                                call_id: call.id.clone(),
+                                name: call.name.clone(),
+                                success: *success,
+                            };
                         }
-                    };
-
-                    let record = bail!(self.sessions.append(&session_id, payload, true));
-                    yield AgentEvent::MessageCommitted { record: Box::new(record.clone()) };
-                    yield AgentEvent::CallFinished {
-                        call_id: call.id.clone(),
-                        name: call.name.clone(),
-                        success,
-                    };
-                    if hitl.is_some() {
-                        awaiting = Some(record.id);
+                        Planned::Auto { .. } => {
+                            let (content, success) = auto_results
+                                .get(&call.id)
+                                .cloned()
+                                .unwrap_or_else(|| ("内部错误：auto 结果缺失".into(), false));
+                            let record = bail!(self.sessions.append(
+                                &session_id,
+                                MessagePayload::tool_result(&call.id, content),
+                                true,
+                            ));
+                            yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                            yield AgentEvent::CallFinished {
+                                call_id: call.id.clone(),
+                                name: call.name.clone(),
+                                success,
+                            };
+                        }
+                        Planned::Hitl(block) => {
+                            review_index += 1;
+                            let payload = hitl_payload(
+                                &call.id,
+                                block.clone(),
+                                Some(&batch_id),
+                                review_index,
+                                review_total,
+                            );
+                            let record = bail!(self.sessions.append(&session_id, payload, true));
+                            yield AgentEvent::MessageCommitted { record: Box::new(record.clone()) };
+                            yield AgentEvent::AwaitHuman {
+                                message_id: record.id,
+                            };
+                            yield AgentEvent::CallFinished {
+                                call_id: call.id.clone(),
+                                name: call.name.clone(),
+                                success: true,
+                            };
+                            awaiting = true;
+                        }
+                        Planned::Err(message) => {
+                            let record = bail!(self.sessions.append(
+                                &session_id,
+                                MessagePayload::tool_result(&call.id, message.clone()),
+                                true,
+                            ));
+                            yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                            yield AgentEvent::CallFinished {
+                                call_id: call.id.clone(),
+                                name: call.name.clone(),
+                                success: false,
+                            };
+                        }
                     }
                 }
 
-                if let Some(message_id) = awaiting {
-                    yield AgentEvent::AwaitHuman { message_id };
+                if awaiting {
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::AwaitingHuman };
                     return;
                 }
@@ -404,121 +530,266 @@ impl<B: ChatBackend> Agent<B> {
         }
     }
 
-    /// 执行一次调用：先查动作，再查工具。
-    ///
-    /// **执行前必须再拦一次**。筛选只决定「提供给模型什么」，拦不住模型凭空
-    /// 编一个没提供的名字——它见过别的工具名，也可能从历史里翻出旧的。少了
-    /// 这道关，ask 模式下一句 `file_write` 就能真的写文件。
-    ///
-    /// 判断依据用的是**本轮那次筛选的结果**（`allowed`），而不是在这里重算
-    /// 一遍条件；两处逻辑一旦漂移，漏洞就又回来了。
-    #[allow(clippy::too_many_arguments)]
-    async fn dispatch(
+    /// 分类一次调用：动作当场执行；工具只做静态分类。
+    async fn classify_call(
         &self,
         session_id: &str,
         mode: Mode,
         allowed: &lya_tool::ToolBundle,
         name: &str,
         arguments: &str,
-        already_awaiting: bool,
-        ctx: ToolCtx,
-    ) -> Dispatched {
+    ) -> Planned {
         let args: Value = if arguments.trim().is_empty() {
             json!({})
         } else {
             match serde_json::from_str(arguments) {
                 Ok(value) => value,
-                Err(err) => {
-                    return Dispatched::err(format!("参数不是合法 JSON：{err}"));
-                }
+                Err(err) => return Planned::Err(format!("参数不是合法 JSON：{err}")),
             }
         };
 
-        if already_awaiting {
-            return Dispatched::err(
-                "本轮已经有一个待用户答复的请求了，等这个处理完再发下一个。",
-            );
-        }
-
         if let Some(action) = self.actions.get(name) {
             if !action.visible_in(mode) {
-                return Dispatched::err(format!("动作 `{name}` 在当前 {mode} 模式下不可用。"));
+                return Planned::Err(format!("动作 `{name}` 在当前 {mode} 模式下不可用。"));
             }
-            let ctx = ActionCtx::new(session_id, mode);
-            return match action.call(ctx, args).await {
-                ActionOutcome::Continue(result) => Dispatched::Result {
+            return match action
+                .call(ActionCtx::new(session_id, mode), args)
+                .await
+            {
+                ActionOutcome::Continue(result) => Planned::Done {
                     content: result.content,
                     success: result.success,
                 },
-                ActionOutcome::AwaitHuman(block) => {
-                    Dispatched::AwaitHuman(block)
-                }
+                ActionOutcome::AwaitHuman(block) => Planned::Hitl(*block),
+            };
+        }
+
+        self.plan_tool(mode, allowed, name, args)
+    }
+
+    /// 纯工具路径的静态分类（不执行）。
+    fn plan_tool(
+        &self,
+        mode: Mode,
+        allowed: &lya_tool::ToolBundle,
+        name: &str,
+        args: Value,
+    ) -> Planned {
+        let Some(tool) = self.tools.get(name) else {
+            return Planned::Err(format!("没有名为 `{name}` 的函数，请检查可用列表。"));
+        };
+
+        if let Some(reason) = deny_tool(tool.as_ref(), allowed, mode, name) {
+            return Planned::Err(reason);
+        }
+
+        if let Some(request) = tool.confirm_request(&args) {
+            return Planned::Hitl(confirm_block(name, &args, request));
+        }
+
+        Planned::Auto {
+            name: name.to_string(),
+            args,
+        }
+    }
+
+    /// 执行已分类为 auto 的调用（动作或工具）。
+    async fn execute_auto(
+        &self,
+        mode: Mode,
+        allowed: &lya_tool::ToolBundle,
+        name: &str,
+        args: Value,
+        ctx: ToolCtx,
+    ) -> (String, bool) {
+        if let Some(action) = self.actions.get(name) {
+            if !action.visible_in(mode) {
+                return (
+                    format!("动作 `{name}` 在当前 {mode} 模式下不可用。"),
+                    false,
+                );
+            }
+            let outcome = action
+                .call(ActionCtx::new("", mode), args)
+                .await;
+            return match outcome {
+                ActionOutcome::Continue(result) => (result.content, result.success),
+                ActionOutcome::AwaitHuman(_) => (
+                    "内部错误：auto 路径不应再挂起 HITL".into(),
+                    false,
+                ),
             };
         }
 
         let Some(tool) = self.tools.get(name) else {
-            return Dispatched::err(format!("没有名为 `{name}` 的函数，请检查可用列表。"));
+            return (
+                format!("没有名为 `{name}` 的函数，请检查可用列表。"),
+                false,
+            );
         };
-
         if let Some(reason) = deny_tool(tool.as_ref(), allowed, mode, name) {
-            return Dispatched::err(reason);
+            return (reason, false);
         }
-
-        // 工具自己说要先让用户过目（目前只有 bash 会）
-        if let Some(request) = tool.confirm_request(&args) {
-            return Dispatched::AwaitHuman(Box::new(confirm_block(name, &args, request)));
-        }
-
         let result = tool.call(ctx, args).await;
-        Dispatched::Result {
-            content: result.content,
-            success: result.success,
+        (result.content, result.success)
+    }
+
+    /// 本批 HITL 全部结清后，并行执行已批准且 deferred 的工具确认。
+    pub async fn flush_deferred_tool_executions(
+        &self,
+        session_id: &str,
+        cancel: CancelToken,
+    ) -> Result<(), AgentError> {
+        if self.sessions.pending_hitl(session_id)?.is_some() {
+            return Ok(());
         }
+
+        let deferred = self.collect_deferred_confirms(session_id)?;
+        if deferred.is_empty() {
+            return Ok(());
+        }
+
+        let futures: Vec<_> = deferred
+            .iter()
+            .map(|item| {
+                self.execute_confirmed(
+                    session_id,
+                    &item.tool_name,
+                    item.arguments.clone(),
+                    item.note.as_deref(),
+                    cancel.clone(),
+                )
+            })
+            .collect();
+        let contents = futures_util::future::join_all(futures).await;
+
+        for (item, content) in deferred.iter().zip(contents) {
+            let content = content?;
+            self.sessions.append(
+                session_id,
+                MessagePayload::tool_result(&item.call_id, content),
+                true,
+            )?;
+            self.mark_deferred_executed(session_id, item.hitl_id)?;
+        }
+        Ok(())
+    }
+
+    fn collect_deferred_confirms(
+        &self,
+        session_id: &str,
+    ) -> Result<Vec<DeferredConfirm>, AgentError> {
+        let path = self.sessions.path_to_active_leaf(session_id)?;
+        let mut out = Vec::new();
+        for msg in &path {
+            if msg.payload.role != MessageRole::Hitl
+                || msg.payload.status != MessageStatus::Resolved
+            {
+                continue;
+            }
+            let HitlBlock::ToolConfirm {
+                tool_name,
+                arguments,
+                ..
+            } = msg
+                .payload
+                .lya
+                .hitl
+                .as_ref()
+                .ok_or_else(|| AgentError::Invalid(format!("消息 #{} 无 HITL", msg.id)))?
+            else {
+                continue;
+            };
+            let Some(meta) = msg.payload.lya.meta.as_ref() else {
+                continue;
+            };
+            let Some(answer) = meta.get("answer") else {
+                continue;
+            };
+            if answer.get("approved") != Some(&json!(true))
+                || answer.get("deferred") != Some(&json!(true))
+                || answer.get("executed") == Some(&json!(true))
+            {
+                continue;
+            }
+            let call_id = meta
+                .get("tool_call_id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    AgentError::Invalid(format!("消息 #{} 没有 tool_call_id", msg.id))
+                })?
+                .to_string();
+            let note = answer
+                .get("note")
+                .and_then(Value::as_str)
+                .map(str::to_string);
+            out.push(DeferredConfirm {
+                hitl_id: msg.id,
+                call_id,
+                tool_name: tool_name.clone(),
+                arguments: arguments.clone(),
+                note,
+            });
+        }
+        Ok(out)
+    }
+
+    fn mark_deferred_executed(&self, session_id: &str, hitl_id: i64) -> Result<(), AgentError> {
+        let mut record = self.sessions.get_message(session_id, hitl_id)?;
+        let meta = record
+            .payload
+            .lya
+            .meta
+            .get_or_insert_with(|| json!({}));
+        if let Some(obj) = meta.as_object_mut() {
+            if let Some(answer) = obj.get_mut("answer").and_then(|v| v.as_object_mut()) {
+                answer.insert("executed".into(), json!(true));
+                answer.remove("deferred");
+            }
+        }
+        self.sessions
+            .update_payload(session_id, hitl_id, &record.payload)?;
+        Ok(())
     }
 
     /// 答复一次工具确认。
     ///
-    /// 与表单最大的不同：表单的答复本身就是结果，而这里的「同意」意味着
-    /// **现在才真正去执行**，再把真实输出写成 tool 结果。
-    /// `cancel` 让放行后的执行也能被叫停——批准一条跑十分钟的命令之后，
-    /// 用户仍该有权中止。
+    /// 批准时不立刻执行：记入 deferred 队列，等同批 HITL 全部审完后再并行跑。
+    /// 拒绝则立刻写 tool 结果。
     pub async fn resolve_tool_confirm(
         &self,
         session_id: &str,
         approved: bool,
         note: Option<&str>,
-        cancel: CancelToken,
+        _cancel: CancelToken,
     ) -> Result<(), AgentError> {
         let (hitl_id, call_id, block) = self.pending_block(session_id)?;
-        let HitlBlock::ToolConfirm {
-            tool_name,
-            arguments,
-            ..
-        } = block
-        else {
+        let HitlBlock::ToolConfirm { tool_name, .. } = &block else {
             return Err(AgentError::Invalid("当前待处理的不是工具确认".into()));
         };
 
-        let content = if approved {
-            self.execute_confirmed(session_id, &tool_name, arguments, note, cancel)
-                .await?
-        } else {
-            let mut text = format!("[用户拒绝] 用户没有放行 `{tool_name}`，该操作未执行。");
-            if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
-                text.push_str(&format!("\n[用户备注: {}]", note.trim()));
-            }
-            text
-        };
+        if approved {
+            self.sessions.resolve_hitl(
+                session_id,
+                hitl_id,
+                Some(json!({ "approved": true, "note": note, "deferred": true })),
+            )?;
+            return Ok(());
+        }
 
+        let mut text = format!("[用户拒绝] 用户没有放行 `{tool_name}`，该操作未执行。");
+        if let Some(note) = note.filter(|n| !n.trim().is_empty()) {
+            text.push_str(&format!("\n[用户备注: {}]", note.trim()));
+        }
         self.sessions.append(
             session_id,
-            MessagePayload::tool_result(call_id, content),
+            MessagePayload::tool_result(&call_id, text),
             true,
         )?;
         self.sessions.resolve_hitl(
             session_id,
             hitl_id,
-            Some(json!({ "approved": approved, "note": note })),
+            Some(json!({ "approved": false, "note": note })),
         )?;
         Ok(())
     }
@@ -559,6 +830,40 @@ impl<B: ChatBackend> Agent<B> {
             Some(note) => format!("[用户备注: {}]\n{}", note.trim(), result.content),
             None => result.content,
         })
+    }
+}
+
+/// 调用组里一条 call 的分类结果。
+enum Planned {
+    /// 动作已在 classify 阶段执行完毕。
+    Done {
+        content: String,
+        success: bool,
+    },
+    /// 工具可立刻并行执行。
+    Auto {
+        name: String,
+        args: Value,
+    },
+    /// 需用户介入，尚未执行。
+    Hitl(HitlBlock),
+    /// 参数或权限错误。
+    Err(String),
+}
+
+struct DeferredConfirm {
+    hitl_id: i64,
+    call_id: String,
+    tool_name: String,
+    arguments: Value,
+    note: Option<String>,
+}
+
+fn call_kind(name: &str, actions: &ActionRegistry) -> CallKind {
+    if actions.get(name).is_some() {
+        CallKind::Action
+    } else {
+        CallKind::Tool
     }
 }
 
@@ -715,28 +1020,6 @@ impl<B: ChatBackend> Agent<B> {
     }
 }
 
-/// 一次分发的结果。
-enum Dispatched {
-    /// 直接产出结果。
-    Result {
-        /// 回灌给模型的文本。
-        content: String,
-        /// 是否成功。
-        success: bool,
-    },
-    /// 需要人介入。
-    AwaitHuman(Box<HitlBlock>),
-}
-
-impl Dispatched {
-    fn err(content: impl Into<String>) -> Self {
-        Self::Result {
-            content: content.into(),
-            success: false,
-        }
-    }
-}
-
 /// 把一次生成结果落成助手消息。
 fn assistant_payload(completion: &lya_llm::ChatCompletion) -> MessagePayload {
     let tool_calls: Vec<OpenAiToolCall> = completion
@@ -782,7 +1065,13 @@ fn assistant_payload(completion: &lya_llm::ChatCompletion) -> MessagePayload {
 ///
 /// `tool_call_id` 必须存下来：用户答复时要用它写 tool 结果，否则那次调用
 /// 永远配不上结果。
-fn hitl_payload(call_id: &str, block: HitlBlock) -> MessagePayload {
+fn hitl_payload(
+    call_id: &str,
+    block: HitlBlock,
+    batch_id: Option<&str>,
+    batch_index: u32,
+    batch_total: u32,
+) -> MessagePayload {
     let kind = match &block {
         HitlBlock::Form { .. } => MessageKind::Form,
         HitlBlock::ToolConfirm { .. } => MessageKind::ToolConfirm,
@@ -807,7 +1096,15 @@ fn hitl_payload(call_id: &str, block: HitlBlock) -> MessagePayload {
         },
         other => other,
     };
+    let mut meta = json!({ "tool_call_id": call_id });
+    if let Some(batch_id) = batch_id {
+        if let Some(obj) = meta.as_object_mut() {
+            obj.insert("batch_id".into(), json!(batch_id));
+            obj.insert("batch_index".into(), json!(batch_index));
+            obj.insert("batch_total".into(), json!(batch_total));
+        }
+    }
     let mut payload = MessagePayload::hitl_pending(kind, block);
-    payload.lya.meta = Some(json!({ "tool_call_id": call_id }));
+    payload.lya.meta = Some(meta);
     payload
 }

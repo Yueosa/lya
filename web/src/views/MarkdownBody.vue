@@ -7,7 +7,7 @@
 -->
 
 <script setup lang="ts">
-import hljs from 'highlight.js'
+import hljs from '../ui/hljs'
 import { computed, nextTick, ref, watch } from 'vue'
 
 import { imageContext } from '../app/useChat'

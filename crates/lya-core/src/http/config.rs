@@ -54,6 +54,8 @@ pub struct MaskedModel {
     pub api_key_placeholder: bool,
     /// 能力标签。
     pub capabilities: Vec<String>,
+    /// 上下文窗口（token）；lya 元数据，不透传 API。
+    pub context_window: Option<u64>,
     /// 透传进请求体的其余参数。
     pub params: serde_json::Map<String, Value>,
 }
@@ -302,6 +304,7 @@ fn mask(entry: &ModelEntry) -> MaskedModel {
         api_key_masked: masked,
         api_key_placeholder: entry.api_key_is_placeholder(),
         capabilities: entry.effective_capabilities(),
+        context_window: entry.context_window,
         params: entry.params.clone(),
     }
 }

@@ -20,6 +20,7 @@ lya-session = { workspace = true }
 lya-tool = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
 lya-config = { workspace = true }

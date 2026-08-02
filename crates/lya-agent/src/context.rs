@@ -16,8 +16,7 @@
 //! 系统提示词是缓存前缀的最前面，往里塞当前时间等于每轮都换一个前缀，
 //! API 商的缓存全量失效。加在消息前缀上则相反：时间戳取自消息**不可变的
 //! 创建时间**，同一条历史消息每次渲染的结果完全一样，新消息只是往尾部追加。
-//! 系统提示词里只放一段静态说明（`lya_prompt::TIME_ANCHOR`）告诉模型这个
-//! 前缀是什么、以最新一条 user 的时间为准。
+//! 系统提示词里只放一段静态说明（`lya_prompt::TIME_ANCHOR`）解释前缀含义。
 
 use chrono::{DateTime, Duration, Local, Utc};
 use lya_llm::{ChatMessage, ToolCall};

@@ -191,6 +191,7 @@ async fn serve(
         actions: Arc::new(actions),
         prompt,
         max_tool_rounds: config.runtime.agent.max_tool_rounds,
+        max_parallel_tools: config.runtime.agent.max_parallel_tools,
         default_enabled_tools: config.runtime.tools.enabled.clone(),
     })?);
 

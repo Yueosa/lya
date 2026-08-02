@@ -1,5 +1,5 @@
 <!--
-  聊天气泡旁的头像。lya 用 public/icon.jpg，用户走 QQ 头像。
+  聊天气泡旁的头像。lya 用 public/icon.png，用户走 QQ 头像。
 -->
 
 <script setup lang="ts">

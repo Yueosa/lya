@@ -4,30 +4,16 @@
 
 ## 已完成（近期）
 
-- 后端骨架：会话树、HITL、agent 轮次、HTTP + SSE
-- WebUI：Vue 3 三栏、分支树、设置/记忆页
-- **托盘**：Linux ksni（WebUI / 退出）+ `lya-core/run.rs` 服务组装
-- 安全：`GET /api/config/raw/models` 脱敏 `api_key`
-- 稳定性：发消息先占轮次再写库；HITL 确认可 cancel；`pending_hitl` 扫 active 路径
-- 提示词：Actions / Tools 标题统一为 `=== [xxx] ===`；记忆标题前缀规范
-- Bash：`2>&1` 解析修复；LLM 可选 `steps[]` 结构化确认（展示层）
-- `lya-session`：`store/` 子模块拆分
+- 后端骨架、WebUI、托盘、Wave A–C
+- img_cache、二进制 slim、`web_fetch` 翻页、`context_window` 配置
 
-## 进行中
+## 进行中：Wave D
 
-**Backlog**（见 [`lya-user-0-todo.md`](./lya-user-0-todo.md)）：vdo/ado 缓存、web_fetch 翻页、token 估算等。
+[`docs/tool-batch.md`](./tool-batch.md) — 同批 `tool_calls` 调用组（并行 + 多 HITL + `‹ i/n ›`），然后 **notify-send**。
 
-## 已完成（Wave A）
+## 之后
 
-bash 双引号命令替换、steps 决策解耦、图片路径、默认模型名、分支树 filter 默认。
-
-## 下一步
-
-| 优先级 | 项 | 说明 |
-|--------|----|------|
-| B | 图片 lightbox、会话显示偏好扩展 | 折叠阈值、流式后自动收起 |
-| C | 前端拆层 + 子组件化 + README 规范 | 与用户一起 |
-| — | img_cache、web_fetch 翻页、token 估算 | Backlog |
+vdo/ado → tool 配置页 → lianclaw 迁移 → 上下文管理器（`lya-token` + `lya-context`）。
 
 ## 刻意不做 / 封存
 

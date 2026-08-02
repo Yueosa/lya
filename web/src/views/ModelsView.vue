@@ -68,6 +68,13 @@ function modelParam(model: ModelInfo, key: string): string | null {
   return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
+function formatContext(value: number | null | undefined): string {
+  if (value == null) return '—'
+  if (value >= 1_048_576 && value % 1_048_576 === 0) return `${value / 1_048_576}M`
+  if (value >= 1024 && value % 1024 === 0) return `${value / 1024}K`
+  return String(value)
+}
+
 function probeModelsText(baseUrl: string): string {
   const result = probeByUrl.value.get(baseUrl)
   if (!result?.ok || !result.models.length) return ''
@@ -133,7 +140,8 @@ function selectGroup(baseUrl: string): void {
 
           <p class="page__hint">
             来自 <code>models.toml</code>。对话里选「显示名」；发请求用的是「API model」列。
-            其余字段（如 <code>max_tokens</code>、<code>thinking</code>）原样透传进请求体，在原始文件里编辑即可。
+            <code>context_window</code> 是 lya 侧输入预算（不给 API）；
+            <code>max_tokens</code>、<code>thinking</code> 等透传进请求体，在原始文件里编辑即可。
           </p>
 
           <div class="panel form-panel">
@@ -159,6 +167,7 @@ function selectGroup(baseUrl: string): void {
                   <th>显示名</th>
                   <th>配置 ID</th>
                   <th>API model</th>
+                  <th>context</th>
                   <th>max_tokens</th>
                   <th>密钥</th>
                   <th>能力</th>
@@ -169,6 +178,7 @@ function selectGroup(baseUrl: string): void {
                   <td><strong>{{ model.name }}</strong></td>
                   <td><code class="mono mono--strong">{{ model.id }}</code></td>
                   <td><code class="mono">{{ modelParam(model, 'model') || '—' }}</code></td>
+                  <td><code class="mono">{{ formatContext(model.context_window) }}</code></td>
                   <td><code class="mono">{{ modelParam(model, 'max_tokens') || '—' }}</code></td>
                   <td>
                     <span v-if="model.api_key_placeholder" class="pill pill--bad">未配置</span>

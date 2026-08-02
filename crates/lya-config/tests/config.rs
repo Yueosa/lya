@@ -92,11 +92,36 @@ max_tokens = 4096
     // 嵌套表也要原样带过去
     assert_eq!(entry.params["thinking"]["type"], "enabled");
     // 固定字段不该混进透传参数
-    for fixed in ["id", "name", "base_url", "api_key"] {
+    for fixed in ["id", "name", "base_url", "api_key", "context_window"] {
         assert!(!entry.params.contains_key(fixed), "{fixed} 不该被透传");
     }
 
     config.check_ready().unwrap();
+}
+
+#[test]
+fn context_window_is_lya_metadata_not_api_param() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        MODELS_FILE,
+        r#"
+[[models]]
+id = "ds"
+name = "DeepSeek"
+base_url = "https://api.deepseek.com"
+api_key = "sk-real"
+context_window = 1048576
+model = "deepseek-v4-flash"
+max_tokens = 8192
+"#,
+    );
+
+    let config = Config::load_from(dir.path()).unwrap();
+    let entry = config.models.get("ds").unwrap();
+    assert_eq!(entry.context_window, Some(1_048_576));
+    assert_eq!(entry.params["max_tokens"], 8192);
+    assert!(!entry.params.contains_key("context_window"));
 }
 
 #[test]

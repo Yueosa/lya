@@ -82,6 +82,11 @@ pub struct ModelEntry {
     /// 每个模型的本事。
     #[serde(default)]
     pub capabilities: Vec<String>,
+    /// 模型上下文窗口（token 量级），供 lya 上下文管理器使用，**不会**透传进 API。
+    ///
+    /// 与 `max_tokens`（单次输出上限，透传字段）不同：这是 lya 侧的输入预算元数据。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window: Option<u64>,
     /// 透传字段，直接作为请求体的一部分（应包含 `model`）。
     #[serde(flatten)]
     pub params: Map<String, Value>,

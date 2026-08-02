@@ -66,4 +66,17 @@ impl SessionStore {
             Ok(find_pending_hitl_in_path(&path))
         })
     }
+
+    /// 路径上全部未决 HITL id（按出现顺序）。
+    pub fn pending_hitl_all(&self, session_id: &str) -> Result<Vec<i64>, SessionError> {
+        self.db.read(|conn| {
+            let meta = load_session(conn, session_id)?
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+            let Some(leaf) = meta.active_leaf_id else {
+                return Ok(Vec::new());
+            };
+            let path = walk_path(conn, session_id, leaf)?;
+            Ok(find_all_pending_hitl_in_path(&path))
+        })
+    }
 }

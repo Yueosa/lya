@@ -298,8 +298,13 @@ pub async fn hitl(
     // 等你答复的托盘会一直挂着。两条一起变，增量说不清，重推一份快照最直接。
     hub.resync(&id);
 
-    // 答复完就接着跑，用户不用再点一次「继续」
-    hub.start_turn(&id)?;
+    if agent.sessions().pending_hitl(&id)?.is_none() {
+        let cancel = hub.reserve_operation(&id)?;
+        let flush = agent.flush_deferred_tool_executions(&id, cancel).await;
+        hub.release_operation(&id);
+        flush?;
+        hub.start_turn(&id)?;
+    }
     Ok(StatusCode::ACCEPTED)
 }
 

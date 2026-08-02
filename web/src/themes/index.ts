@@ -20,6 +20,8 @@ import './mtf.css'
 import './mc.css'
 import './base.css'
 
+import { ensureMcFont } from './mcFont'
+
 /** 一套主题。 */
 export interface Theme {
   id: string
@@ -69,6 +71,7 @@ export function applyTheme(id: string): void {
     // 测试环境或隐私模式写不进去就算了，内存里的 themeId 仍然有效
   }
   themeId.value = theme.id
+  if (theme.id === 'mc') void ensureMcFont()
 }
 
 /** 启动时调用一次。 */

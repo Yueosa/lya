@@ -23,19 +23,29 @@
 - [x] 前端子组件化：`ChatView` → `views/chat/*`（Header、Timeline、Scroll、Drawer…）
 - [x] 后端 crate README（14 个 crate 均有 README，对齐 `docs/style.md`）
 
-## Backlog
+## Wave D — 调用组 + 通知（进行中）
+
+设计见 [`docs/tool-batch.md`](./tool-batch.md)。
+
+1. [x] **TIME_ANCHOR 澄清**：user=发送时刻，tool=结果落库时刻（≈执行结束）
+2. [x] **tool 调用组（后端）**：去 `already_awaiting` stub；auto 并行；多 HITL；批后并行 execute；`max_parallel_tools=3`
+3. [ ] **tool 调用组（前端）**：组卡片折叠 + HITL `‹ i/n ›` + SSE/状态
+4. [ ] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 message_id 去重
+
+## Backlog（Wave D 之后）
+
+| # | 项 |
+|---|-----|
+| 5 | vdo_cache / ado_cache |
+| 6 | 每 tool/action 配置页 |
+| 7 | lianclaw 迁移 |
+| 8 | **上下文管理器**：`lya-token` + `lya-context` |
 
 | 项 | 说明 |
 |----|------|
-| vdo_cache / ado_cache | 音视频工具；目录约定见 `docs/media-cache.md` |
-| web_fetch 翻页 | 对齐 lianclaw `start_line` / `end_line` |
-| token 估算 | `deepseek_v3_tokenizer.zip`；先做 DeepSeek |
-| 上下文 token 预算 | 依赖 token 估算 |
-| 每 tool/action 配置页 | runtime 扩展 + 设置 UI |
-| notify-send | 关键节点桌面通知 |
-| 二进制体积 | release + strip / LTO 等 |
-| lianclaw 迁移 | 用户指定清单后一次性脚本 |
-| 二进制 31MB | 见上 |
+| web_fetch 翻页 | [x] |
+| 二进制体积 | 已做 slim 构建 |
+| models 字段 | `context_window` / `max_tokens` |
 
 ## 封存（不做 / 不追踪）
 
@@ -45,15 +55,11 @@
 - Action cancel
 - 流式落库策略改动
 - HITL 长命令终端弹窗（近期）
+- HITL 确认超时自动拒绝（永久等人；见 tool-batch）
 - embedding / 自动召回
 - 配置文件 watcher
 - 全局 SSE（会话级够用）
 - 分支命名 / `branch_meta`
 - 递归删整枝（`delete_leaf` 够用）
 - 图片上传、会话导出、快捷键、移动端
-
-## 未来
-
-1. 音频/视频工具 + `~/.lya/sessions/{id}/{ado_cache,vdo_cache}`
-2. img_cache（见 Backlog）
-3. notify-send（见 Backlog）
+- notify 前台抑制（暂不做）

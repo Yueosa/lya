@@ -23,3 +23,5 @@ let default_model = config.default_model();
 ```
 
 透传字段（如 `max_tokens`）写在 `models.toml`，由 `lya-llm` 原样带进请求体。
+
+`context_window` 是 lya 元数据（输入上下文预算，给将来的上下文管理器用），**不会**发给 API。

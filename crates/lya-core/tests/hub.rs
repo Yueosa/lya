@@ -85,6 +85,7 @@ fn fixture() -> Fixture {
             actions: Arc::new(ActionRegistry::new()),
             prompt: PromptBuilder::new(),
             max_tool_rounds: 4,
+            max_parallel_tools: 3,
             default_enabled_tools: None,
         })
         .unwrap(),
@@ -460,6 +461,7 @@ async fn session_without_custom_tools_follows_the_global_default() {
         actions: Arc::new(ActionRegistry::new()),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        max_parallel_tools: 3,
         default_enabled_tools: Some(vec!["file_read".into()]),
     })
     .unwrap();

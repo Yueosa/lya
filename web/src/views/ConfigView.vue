@@ -223,8 +223,8 @@ watch(tab, (id) => {
 
           <section v-else key="raw" class="page__pane">
           <p class="page__hint">
-            core 只读——改端口等需重启进程才生效。models 里除固定字段外的键（如
-            <code>max_tokens</code>、<code>temperature</code>）会原样透传进 API 请求体。
+            core 只读——改端口等需重启进程才生效。models 里
+            <code>context_window</code> 是 lya 输入预算；<code>max_tokens</code> 等透传键会原样进 API 请求体。
           </p>
           <div class="seg-row">
             <button

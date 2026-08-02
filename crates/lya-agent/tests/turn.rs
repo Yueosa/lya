@@ -36,6 +36,11 @@ enum Turn {
         name: String,
         arguments: String,
     },
+    /// 同一条 assistant 里多个 tool_calls。
+    Calls {
+        text: String,
+        calls: Vec<(String, String, String)>,
+    },
     /// 请求直接失败。
     Fail(String),
 }
@@ -130,6 +135,21 @@ impl ChatBackend for ScriptedBackend {
                         reason: Some("tool_calls".into()),
                     },
                 ],
+                Turn::Calls { text, calls } => {
+                    let mut events = vec![StreamEvent::TextDelta(text)];
+                    for (index, (call_id, name, arguments)) in calls.into_iter().enumerate() {
+                        events.push(StreamEvent::ToolCallDelta(ToolCallDelta {
+                            index,
+                            id: Some(call_id),
+                            name: Some(name),
+                            arguments: Some(arguments),
+                        }));
+                    }
+                    events.push(StreamEvent::Finished {
+                        reason: Some("tool_calls".into()),
+                    });
+                    events
+                }
             };
             let stream = async_stream::stream! {
                 for event in events {
@@ -220,6 +240,7 @@ fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: max_rounds,
+        max_parallel_tools: 3,
         default_enabled_tools: None,
     })
     .unwrap();
@@ -759,6 +780,7 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        max_parallel_tools: 3,
         default_enabled_tools: None,
     })
     .unwrap();
@@ -972,6 +994,7 @@ fn fixture_with_guarded(turns: Vec<Turn>) -> (Fixture, Arc<Mutex<Vec<String>>>) 
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        max_parallel_tools: 3,
         default_enabled_tools: None,
     })
     .unwrap();
@@ -1035,6 +1058,10 @@ async fn approval_executes_and_feeds_the_output_back() {
             Some("可以，但别动日志"),
             CancelToken::new(),
         )
+        .await
+        .unwrap();
+    fx.agent
+        .flush_deferred_tool_executions(&fx.session_id, CancelToken::new())
         .await
         .unwrap();
 
@@ -1108,6 +1135,10 @@ async fn permission_is_rechecked_after_approval() {
         .resolve_tool_confirm(&fx.session_id, true, None, CancelToken::new())
         .await
         .unwrap();
+    fx.agent
+        .flush_deferred_tool_executions(&fx.session_id, CancelToken::new())
+        .await
+        .unwrap();
 
     assert!(ran.lock().unwrap().is_empty(), "权限已经不够了，不能执行");
     let record = fx
@@ -1151,6 +1182,7 @@ async fn session_model_selection_is_honoured() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        max_parallel_tools: 3,
         default_enabled_tools: None,
     })
     .unwrap();
@@ -1218,6 +1250,7 @@ async fn default_model_must_exist() {
         actions: Arc::new(ActionRegistry::new()),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        max_parallel_tools: 3,
         default_enabled_tools: None,
     });
     assert!(matches!(
@@ -1275,10 +1308,134 @@ async fn name_collision_is_rejected_at_construction() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        max_parallel_tools: 3,
         default_enabled_tools: None,
     });
     assert!(matches!(
         result.err(),
         Some(lya_agent::AgentError::NameCollision(name)) if name == "memory_write"
     ));
+}
+
+async fn flush_if_batch_clear(fx: &Fixture) {
+    if fx.sessions.pending_hitl(&fx.session_id).unwrap().is_none() {
+        fx.agent
+            .flush_deferred_tool_executions(&fx.session_id, CancelToken::new())
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn batch_creates_two_hitl_without_stubbing_second() {
+    let (fx, ran) = fixture_with_guarded(vec![
+        Turn::Calls {
+            text: "两个都要确认".into(),
+            calls: vec![
+                (
+                    "c1".into(),
+                    "danger".into(),
+                    r#"{"command":"rm -rf build"}"#.into(),
+                ),
+                (
+                    "c2".into(),
+                    "danger".into(),
+                    r#"{"command":"rm -rf dist"}"#.into(),
+                ),
+            ],
+        },
+        Turn::Text("好了".into()),
+    ]);
+    fx.say("清理");
+    let events = fx.run().await;
+    assert_eq!(end_reason(&events), TurnEndReason::AwaitingHuman);
+    assert!(ran.lock().unwrap().is_empty(), "确认前一步都不该执行");
+
+    let pending = fx.sessions.pending_hitl_all(&fx.session_id).unwrap();
+    assert_eq!(pending.len(), 2, "两条都应挂起，而不是把第二条 stub 掉");
+
+    let first = fx.sessions.get_message(&fx.session_id, pending[0]).unwrap();
+    let second = fx.sessions.get_message(&fx.session_id, pending[1]).unwrap();
+    assert_eq!(
+        first.payload.lya.meta.as_ref().and_then(|m| m.get("batch_index")),
+        Some(&json!(1))
+    );
+    assert_eq!(
+        second.payload.lya.meta.as_ref().and_then(|m| m.get("batch_index")),
+        Some(&json!(2))
+    );
+}
+
+#[tokio::test]
+async fn batch_auto_runs_in_parallel_with_pending_confirms() {
+    let (fx, ran) = fixture_with_guarded(vec![
+        Turn::Calls {
+            text: "一个自动一个要确认".into(),
+            calls: vec![
+                ("c_auto".into(), "echo".into(), r#"{"text":"hi"}"#.into()),
+                (
+                    "c1".into(),
+                    "danger".into(),
+                    r#"{"command":"rm -rf build"}"#.into(),
+                ),
+            ],
+        },
+        Turn::Text("好了".into()),
+    ]);
+    fx.say("混合");
+    fx.run().await;
+
+    let path = fx.sessions.path_to_active_leaf(&fx.session_id).unwrap();
+    assert!(
+        path.iter()
+            .any(|m| m.payload.openai.as_ref().is_some_and(|o| {
+                o.tool_call_id.as_deref() == Some("c_auto")
+                    && o.content.contains("echo: hi")
+            })),
+        "auto 项应立刻落库"
+    );
+    assert_eq!(fx.sessions.pending_hitl_all(&fx.session_id).unwrap().len(), 1);
+    assert!(ran.lock().unwrap().is_empty(), "需确认的仍不能执行");
+}
+
+#[tokio::test]
+async fn batch_executes_approved_confirms_after_all_reviewed() {
+    let (fx, ran) = fixture_with_guarded(vec![
+        Turn::Calls {
+            text: String::new(),
+            calls: vec![
+                (
+                    "c1".into(),
+                    "danger".into(),
+                    r#"{"command":"rm -rf build"}"#.into(),
+                ),
+                (
+                    "c2".into(),
+                    "danger".into(),
+                    r#"{"command":"rm -rf dist"}"#.into(),
+                ),
+            ],
+        },
+        Turn::Text("删完了".into()),
+    ]);
+    fx.say("清理");
+    fx.run().await;
+
+    fx.agent
+        .resolve_tool_confirm(&fx.session_id, true, None, CancelToken::new())
+        .await
+        .unwrap();
+    assert!(ran.lock().unwrap().is_empty(), "本批未审完不应执行");
+
+    fx.agent
+        .resolve_tool_confirm(&fx.session_id, true, None, CancelToken::new())
+        .await
+        .unwrap();
+    flush_if_batch_clear(&fx).await;
+
+    assert_eq!(
+        ran.lock().unwrap().as_slice(),
+        ["rm -rf build", "rm -rf dist"],
+        "本批审完后并行执行"
+    );
 }
