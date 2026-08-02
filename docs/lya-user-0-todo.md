@@ -63,7 +63,7 @@
 |---|-----|------|
 | 1 | tool/action 配置 **Phase 2** | 每工具数值进 TOML — **明确不做** |
 | 2 | vdo/ado **tool**（`video_scan` 等） | Phase 1 不做；有真实需求再议 |
-| 3 | lianclaw 迁移 | 等清单 |
+| **lianclaw 迁移（一次性）** | [x] | 8 条记忆 + 会话 S4/S8；工具消息已剥离；备份 `lya.db.bak-before-lianclaw-migrate` |
 | 4 | **上下文管理器** | `lya-token` + `lya-context` |
 
 | 项 | 说明 |

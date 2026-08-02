@@ -4,10 +4,8 @@
 
 ## 当前优先
 
-Backlog 见 [`lya-user-0-todo.md`](./lya-user-0-todo.md)：
-
-1. **上下文管理器**（`lya-token` + `lya-context`）
-2. lianclaw 迁移
+1. **上下文管理器**（`lya-token` + `lya-context`）— 下一轮
+2. 亲自使用 / 改前端 / 修 Bug
 
 ## 已完成（Wave A–F + 近期）
 
@@ -22,8 +20,6 @@ Backlog 见 [`lya-user-0-todo.md`](./lya-user-0-todo.md)：
 ## 之后
 
 1. **上下文管理器**（`lya-token` + `lya-context`）
-2. lianclaw 迁移
-3. vdo/ado 专用 tool（仅在有需求时）
 
 ## 刻意不做 / 封存
 
