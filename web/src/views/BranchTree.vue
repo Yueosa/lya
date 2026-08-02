@@ -1,10 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
 import type { MessageRecord } from '../api/wire'
-import { currentId, loadTree, readOnly, switchToBranch } from '../app/useChat'
-import { projectVisibleTree, treeNode } from '../model/branchTree'
+import { currentId, deleteMessage, loadTree, readOnly, switchToBranch } from '../app/useChat'
+import {
+  defaultTreeFilters,
+  nodeIcon,
+  nodePreview,
+  nodeStatusTag,
+  projectVisibleTree,
+  treeNode,
+  type TreeFilters,
+} from '../model/branchTree'
 import Icon from '../ui/Icon.vue'
+import { confirmAsync } from '../ui/useDialog'
 
 const props = defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
@@ -17,28 +26,62 @@ const PAD = 16
 const TEXT_X = 30
 const TEXT_RIGHT = 18
 
+const FILTER_KEY = 'lya.tree.filters.v2'
+const WIDTH_TOUCHED_KEY = 'lya.tree.widthTouched'
+
+function loadFilters(): TreeFilters {
+  try {
+    const raw = localStorage.getItem(FILTER_KEY)
+    if (!raw) return { ...defaultTreeFilters }
+    return { ...defaultTreeFilters, ...JSON.parse(raw) }
+  } catch {
+    return { ...defaultTreeFilters }
+  }
+}
+
 const nodes = ref<MessageRecord[]>([])
 const rawNodes = ref<MessageRecord[]>([])
 const activeLeaf = ref<number | null>(null)
 const loading = ref(false)
 const picked = ref<MessageRecord | null>(null)
 const switching = ref(false)
+const deleting = ref(false)
 const width = ref(Number(localStorage.getItem('lya.tree.width')) || 460)
+const widthTouched = ref(localStorage.getItem(WIDTH_TOUCHED_KEY) === '1')
 const resizing = ref(false)
+const scrollEl = ref<HTMLElement | null>(null)
+const filters = ref<TreeFilters>(loadFilters())
+
+watch(
+  filters,
+  (value) => {
+    localStorage.setItem(FILTER_KEY, JSON.stringify(value))
+    if (props.open) void refresh()
+  },
+  { deep: true },
+)
 
 watch(() => props.open, (open) => void (open && refresh()), { immediate: true })
 watch(currentId, () => void (props.open && refresh()))
+
+function visibleNodes(): MessageRecord[] {
+  return rawNodes.value.filter((node) => treeNode(node, filters.value))
+}
 
 async function refresh(): Promise<void> {
   loading.value = true
   const data = await loadTree()
   if (data) {
     rawNodes.value = data.nodes
-    const projected = projectVisibleTree(data.nodes, data.nodes.filter(treeNode), data.active_leaf_id)
+    const visible = visibleNodes()
+    const projected = projectVisibleTree(data.nodes, visible, data.active_leaf_id)
     nodes.value = projected.nodes
     activeLeaf.value = projected.activeLeaf
   }
   loading.value = false
+  await nextTick()
+  fitPanelWidth()
+  scrollToActive()
 }
 
 interface Placed {
@@ -58,10 +101,10 @@ interface Edge {
 }
 
 const layout = computed(() => {
-  const visibleNodes = [...nodes.value].sort((a, b) => a.sort_key - b.sort_key)
-  const byId = new Map(visibleNodes.map((node) => [node.id, node]))
+  const visibleNodesList = [...nodes.value].sort((a, b) => a.sort_key - b.sort_key)
+  const byId = new Map(visibleNodesList.map((node) => [node.id, node]))
   const children = new Map<number | null, MessageRecord[]>()
-  for (const node of visibleNodes) {
+  for (const node of visibleNodesList) {
     const list = children.get(node.parent_id) ?? []
     list.push(node)
     children.set(node.parent_id, list)
@@ -75,7 +118,7 @@ const layout = computed(() => {
   }
 
   const leafIds = new Set<number>()
-  for (const node of visibleNodes) {
+  for (const node of visibleNodesList) {
     if ((children.get(node.id) ?? []).length === 0) leafIds.add(node.id)
   }
 
@@ -100,7 +143,7 @@ const layout = computed(() => {
 
   for (const root of children.get(null) ?? []) place(root.id, 0)
 
-  const placed: Placed[] = visibleNodes
+  const placed: Placed[] = visibleNodesList
     .filter((node) => centers.has(node.id))
     .map((node) => ({
       record: node,
@@ -137,18 +180,56 @@ const layout = computed(() => {
   }
 })
 
+const pickedPlaced = computed(() =>
+  picked.value ? layout.value.placed.find((item) => item.record.id === picked.value!.id) : null,
+)
+
 const canSwitchPicked = computed(() => {
   if (!picked.value || readOnly.value) return false
   if (picked.value.id === activeLeaf.value) return false
   return layout.value.placed.some((item) => item.record.id === picked.value!.id)
 })
 
-function preview(record: MessageRecord): string {
-  return (record.payload.openai?.content ?? '').replace(/\s+/g, ' ').slice(0, 28)
+const canDeletePicked = computed(() => {
+  if (!picked.value || readOnly.value) return false
+  return pickedPlaced.value?.isLeaf ?? false
+})
+
+function fitPanelWidth(): void {
+  if (widthTouched.value) return
+  const needed = Math.min(Math.max(layout.value.w + 32, 320), window.innerWidth * 0.8)
+  width.value = needed
 }
 
-function roleIcon(record: MessageRecord): 'user' | 'bot' {
-  return record.payload.role === 'user' ? 'user' : 'bot'
+function scrollToActive(): void {
+  const el = scrollEl.value
+  if (!el || activeLeaf.value === null) return
+  const item = layout.value.placed.find((p) => p.record.id === activeLeaf.value)
+  if (!item) return
+  const cx = item.x + NODE_W / 2
+  const cy = item.y + NODE_H / 2
+  el.scrollTo({
+    left: Math.max(0, cx - el.clientWidth / 2),
+    top: Math.max(0, cy - el.clientHeight / 2),
+    behavior: 'smooth',
+  })
+}
+
+function roleLabel(record: MessageRecord): string {
+  switch (record.payload.role) {
+    case 'user':
+      return '用户'
+    case 'assistant':
+      return '助手'
+    case 'tool':
+      return '工具'
+    case 'hitl':
+      return 'HITL'
+    case 'system':
+      return '系统'
+    default:
+      return record.payload.role
+  }
 }
 
 function openNode(record: MessageRecord): void {
@@ -172,8 +253,31 @@ async function confirmSwitch(): Promise<void> {
   }
 }
 
+async function confirmDelete(): Promise<void> {
+  const record = picked.value
+  if (!record || !canDeletePicked.value) return
+  await confirmAsync({
+    title: '删除消息',
+    message: '只能删末端消息。',
+    confirmText: '删除',
+    danger: true,
+    run: async () => {
+      deleting.value = true
+      try {
+        await deleteMessage(record.id)
+        closeModal()
+        await refresh()
+      } finally {
+        deleting.value = false
+      }
+    },
+  })
+}
+
 function startResize(event: PointerEvent): void {
   resizing.value = true
+  widthTouched.value = true
+  localStorage.setItem(WIDTH_TOUCHED_KEY, '1')
   const startX = event.clientX
   const startWidth = width.value
   const move = (moved: PointerEvent): void => {
@@ -212,7 +316,7 @@ function startResize(event: PointerEvent): void {
     <p v-if="loading" class="panel-tree__hint">加载中…</p>
     <p v-else-if="layout.placed.length === 0" class="panel-tree__hint">暂无分支</p>
 
-    <div v-else class="panel-tree__scroll">
+    <div v-else ref="scrollEl" class="panel-tree__scroll">
       <svg :width="layout.w" :height="layout.h">
         <defs>
           <clipPath v-for="item in layout.placed" :id="`tree-clip-${item.record.id}`" :key="item.record.id">
@@ -236,13 +340,14 @@ function startResize(event: PointerEvent): void {
           :class="{
             'node--path': item.onPath && item.record.id !== activeLeaf,
             'node--here': item.record.id === activeLeaf,
+            [`node--${item.record.payload.role}`]: true,
           }"
           :transform="`translate(${item.x}, ${item.y})`"
           @click="openNode(item.record)"
         >
           <rect :width="NODE_W" :height="NODE_H" rx="6" />
           <foreignObject x="6" y="11" width="20" height="20">
-            <Icon :name="roleIcon(item.record)" size="sm" />
+            <Icon :name="nodeIcon(item.record)" size="sm" />
           </foreignObject>
           <text
             class="node__text"
@@ -250,48 +355,91 @@ function startResize(event: PointerEvent): void {
             y="25"
             :clip-path="`url(#tree-clip-${item.record.id})`"
           >
-            {{ preview(item.record) }}
+            {{ nodePreview(item.record) }}
+          </text>
+          <text
+            v-if="nodeStatusTag(item.record)"
+            class="node__tag"
+            :x="NODE_W - 6"
+            y="14"
+            text-anchor="end"
+          >
+            {{ nodeStatusTag(item.record) }}
           </text>
         </g>
       </svg>
     </div>
 
-    <p class="panel-tree__foot">单击节点查看详情；在弹窗内切换分支</p>
+    <div class="panel-tree__filters">
+      <label><input v-model="filters.hideTools" type="checkbox" /> 隐藏工具</label>
+      <label><input v-model="filters.hideHitl" type="checkbox" /> 隐藏 HITL</label>
+      <label><input v-model="filters.hideModeChange" type="checkbox" /> 隐藏模式变更</label>
+      <label><input v-model="filters.hideSystem" type="checkbox" /> 隐藏 system</label>
+    </div>
   </aside>
 
   <Transition name="lya-modal">
     <div v-if="picked" class="overlay" @click.self="closeModal">
-    <div class="dialog tree-modal">
-      <header class="tree-modal__head">
-        <h3 class="dialog__title">#{{ picked.id }} · {{ picked.payload.role }}</h3>
-        <button class="btn btn--sm btn--ghost" @click="closeModal">
-          <Icon name="close" size="sm" />
-        </button>
-      </header>
+      <div class="dialog tree-modal">
+        <header class="tree-modal__head">
+          <h3 class="dialog__title">
+            #{{ picked.id }} · {{ roleLabel(picked) }}
+            <span v-if="picked.payload.status !== 'complete'" class="tree-modal__status">
+              {{ picked.payload.status }}
+            </span>
+          </h3>
+          <button class="btn btn--sm btn--ghost" @click="closeModal">
+            <Icon name="close" size="sm" />
+          </button>
+        </header>
 
-      <section v-if="picked.payload.lya.reasoning" class="tree-modal__section">
-        <h4>思考</h4>
-        <pre class="tree-modal__block">{{ picked.payload.lya.reasoning }}</pre>
-      </section>
-      <section v-if="picked.payload.openai?.content" class="tree-modal__section">
-        <h4>正文</h4>
-        <pre class="tree-modal__block">{{ picked.payload.openai.content }}</pre>
-      </section>
+        <section v-if="picked.payload.lya.reasoning" class="tree-modal__section">
+          <h4>思考</h4>
+          <pre class="tree-modal__block">{{ picked.payload.lya.reasoning }}</pre>
+        </section>
 
-      <div class="tree-modal__actions">
-        <button
-          v-if="canSwitchPicked"
-          class="btn btn--primary"
-          :disabled="switching"
-          @click="confirmSwitch"
-        >
-          {{ switching ? '切换中…' : '切换到此分支' }}
-        </button>
-        <button v-else-if="picked.id === activeLeaf" class="btn" disabled>当前分支</button>
-        <button class="btn" @click="closeModal">关闭</button>
+        <section v-if="picked.payload.openai?.tool_calls?.length" class="tree-modal__section">
+          <h4>工具调用</h4>
+          <pre
+            v-for="call in picked.payload.openai.tool_calls"
+            :key="call.id"
+            class="tree-modal__block"
+          >{{ call.function.name }}({{ call.function.arguments }})</pre>
+        </section>
+
+        <section v-if="picked.payload.lya.hitl" class="tree-modal__section">
+          <h4>HITL</h4>
+          <pre class="tree-modal__block">{{ nodePreview(picked) }}</pre>
+        </section>
+
+        <section v-if="picked.payload.openai?.content" class="tree-modal__section">
+          <h4>正文</h4>
+          <pre class="tree-modal__block">{{ picked.payload.openai.content }}</pre>
+        </section>
+
+        <div class="tree-modal__actions">
+          <button
+            v-if="canDeletePicked"
+            class="btn btn--danger"
+            :disabled="deleting"
+            @click="confirmDelete"
+          >
+            {{ deleting ? '删除中…' : '删除' }}
+          </button>
+          <span class="tree-modal__gap" />
+          <button
+            v-if="canSwitchPicked"
+            class="btn btn--primary"
+            :disabled="switching"
+            @click="confirmSwitch"
+          >
+            {{ switching ? '切换中…' : '切换到此分支' }}
+          </button>
+          <button v-else-if="picked.id === activeLeaf" class="btn" disabled>当前分支</button>
+          <button class="btn" @click="closeModal">关闭</button>
+        </div>
       </div>
     </div>
-  </div>
   </Transition>
 </template>
 
@@ -339,16 +487,11 @@ function startResize(event: PointerEvent): void {
   flex: 1;
 }
 
-.panel-tree__hint,
-.panel-tree__foot {
+.panel-tree__hint {
   margin: 0;
   padding: 8px 12px;
   color: var(--text-faint);
   font-size: var(--text-xs);
-}
-
-.panel-tree__foot {
-  border-top: var(--border-width) solid var(--border);
 }
 
 .panel-tree__scroll {
@@ -356,6 +499,24 @@ function startResize(event: PointerEvent): void {
   min-height: 0;
   overflow: auto;
   padding: 4px;
+}
+
+.panel-tree__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 8px 12px;
+  border-top: var(--border-width) solid var(--border);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.panel-tree__filters label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
 }
 
 .edge {
@@ -397,10 +558,27 @@ function startResize(event: PointerEvent): void {
   fill: color-mix(in srgb, var(--info) 14%, var(--surface));
 }
 
-.node__icon,
+.node--tool rect {
+  stroke: color-mix(in srgb, var(--info) 50%, var(--border));
+}
+
+.node--hitl rect {
+  stroke: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.node--system rect {
+  stroke: color-mix(in srgb, var(--text-faint) 60%, var(--border));
+}
+
 .node__text {
   font-size: 12px;
   fill: var(--text);
+  pointer-events: none;
+}
+
+.node__tag {
+  font-size: 9px;
+  fill: var(--danger);
   pointer-events: none;
 }
 
@@ -416,6 +594,16 @@ function startResize(event: PointerEvent): void {
   gap: 8px;
 }
 
+.tree-modal__status {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-active);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
+}
+
 .tree-modal__section h4 {
   margin: 0 0 6px;
   font-size: var(--text-sm);
@@ -424,7 +612,7 @@ function startResize(event: PointerEvent): void {
 }
 
 .tree-modal__block {
-  margin: 0;
+  margin: 0 0 6px;
   padding: 10px 12px;
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
@@ -441,7 +629,11 @@ function startResize(event: PointerEvent): void {
 .tree-modal__actions {
   display: flex;
   gap: 8px;
-  justify-content: flex-end;
+  align-items: center;
   flex-wrap: wrap;
+}
+
+.tree-modal__gap {
+  flex: 1;
 }
 </style>
