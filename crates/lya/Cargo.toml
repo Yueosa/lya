@@ -19,5 +19,9 @@ open = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+futures-util = { workspace = true }
 ksni = { workspace = true, features = ["blocking"] }
+reqwest = { workspace = true, features = ["stream", "rustls-tls"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }

@@ -4,7 +4,7 @@
 
 ## 当前优先
 
-**Wave F**：notify-send（Hub 边界已拆清）
+Backlog 见 [`lya-user-0-todo.md`](./lya-user-0-todo.md)（tool/action 配置页、vdo/ado 等）。
 
 ## 已完成（近期）
 
@@ -12,6 +12,7 @@
 - img_cache、二进制 slim、`web_fetch` 翻页、`context_window` 配置
 - **Wave D**：tool 调用组（后端 + SSE + 前端）
 - **Wave E**：架构拆分 + `[media.*]` + 存储扇形图
+- **Wave F**：托盘 `notify-send`（completed / hitl / failed / max_rounds）
 
 ## 之后
 

@@ -1,4 +1,4 @@
-//! Linux 系统托盘：WebUI / 退出。
+//! Linux 系统托盘：WebUI / 退出 / 桌面通知。
 
 use std::sync::LazyLock;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -59,7 +59,10 @@ fn spawn_http_server(
                 let port = handle.port();
                 port_tx.send(Ok(port)).map_err(|_| "主线程已退出".to_string())?;
 
-                let _ = stop_rx.recv();
+                let notify_task = tokio::spawn(crate::notify::listen(port));
+                let _ = tokio::task::spawn_blocking(move || stop_rx.recv()).await;
+                notify_task.abort();
+
                 handle.shutdown().await.map_err(|err| err.to_string())
             })
         })

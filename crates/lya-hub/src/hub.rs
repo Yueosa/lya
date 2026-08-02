@@ -567,6 +567,11 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 两件事必须在同一把锁里做：否则一个刚好在中间订阅进来的客户端，会既在快照
     /// 里看到这段增量、又收到它的事件，界面上就重了一段。
     fn publish(&self, session_id: &str, event: &AgentEvent) {
+        let title = self.session_title(session_id);
+        if let Some((kind, payload)) = event::notify_global(session_id, &title, event) {
+            self.broadcast_global(kind, payload);
+        }
+
         let Some(channel) = self.channel_if_present(session_id) else {
             return;
         };
@@ -616,6 +621,17 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 只取已有通道，不创建。
     fn channel_if_present(&self, session_id: &str) -> Option<Arc<Mutex<SessionChannel>>> {
         self.channels.lock().unwrap().get(session_id).cloned()
+    }
+
+    fn session_title(&self, session_id: &str) -> String {
+        self.agent
+            .sessions()
+            .get_session(session_id)
+            .ok()
+            .flatten()
+            .map(|meta| meta.title)
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or_else(|| "未命名会话".into())
     }
 }
 

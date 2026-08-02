@@ -1,6 +1,9 @@
 //! lya — 本地 agent：HTTP 服务 + 系统托盘。
 
 #[cfg(target_os = "linux")]
+mod notify;
+
+#[cfg(target_os = "linux")]
 mod tray;
 
 fn main() {

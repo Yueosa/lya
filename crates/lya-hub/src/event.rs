@@ -24,8 +24,6 @@ pub enum Scope {
     /// 某个会话内的事件。
     Session(String),
     /// 全应用事件：通知、会话列表变化、配置变更等。
-    ///
-    /// 暂无产出方，先把位置留出来。
     Global,
 }
 
@@ -135,6 +133,55 @@ pub fn from_agent(session_id: &str, seq: u64, event: &AgentEvent) -> Option<Enve
     Some(Envelope::session(session_id, kind, seq, payload))
 }
 
+/// 若该 agent 事件应触发桌面通知，返回全局事件的 `(kind, payload)`。
+///
+/// 托盘订阅 `/api/events` 后据此调 `notify-send`；HITL 按 `message_id` 去重由
+/// 消费方负责。
+pub fn notify_global(
+    session_id: &str,
+    session_title: &str,
+    event: &AgentEvent,
+) -> Option<(&'static str, Value)> {
+    let base = json!({
+        "session_id": session_id,
+        "session_title": session_title,
+    });
+    match event {
+        AgentEvent::AwaitHuman {
+            message_id,
+            batch_id,
+            review_index,
+            review_total,
+        } => Some((
+            "notify_hitl",
+            json!({
+                "session_id": session_id,
+                "session_title": session_title,
+                "message_id": message_id,
+                "batch_id": batch_id,
+                "review_index": review_index,
+                "review_total": review_total,
+            }),
+        )),
+        AgentEvent::TurnEnd { reason } => match reason {
+            TurnEndReason::Completed => Some(("notify_completed", base)),
+            TurnEndReason::Failed(message) => Some((
+                "notify_failed",
+                json!({
+                    "session_id": session_id,
+                    "session_title": session_title,
+                    "message": message,
+                }),
+            )),
+            TurnEndReason::MaxRounds => Some(("notify_max_rounds", base)),
+            TurnEndReason::AwaitingHuman
+            | TurnEndReason::Cancelled
+            | TurnEndReason::EmptyResponse => None,
+        },
+        _ => None,
+    }
+}
+
 fn call_kind(kind: CallKind) -> &'static str {
     match kind {
         CallKind::Tool => "tool",
@@ -216,6 +263,42 @@ mod tests {
         assert_eq!(envelope.kind, "tool_batch_started");
         assert_eq!(envelope.payload["batch_id"], "b1");
         assert_eq!(envelope.payload["calls"][0]["needs_review"], true);
+    }
+
+    #[test]
+    fn notify_global_maps_turn_end_and_hitl() {
+        let hitl = notify_global(
+            "s1",
+            "测试",
+            &AgentEvent::AwaitHuman {
+                message_id: 9,
+                batch_id: Some("b1".into()),
+                review_index: Some(1),
+                review_total: Some(2),
+            },
+        )
+        .unwrap();
+        assert_eq!(hitl.0, "notify_hitl");
+        assert_eq!(hitl.1["message_id"], 9);
+
+        let done = notify_global(
+            "s1",
+            "测试",
+            &AgentEvent::TurnEnd {
+                reason: TurnEndReason::Completed,
+            },
+        )
+        .unwrap();
+        assert_eq!(done.0, "notify_completed");
+
+        assert!(notify_global(
+            "s1",
+            "测试",
+            &AgentEvent::TurnEnd {
+                reason: TurnEndReason::AwaitingHuman,
+            },
+        )
+        .is_none());
     }
 
     #[test]

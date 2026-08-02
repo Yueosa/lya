@@ -43,11 +43,11 @@
 | E6 | **lya-storage**：`scan_usage()` + `GET /api/storage/stats` | [x] |
 | E7 | 配置 **`[media.*]`** + 前端 **Storage** 扇形图（只读） | [x] |
 
-## Wave F — notify（Wave E 之后）
+## Wave F — notify ✅
 
-- [ ] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 `message_id` 去重
+- [x] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 `message_id` 去重
 
-实现位置：**`lya-hub`**（事件语义）+ **`lya-api`**（若需 HTTP）+ 托盘二进制；**不进 lya-core 业务逻辑**。
+实现：`lya-hub` 广播 `notify_*` 全局事件；`lya` 托盘订阅 `/api/events` 后调 `notify-send`。
 
 ## Backlog（Wave F 之后）
 
