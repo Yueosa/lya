@@ -31,6 +31,7 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
   { key: 'hideResolvedHitl', label: '隐藏已答复的打断' },
   { key: 'hideNotices', label: '隐藏模式变更' },
   { key: 'followStream', label: '跟随流式输出' },
+  { key: 'autoCollapseAside', label: '流式结束后自动收起思考/工具' },
 ]
 </script>
 
@@ -75,6 +76,24 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
       <label v-for="item in DISPLAY" :key="item.key" class="settings__row">
         <input v-model="prefs[item.key]" type="checkbox" />
         <span class="settings__name">{{ item.label }}</span>
+      </label>
+      <label class="settings__row settings__row--range">
+        <span class="settings__name">侧栏块折叠阈值（行）</span>
+        <input
+          v-model.number="prefs.asideFoldLineThreshold"
+          class="settings__range"
+          type="range"
+          min="4"
+          max="64"
+          step="1"
+        />
+        <input
+          v-model.number="prefs.asideFoldLineThreshold"
+          class="settings__num input"
+          type="number"
+          min="4"
+          max="128"
+        />
       </label>
     </section>
 
@@ -156,6 +175,23 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
 
 .settings__row:hover {
   background: var(--surface-hover);
+}
+
+.settings__row--range {
+  flex-wrap: wrap;
+  cursor: default;
+}
+
+.settings__range {
+  flex: 1;
+  min-width: 120px;
+}
+
+.settings__num {
+  width: 4.5rem;
+  padding: 4px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
 }
 
 .settings__note {

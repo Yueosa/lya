@@ -19,6 +19,10 @@ export interface Prefs {
   /** 隐藏系统通知（含模式变更）。 */
   hideNotices: boolean
   followStream: boolean
+  /** 流式结束后自动收起思考/工具块。 */
+  autoCollapseAside: boolean
+  /** 超过此行数的侧栏块默认折叠（流式中仍展开）。 */
+  asideFoldLineThreshold: number
 }
 
 const KEY = 'lya.prefs'
@@ -29,6 +33,8 @@ const DEFAULTS: Prefs = {
   hideResolvedHitl: false,
   hideNotices: false,
   followStream: true,
+  autoCollapseAside: true,
+  asideFoldLineThreshold: 16,
 }
 
 function load(): Prefs {

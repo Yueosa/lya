@@ -11,25 +11,51 @@ import { ref, watch } from 'vue'
 import Icon from '../ui/Icon.vue'
 import type { IconKey } from '../ui/icons'
 
-const props = defineProps<{
-  icon?: IconKey
-  label: string
-  /** 还在进行中。 */
-  busy?: boolean
-  /** 出错了，标题显示为危险色。 */
-  failed?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    icon?: IconKey
+    label: string
+    /** 还在进行中。 */
+    busy?: boolean
+    /** 出错了，标题显示为危险色。 */
+    failed?: boolean
+    /** 流式结束后是否自动收起。 */
+    autoCollapse?: boolean
+    /** 内容行数；超过阈值且非 busy 时默认折叠。 */
+    contentLines?: number
+    /** 与 `contentLines` 配合的行数阈值。 */
+    foldThreshold?: number
+  }>(),
+  {
+    autoCollapse: true,
+    contentLines: 0,
+    foldThreshold: 16,
+  },
+)
 
-const open = ref(props.busy ?? false)
+function shouldStartCollapsed(): boolean {
+  if (props.busy) return false
+  if (props.contentLines > props.foldThreshold) return true
+  return false
+}
+
+const open = ref(props.busy ? true : !shouldStartCollapsed())
 /** 用户是不是自己点过。 */
 const touched = ref(false)
+
+watch(
+  () => [props.contentLines, props.foldThreshold, props.busy] as const,
+  () => {
+    if (touched.value || props.busy) return
+    if (props.contentLines > props.foldThreshold) open.value = false
+  },
+)
 
 watch(
   () => props.busy,
   (busy, was) => {
     if (touched.value) return
-    // 只在「从进行中变成结束」这一刻收起
-    if (was && !busy) open.value = false
+    if (props.autoCollapse && was && !busy) open.value = false
     if (busy) open.value = true
   },
 )
