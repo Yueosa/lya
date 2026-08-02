@@ -133,6 +133,7 @@ function selectGroup(baseUrl: string): void {
 
           <p class="page__hint">
             来自 <code>models.toml</code>。对话里选「显示名」；发请求用的是「API model」列。
+            其余字段（如 <code>max_tokens</code>、<code>thinking</code>）原样透传进请求体，在原始文件里编辑即可。
           </p>
 
           <div class="panel form-panel">
@@ -158,6 +159,7 @@ function selectGroup(baseUrl: string): void {
                   <th>显示名</th>
                   <th>配置 ID</th>
                   <th>API model</th>
+                  <th>max_tokens</th>
                   <th>密钥</th>
                   <th>能力</th>
                 </tr>
@@ -167,6 +169,7 @@ function selectGroup(baseUrl: string): void {
                   <td><strong>{{ model.name }}</strong></td>
                   <td><code class="mono mono--strong">{{ model.id }}</code></td>
                   <td><code class="mono">{{ modelParam(model, 'model') || '—' }}</code></td>
+                  <td><code class="mono">{{ modelParam(model, 'max_tokens') || '—' }}</code></td>
                   <td>
                     <span v-if="model.api_key_placeholder" class="pill pill--bad">未配置</span>
                     <span v-else class="pill pill--key">{{ model.api_key_masked }}</span>

@@ -20,6 +20,7 @@ api_key = "<在这里填入你的 DeepSeek API Key>"
 capabilities = ["text"]
 # 以下均为透传字段
 model = "deepseek-v4-flash"
+max_tokens = 8192
 reasoning_effort = "high"
 thinking = { type = "enabled" }
 
@@ -30,6 +31,7 @@ base_url = "https://api.deepseek.com"
 api_key = "<在这里填入你的 DeepSeek API Key>"
 capabilities = ["text"]
 model = "deepseek-v4-pro"
+max_tokens = 8192
 reasoning_effort = "high"
 thinking = { type = "enabled" }
 
