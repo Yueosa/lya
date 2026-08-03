@@ -1,25 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 
-import type { Mode } from '../api/wire'
-import {
-  canSend,
-  currentId,
-  defaultModel,
-  loadModels,
-  meta,
-  models,
-  pendingHitl,
-  running,
-  readComposerDraft,
-  send,
-  setMode,
-  setModel,
-  stop,
-  writeComposerDraft,
-} from '../app/useChat'
-import Icon from '../ui/Icon.vue'
-import type { IconKey } from '../ui/icons'
+import { canSend, currentId, pendingHitl, running, readComposerDraft, send, stop, writeComposerDraft } from '../app/useChat'
 import HitlTray from './HitlTray.vue'
 
 const draft = ref('')
@@ -38,24 +20,8 @@ watch(draft, (text) => {
 })
 
 const input = ref<HTMLTextAreaElement | null>(null)
-const modelOpen = ref(false)
-const modelWrap = ref<HTMLElement | null>(null)
 
 const MAX_HEIGHT = 150
-
-const MODES: { id: Mode; label: string; icon: IconKey }[] = [
-  { id: 'ask', label: '问答', icon: 'modeAsk' },
-  { id: 'edit', label: '编辑', icon: 'modeEdit' },
-  { id: 'agent', label: '代理', icon: 'modeAgent' },
-]
-
-const mode = computed(() => meta.value?.work_mode ?? 'agent')
-
-const modelLabel = computed(() => {
-  const id = meta.value?.model_id
-  if (id) return models.value.find((m) => m.id === id)?.name ?? id
-  return defaultModel.value?.name ?? '默认模型'
-})
 
 const blocked = computed(() => pendingHitl.value !== null)
 
@@ -89,56 +55,13 @@ function onKeydown(event: KeyboardEvent): void {
     void submit()
   }
 }
-
-async function pickModel(id: string | null): Promise<void> {
-  modelOpen.value = false
-  await setModel(id)
-}
-
-function onDocClick(event: MouseEvent): void {
-  if (!modelOpen.value) return
-  if (modelWrap.value && !modelWrap.value.contains(event.target as Node)) modelOpen.value = false
-}
-
-onMounted(() => {
-  void loadModels()
-  document.addEventListener('click', onDocClick)
-})
-onUnmounted(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
   <div class="composer">
     <HitlTray />
 
-    <!-- |模型|输入|模式|发送| -->
     <div class="composer__row">
-      <div ref="modelWrap" class="composer__model">
-        <button
-          class="btn composer__model-btn"
-          :aria-expanded="modelOpen"
-          v-tip="'选择模型'"
-          @click.stop="modelOpen = !modelOpen"
-        >
-          <span class="composer__model-label">{{ modelLabel }}</span>
-          <Icon class="composer__caret" name="chevronDown" size="sm" />
-        </button>
-        <div v-if="modelOpen" class="composer__menu panel">
-          <button
-            v-for="model in models"
-            :key="model.id"
-            class="composer__option"
-            :class="{ 'composer__option--on': model.id === meta?.model_id }"
-            :disabled="model.api_key_placeholder"
-            @click="pickModel(model.id)"
-          >
-            {{ model.name }}
-            <span v-if="model.api_key_placeholder" class="composer__warn">未配密钥</span>
-          </button>
-          <p v-if="models.length === 0" class="composer__empty">无可用模型，请检查设置</p>
-        </div>
-      </div>
-
       <textarea
         ref="input"
         v-model="draft"
@@ -149,19 +72,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
         @keydown="onKeydown"
         @input="grow"
       />
-
-      <div class="seg" role="tablist">
-        <button
-          v-for="item in MODES"
-          :key="item.id"
-          class="seg__btn"
-          :class="[`seg__btn--${item.id}`, { 'seg__btn--on': mode === item.id }]"
-          @click="setMode(item.id)"
-        >
-          <Icon class="seg__icon" :name="item.icon" size="sm" />
-          <span>{{ item.label }}</span>
-        </button>
-      </div>
 
       <button v-if="running" class="btn composer__action composer__action--stop" @click="stop">
         停止
@@ -181,7 +91,7 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
 <style scoped>
 .composer {
   flex-shrink: 0;
-  padding: 10px 20px 16px;
+  padding: 10px 20px 12px;
 }
 
 .composer__row {
@@ -190,88 +100,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   display: flex;
   align-items: flex-end;
   gap: 10px;
-}
-
-.composer__model {
-  position: relative;
-  flex-shrink: 0;
-}
-
-.composer__model-btn {
-  min-width: 88px;
-  max-width: 200px;
-  height: 44px;
-  gap: 6px;
-}
-
-.composer__model-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.composer__caret {
-  flex-shrink: 0;
-  color: var(--text-faint);
-  transition: transform 0.15s ease;
-}
-
-.composer__model-btn[aria-expanded='true'] .composer__caret {
-  transform: rotate(180deg);
-}
-
-.composer__menu {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 6px);
-  z-index: 30;
-  min-width: 220px;
-  max-height: 280px;
-  overflow-y: auto;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.composer__option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font: inherit;
-  font-size: var(--text-sm);
-  text-align: left;
-  cursor: pointer;
-}
-
-.composer__option:hover:not(:disabled) {
-  background: var(--surface-hover);
-}
-
-.composer__option--on {
-  background: var(--accent-soft);
-}
-
-.composer__option:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.composer__warn {
-  color: var(--danger);
-  font-size: var(--text-xs);
-}
-
-.composer__empty {
-  margin: 0;
-  padding: 8px;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
 }
 
 .composer__input {
@@ -313,13 +141,17 @@ onUnmounted(() => document.removeEventListener('click', onDocClick))
   background: var(--danger-soft);
 }
 
+.composer__hint {
+  max-width: 1320px;
+  margin: 6px auto 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-align: center;
+}
+
 @media (max-width: 720px) {
   .composer {
-    padding: 8px 12px 12px;
-  }
-
-  .composer__model-btn {
-    max-width: 120px;
+    padding: 8px 12px 10px;
   }
 }
 </style>

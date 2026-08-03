@@ -8,8 +8,7 @@ import { ref } from 'vue'
 import { loading, hydrating, readOnly } from '../app/useChat'
 import BranchTree from './BranchTree.vue'
 import Composer from './Composer.vue'
-import SessionDetail from './SessionDetail.vue'
-import SessionSettings from './SessionSettings.vue'
+import SessionPanel from './session/SessionPanel.vue'
 import ChatHeader from './chat/ChatHeader.vue'
 import ChatSideDrawer from './chat/ChatSideDrawer.vue'
 import ChatStatusBar from './chat/ChatStatusBar.vue'
@@ -21,17 +20,15 @@ import './chat/chat.css'
 
 const scroller = ref<HTMLElement | null>(null)
 const treeOpen = ref(false)
-const settingsOpen = ref(false)
-const detailOpen = ref(false)
+const sessionOpen = ref(false)
 const editing = ref<{ id: number; text: string } | null>(null)
 
 const { displayTimeline, timelineOffset, timelineReady, sessionEnterMotion, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
   useChatScroll(scroller)
 
-function closePanels(except?: 'tree' | 'settings' | 'detail'): void {
+function closePanels(except?: 'tree' | 'session'): void {
   if (except !== 'tree') treeOpen.value = false
-  if (except !== 'settings') settingsOpen.value = false
-  if (except !== 'detail') detailOpen.value = false
+  if (except !== 'session') sessionOpen.value = false
 }
 
 function toggleTree(): void {
@@ -39,14 +36,9 @@ function toggleTree(): void {
   treeOpen.value = !treeOpen.value
 }
 
-function toggleSettings(): void {
-  closePanels('settings')
-  settingsOpen.value = !settingsOpen.value
-}
-
-function toggleDetail(): void {
-  closePanels('detail')
-  detailOpen.value = !detailOpen.value
+function toggleSession(): void {
+  closePanels('session')
+  sessionOpen.value = !sessionOpen.value
 }
 </script>
 
@@ -54,11 +46,9 @@ function toggleDetail(): void {
   <div class="chat">
     <div class="chat__main">
       <ChatHeader
-        :detail-open="detailOpen"
-        :settings-open="settingsOpen"
+        :session-open="sessionOpen"
         :tree-open="treeOpen"
-        @toggle-detail="toggleDetail"
-        @toggle-settings="toggleSettings"
+        @toggle-session="toggleSession"
         @toggle-tree="toggleTree"
       />
 
@@ -94,14 +84,8 @@ function toggleDetail(): void {
     </div>
 
     <Transition name="lya-drawer">
-      <ChatSideDrawer v-if="detailOpen" title="详情" @close="detailOpen = false">
-        <SessionDetail />
-      </ChatSideDrawer>
-    </Transition>
-
-    <Transition name="lya-drawer">
-      <ChatSideDrawer v-if="settingsOpen" title="会话设置" @close="settingsOpen = false">
-        <SessionSettings />
+      <ChatSideDrawer v-if="sessionOpen" wide title="会话" @close="sessionOpen = false">
+        <SessionPanel layout="drawer" />
       </ChatSideDrawer>
     </Transition>
 

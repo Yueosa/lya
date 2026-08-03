@@ -6,14 +6,12 @@ import { setSidebarCollapsed, sidebarCollapsed } from '../../app/useShell'
 import Icon from '../../ui/Icon.vue'
 
 defineProps<{
-  detailOpen: boolean
-  settingsOpen: boolean
+  sessionOpen: boolean
   treeOpen: boolean
 }>()
 
 defineEmits<{
-  toggleDetail: []
-  toggleSettings: []
+  toggleSession: []
   toggleTree: []
 }>()
 </script>
@@ -31,13 +29,9 @@ defineEmits<{
     <span class="chat__title">{{ meta?.title || '未命名会话' }}</span>
     <span v-if="readOnly" class="chat__tag">已归档</span>
     <span class="chat__gap" />
-    <button class="btn btn--sm" :class="{ 'btn--on': detailOpen }" @click="$emit('toggleDetail')">
-      <Icon name="info" size="sm" />
-      <span>详情</span>
-    </button>
-    <button class="btn btn--sm" :class="{ 'btn--on': settingsOpen }" @click="$emit('toggleSettings')">
+    <button class="btn btn--sm" :class="{ 'btn--on': sessionOpen }" @click="$emit('toggleSession')">
       <Icon name="settings" size="sm" />
-      <span>设置</span>
+      <span>会话</span>
     </button>
     <button class="btn btn--sm" :class="{ 'btn--on': treeOpen }" @click="$emit('toggleTree')">
       <Icon name="branch" size="sm" />

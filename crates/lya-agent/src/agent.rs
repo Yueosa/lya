@@ -951,7 +951,7 @@ impl<B: ChatBackend> Agent<B> {
         self.sessions.append(
             session_id,
             MessagePayload::system_text(format!(
-                "[模式变更] 用户已将工作模式从 {} 切换为 {}。可用工具已随之调整。",
+                "[模式变更] 用户已将工作模式从 {} 切换为 {}",
                 meta.work_mode, mode
             )),
             true,

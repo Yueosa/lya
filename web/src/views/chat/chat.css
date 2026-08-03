@@ -325,6 +325,17 @@
   border-left: var(--border-width) solid var(--border);
 }
 
+.chat__side--wide {
+  width: min(520px, 50vw);
+}
+
+.chat__side-body--flush {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 .chat__side-head {
   display: flex;
   align-items: center;

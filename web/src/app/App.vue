@@ -17,7 +17,7 @@ import ConfigView from '../views/ConfigView.vue'
 import HomeView from '../views/HomeView.vue'
 import MemoryView from '../views/MemoryView.vue'
 import ModelsView from '../views/ModelsView.vue'
-import SessionSettings from '../views/SessionSettings.vue'
+import SessionPanel from '../views/session/SessionPanel.vue'
 import ThemeView from '../views/ThemeView.vue'
 import ToolsView from '../views/ToolsView.vue'
 import SessionsView from '../views/SessionsView.vue'
@@ -73,7 +73,7 @@ function navigate(next: View): void {
       <HomeView v-if="view === 'home'" key="home" />
       <ChatView v-else-if="view === 'chat'" :key="`chat-${currentId ?? 'none'}`" />
       <SessionsView v-else-if="view === 'sessions'" key="sessions" @opened="view = 'chat'" />
-      <SessionSettings v-else-if="view === 'settings' && currentId" :key="`settings-${currentId}`" />
+      <SessionPanel v-else-if="view === 'settings' && currentId" :key="`settings-${currentId}`" layout="page" />
       <MemoryView v-else-if="view === 'memory'" key="memory" />
       <ToolsView v-else-if="view === 'tools'" key="tools" />
       <ModelsView v-else-if="view === 'models'" key="models" />
