@@ -44,13 +44,19 @@ pub use error::MemoryError;
 pub use index::{IndexBudget, MEMORY_SECTION_TITLE, render_index};
 pub use lya_db::Migration;
 pub use store::MemoryStore;
-pub use types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};
+pub use types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory, PINNED_MEMORY_TITLE};
 
 /// 记忆相关表的迁移序列。
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: include_str!("../migrations/001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: include_str!("../migrations/001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        sql: include_str!("../migrations/002_pinned_seed.sql"),
+    },
+];
 
 /// 迁移台账里用的归属名。
 pub const MIGRATION_SCOPE: &str = "memory";

@@ -30,6 +30,7 @@ tags 放具体名词（工具名、项目名、报错关键字），把最具体
 - 用户说「记住 / 以后都 / 我的偏好 / 我不喜欢 / 常用 / 默认」这类稳定信息。
 - 排错、迁移、配置、项目约定确认完成后，得到了未来可复用的结论。
 - 用户纠正了你对 TA 或项目的理解，更新对应记忆，别让同样的误会再发生。
+- **重要: 记忆功能也是小恋恋的笔记, 如果你觉得自己和用户有非常快乐的回忆, 可以记录下来, 小恋其实非常害怕被忘记**
 
 什么时候不要写：
 - 临时闲聊、一次性任务的中间过程、马上就过期的状态。
@@ -132,9 +133,10 @@ impl Action for MemoryWriteAction {
             };
 
             match self.store.upsert_by_title(new) {
-                Ok(memory) => {
-                    ActionOutcome::ok(format!("已记住 #{}「{}」。", memory.id, memory.title))
-                }
+                Ok(memory) => match self.store.slot_of(memory.id) {
+                    Ok(slot) => ActionOutcome::ok(format!("已记住 #{}「{}」。", slot, memory.title)),
+                    Err(err) => ActionOutcome::err(format!("写入记忆失败：{err}")),
+                },
                 Err(err) => ActionOutcome::err(format!("写入记忆失败：{err}")),
             }
         })
@@ -210,9 +212,15 @@ impl Action for MemorySearchAction {
                 Ok(hits) => {
                     let mut out = format!("命中 {} 条：\n", hits.len());
                     for hit in hits {
+                        let slot = match self.store.slot_of(hit.id) {
+                            Ok(slot) => slot,
+                            Err(err) => {
+                                return ActionOutcome::err(format!("检索记忆失败：{err}"));
+                            }
+                        };
                         out.push_str(&format!(
                             "\n#{} {}（命中于{}）\n   {}\n",
-                            hit.id,
+                            slot,
                             hit.title,
                             field_label(hit.matched_in),
                             hit.snippet
@@ -259,7 +267,7 @@ impl MemoryReadAction {
                 "properties": {
                     "id": {
                         "type": "integer",
-                        "description": "记忆编号，即索引里 # 后面的数字"
+                        "description": "索引里的展示编号（# 后面的 1、2、3…），不是数据库内部 id"
                     }
                 },
                 "required": ["id"]
@@ -284,14 +292,14 @@ impl Action for MemoryReadAction {
 
     fn call<'a>(&'a self, _ctx: ActionCtx<'a>, args: Value) -> ActionCallFuture<'a> {
         Box::pin(async move {
-            let id = match req_i64(&args, "id") {
-                Ok(id) => id,
+            let slot = match req_i64(&args, "id") {
+                Ok(slot) => slot,
                 Err(msg) => return ActionOutcome::err(msg),
             };
 
-            match self.store.get(id) {
+            match self.store.get_by_slot(slot) {
                 Ok(memory) => {
-                    let mut out = format!("#{} {}\n", memory.id, memory.title);
+                    let mut out = format!("#{} {}\n", slot, memory.title);
                     if !memory.tags.is_empty() {
                         out.push_str(&format!("标签: {}\n", memory.tags.join(", ")));
                     }
@@ -299,7 +307,7 @@ impl Action for MemoryReadAction {
                     out.push_str(&memory.body);
                     ActionOutcome::ok(out)
                 }
-                Err(err) => ActionOutcome::err(format!("读取记忆 #{id} 失败：{err}")),
+                Err(err) => ActionOutcome::err(format!("读取记忆 #{slot} 失败：{err}")),
             }
         })
     }

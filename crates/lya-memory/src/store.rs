@@ -195,12 +195,21 @@ impl MemoryStore {
     /// 删除记忆（标签由外键级联删除）。
     ///
     /// 仓储层提供，但不打算暴露给模型：破坏性操作只走用户界面。
+    /// 置顶在索引 `#1` 的记忆不可删。
     pub fn delete(&self, id: i64) -> Result<(), MemoryError> {
         self.db.write(|conn| {
-            let n = conn.execute("DELETE FROM memories WHERE id = ?1", [id])?;
-            if n == 0 {
-                return Err(MemoryError::NotFound(id));
+            ensure_exists(conn, id)?;
+            let pinned: i64 = conn.query_row(
+                "SELECT pinned FROM memories WHERE id = ?1",
+                [id],
+                |row| row.get(0),
+            )?;
+            if pinned != 0 {
+                return Err(MemoryError::Invalid(
+                    "固定在索引 #1 的记忆不能删除".into(),
+                ));
             }
+            conn.execute("DELETE FROM memories WHERE id = ?1", [id])?;
             Ok(())
         })
     }
@@ -221,9 +230,40 @@ impl MemoryStore {
         })
     }
 
-    /// 全部记忆，按 `updated_at` 倒序。
+    /// 全部记忆：置顶在索引 `#1` 的条目最前，其余按 `updated_at` 倒序。
     pub fn list(&self) -> Result<Vec<Memory>, MemoryError> {
         self.db.read(load_all)
+    }
+
+    /// 展示编号 → 记忆。编号 1 起连续，与 [`Self::index_section`] 一致。
+    pub fn get_by_slot(&self, slot: i64) -> Result<Memory, MemoryError> {
+        if slot < 1 {
+            return Err(MemoryError::NotFound(slot));
+        }
+        self.index_entries()?
+            .into_iter()
+            .find(|(s, _)| *s == slot)
+            .map(|(_, memory)| memory)
+            .ok_or(MemoryError::NotFound(slot))
+    }
+
+    /// 某条记忆的展示编号。
+    pub fn slot_of(&self, id: i64) -> Result<i64, MemoryError> {
+        self.index_entries()?
+            .into_iter()
+            .find(|(_, memory)| memory.id == id)
+            .map(|(slot, _)| slot)
+            .ok_or(MemoryError::NotFound(id))
+    }
+
+    /// `(展示编号, 记忆)` 列表，供索引渲染与 action 层共用。
+    pub fn index_entries(&self) -> Result<Vec<(i64, Memory)>, MemoryError> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .enumerate()
+            .map(|(i, memory)| ((i + 1) as i64, memory))
+            .collect())
     }
 
     /// 全文检索。
@@ -282,8 +322,7 @@ impl MemoryStore {
 
     /// 渲染常驻索引段落，直接塞进 `lya_prompt::PromptInput::memory_section`。
     pub fn index_section(&self) -> Result<String, MemoryError> {
-        let all = self.list()?;
-        Ok(render_index(&all, &self.budget))
+        Ok(render_index(&self.index_entries()?, &self.budget))
     }
 
     /// 校验并规整一次写入的全部字段。
@@ -360,7 +399,7 @@ fn find_id_by_title(conn: &Connection, title: &str) -> Result<Option<i64>, Memor
 fn load(conn: &Connection, id: i64) -> Result<Memory, MemoryError> {
     let mut memory = conn
         .query_row(
-            "SELECT id, title, summary, body, source_session_id, created_at, updated_at
+            "SELECT id, title, summary, body, source_session_id, created_at, updated_at, pinned
              FROM memories WHERE id = ?1",
             [id],
             row_to_memory,
@@ -374,8 +413,8 @@ fn load(conn: &Connection, id: i64) -> Result<Memory, MemoryError> {
 /// 一次取全量。记忆是稀疏数据（旧实现三个月只攒了 8 条），没必要分页。
 fn load_all(conn: &Connection) -> Result<Vec<Memory>, MemoryError> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, summary, body, source_session_id, created_at, updated_at
-         FROM memories ORDER BY updated_at DESC, id DESC",
+        "SELECT id, title, summary, body, source_session_id, created_at, updated_at, pinned
+         FROM memories ORDER BY pinned DESC, updated_at DESC, id DESC",
     )?;
     let rows = stmt
         .query_map([], row_to_memory)?
@@ -413,6 +452,7 @@ fn row_to_memory(row: &rusqlite::Row<'_>) -> rusqlite::Result<Result<Memory, Mem
             source_session_id: row.get(4)?,
             created_at: parse_time(&created)?,
             updated_at: parse_time(&updated)?,
+            pinned: row.get::<_, i64>(7)? != 0,
         })
     })())
 }
@@ -482,6 +522,8 @@ mod tests {
 
     use super::*;
 
+    use crate::PINNED_MEMORY_TITLE;
+
     fn store() -> (TempDir, MemoryStore) {
         let dir = tempfile::tempdir().unwrap();
         let store = MemoryStore::open(dir.path().join("lya.db")).unwrap();
@@ -500,7 +542,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(created.id, 1);
+        assert_eq!(created.id, 2, "迁移会种子一条置顶 #1");
         // 标签去重且排序
         assert_eq!(
             created.tags,
@@ -509,7 +551,8 @@ mod tests {
         );
         assert_eq!(created.source_session_id.as_deref(), Some("s1"));
         assert_eq!(store.get(created.id).unwrap(), created);
-        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(store.count().unwrap(), 2);
+        assert_eq!(store.slot_of(created.id).unwrap(), 2);
     }
 
     #[test]
@@ -525,10 +568,10 @@ mod tests {
         let updated = store
             .upsert_by_title(NewMemory::new("同名", "第二版").with_tags(["新标签"]))
             .unwrap();
-        assert_eq!(updated.id, 1, "同名应更新原记录而不是新建");
+        assert_eq!(updated.id, 2, "同名应更新原记录而不是新建");
         assert_eq!(updated.body, "第二版");
         assert_eq!(updated.tags, vec!["新标签".to_string()]);
-        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(store.count().unwrap(), 2);
     }
 
     #[test]
@@ -537,8 +580,8 @@ mod tests {
         let created = store
             .upsert_by_title(NewMemory::new("新的", "正文"))
             .unwrap();
-        assert_eq!(created.id, 1);
-        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(created.id, 2);
+        assert_eq!(store.count().unwrap(), 2);
     }
 
     #[test]
@@ -599,8 +642,14 @@ mod tests {
     }
 
     #[test]
-    fn delete_cascades_tags() {
+    fn delete_cascades_tags_and_rejects_pinned() {
         let (_dir, store) = store();
+        let pinned = store.list().unwrap().into_iter().find(|m| m.pinned).unwrap();
+        assert!(matches!(
+            store.delete(pinned.id),
+            Err(MemoryError::Invalid(_))
+        ));
+
         let created = store
             .create(NewMemory::new("要删的", "x").with_tags(["t1", "t2"]))
             .unwrap();
@@ -625,18 +674,30 @@ mod tests {
     }
 
     #[test]
-    fn list_is_newest_first_and_index_renders() {
+    fn list_is_newest_first_and_index_renders_with_slots() {
         let (_dir, store) = store();
         store.create(NewMemory::new("先写的", "x")).unwrap();
         let second = store.create(NewMemory::new("后写的", "y")).unwrap();
 
         let list = store.list().unwrap();
-        assert_eq!(list.first().unwrap().id, second.id);
+        assert!(list.first().unwrap().pinned);
+        assert_eq!(list[1].id, second.id);
 
         let section = store.index_section().unwrap();
-        assert!(section.contains("共 2 条"));
-        assert!(section.contains("#1 先写的"));
+        assert!(section.contains("共 3 条"));
+        assert!(section.contains(&format!("#1 {PINNED_MEMORY_TITLE}")));
         assert!(section.contains("#2 后写的"));
+        assert!(section.contains("#3 先写的"));
+        assert_eq!(store.get_by_slot(2).unwrap().title, "后写的");
+    }
+
+    #[test]
+    fn migration_seeds_pinned_memory_at_slot_one() {
+        let (_dir, store) = store();
+        assert_eq!(store.count().unwrap(), 1);
+        let pinned = store.get_by_slot(1).unwrap();
+        assert!(pinned.pinned);
+        assert_eq!(pinned.title, PINNED_MEMORY_TITLE);
     }
 
     #[test]

@@ -309,7 +309,38 @@ function headerBar(block: HTMLElement): HTMLElement {
 .md :deep(ul),
 .md :deep(ol) {
   margin: 0.28em 0;
+}
+
+.md :deep(ul) {
   padding-left: 1.4em;
+}
+
+/* Zpix 等 UI 字体不含可靠数字/项目符号，marker 用系统 sans */
+.md :deep(ul > li::marker),
+.md :deep(ol > li::before) {
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans SC', sans-serif;
+  font-variant-numeric: tabular-nums;
+  text-shadow: none;
+}
+
+.md :deep(ol) {
+  list-style: none;
+  counter-reset: lya-ol;
+  padding-left: 0;
+}
+
+.md :deep(ol > li) {
+  counter-increment: lya-ol;
+  padding-left: 1.6em;
+  position: relative;
+}
+
+.md :deep(ol > li::before) {
+  content: counter(lya-ol) '. ';
+  position: absolute;
+  left: 0;
+  width: 1.5em;
+  text-align: right;
 }
 
 .md :deep(li) {
@@ -382,7 +413,6 @@ function headerBar(block: HTMLElement): HTMLElement {
 
 .md--doc :deep(ul),
 .md--doc :deep(ol) {
-  margin: 0.28em 0;
   padding-left: 0;
   padding-inline-start: 0;
 }
@@ -392,17 +422,16 @@ function headerBar(block: HTMLElement): HTMLElement {
   list-style-position: inside;
 }
 
-.md--doc :deep(ol) {
-  list-style: none;
-  counter-reset: lya-doc-ol;
-}
-
 .md--doc :deep(ol > li) {
-  counter-increment: lya-doc-ol;
+  padding-left: 0;
+  position: static;
 }
 
 .md--doc :deep(ol > li::before) {
-  content: counter(lya-doc-ol) ') ';
+  content: counter(lya-ol) ') ';
+  position: static;
+  width: auto;
+  text-align: left;
 }
 
 .md--doc :deep(li + li) {

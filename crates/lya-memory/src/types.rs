@@ -5,10 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::MemoryError;
 
+/// 索引 #1 固定留给这条置顶记忆（见迁移 `002_pinned_seed.sql`）。
+pub const PINNED_MEMORY_TITLE: &str = "致小恋恋: 想对你说的话";
+
 /// 一条长期记忆。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Memory {
-    /// 自增 id，也是模型在 prompt 里引用的短句柄。
+    /// SQLite 自增 id；API 与前端用这个，模型侧用展示编号。
     pub id: i64,
     /// 标题，全局唯一。
     pub title: String,
@@ -22,8 +25,10 @@ pub struct Memory {
     pub source_session_id: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
-    /// 最后更新时间；常驻索引按它取最近的若干条。
+    /// 最后更新时间；非常驻索引里其余条目按它倒序为 #2、#3…
     pub updated_at: DateTime<Utc>,
+    /// 置顶在索引 `#1`，全库最多一条。
+    pub pinned: bool,
 }
 
 /// 新建记忆的入参。
@@ -90,10 +95,10 @@ pub enum MatchField {
 
 /// 一条检索命中。
 ///
-/// 不带完整正文——检索是为了「找到哪一条」，看内容用 `memory_read` 按编号取。
+/// 不带完整正文——检索是为了「找到哪一条」，看内容用 `memory_read` 按展示编号取。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MemoryHit {
-    /// 记忆编号。
+    /// SQLite 自增 id（前端/API 用）。
     pub id: i64,
     /// 标题。
     pub title: String,
