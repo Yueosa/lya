@@ -1,90 +1,30 @@
-# 开发待办
+# 开发待办（归档）
 
-活文档。完成项打 `[x]`，封存项见文末。crate 边界见 [`docs/architecture.md`](./architecture.md)。
+**活待办已迁至 [`plan.md`](./plan.md)。** 完成项请在那里维护，不要改本文件。
 
-## Wave A — 安全与测试 Bug（已完成）
+---
 
-- [x] **bash**：双引号内 `$()` / 反引号 → 强制未完全理解，走确认
-- [x] **bash**：`steps[]` 只改确认框展示；`needs_confirm` 决策**只**看 `parse(command)`
-- [x] **图片路径**：Markdown 尖括号路径、`decodeURIComponent` 边界 + 测试
-- [x] **新会话模型名**：`model_id` 为空时 Composer 显示配置默认模型名
-- [x] **分支树 filter**：四个「隐藏」项默认全开（`filters.v2`）
+## 历史 Wave 清单（只读）
 
-## Wave B — 体验（已完成）
+Wave A–F、tool 调用组、crate 拆分、媒体 Phase 1、notify 等均已落地。明细见 git history 与 [`archive/`](./archive/)。
 
-- [x] **img_cache + lightbox**：`~/.lya/sessions/{id}/img_cache/`；本地/远程图缓存端点；放大 / 复制图片 / 复制路径 / 保存
-- [x] **会话显示偏好**：折叠长块阈值（滑块+输入）；流式结束后自动收起思考/工具
-- [x] **models 配置**：模板与 UI 暴露 `max_tokens` 等透传字段示例
-- [x] **加载性能**：首屏抑制 stagger、尾部优先渲染、`content-visibility`
+## 曾标记完成、易误解的项
 
-## Wave C — 前端/文档（已完成）
+| 项 | 实际交付 |
+|----|----------|
+| tool 配置 UI Phase 1 | **全局 tool 启用**（`runtime.tools.enabled`）+ 会话覆盖 + ToolsView **只读** limits；**不是** tool 数值可配 |
+| vdo/ado Phase 1 | 播放器 + 缓存端点 + 提示词；**无** video_scan tool |
 
-- [x] 前端 god-file 拆层：`useChat.ts` → `app/chat/*` 模块 + barrel
-- [x] 前端子组件化：`ChatView` → `views/chat/*`
-- [x] 后端 crate README（14 个 crate 均有 README）
+## 封存（不做）
 
-## Wave D — 调用组（已完成）
+- 工具/action 数值进 TOML（改 `limits.rs` 即可）
+- 配置写回 models api_key 的前端编辑页
+- bash 沙箱、Action cancel、embedding、配置 watcher、全局 SSE 等
 
-设计见 [`docs/tool-batch.md`](./tool-batch.md)。
+完整列表见 [`plan.md` → 刻意不做](./plan.md#刻意不做)。
 
-1. [x] **TIME_ANCHOR 澄清**
-2. [x] **tool 调用组（后端）**
-3. [x] **tool 调用组（协议/前端）**
+## Backlog 原条目
 
-## Wave E — 架构重构 ✅
-
-| 步骤 | 内容 | 状态 |
-|------|------|------|
-| E1 | 新建 `lya-hub`、`lya-api`、`lya-media`、`lya-storage` workspace 成员 | [x] |
-| E2 | 迁 **lya-media**：`media_cache` + 图片 serving | [x] |
-| E3 | 迁 **lya-hub**：`SessionHub` + `event` | [x] |
-| E4 | 迁 **lya-api**：全部 `http/*`、`guard`、`router` | [x] |
-| E5 | **lya-core** 瘦身为 `run.rs` + `start_server`（无 re-export） | [x] |
-| E6 | **lya-storage**：`scan_usage()` + `GET /api/storage/stats` | [x] |
-| E7 | 配置 **`[media.*]`** + 前端 **Storage** 扇形图（只读） | [x] |
-
-## Wave F — notify ✅
-
-- [x] **notify-send**：completed / hitl / failed / max_rounds；托盘图标；HITL 按 `message_id` 去重
-
-实现：`lya-hub` 广播 `notify_*` 全局事件；`lya` 托盘订阅 `/api/events` 后调 `notify-send`。**当前够用，不再扩展。**
-
-## 近期已完成（Wave F 之后）
-
-| 项 | 状态 | 说明 |
-|----|------|------|
-| **web_fetch 翻页** | [x] | `start_line` / `end_line`，见 `lya-tool` `fetch.rs` |
-| **tool 配置 UI（Phase 1）** | [x] | ToolsView 全局默认；SessionSettings 展开 + 恢复全局；`toolLimits` 只读 |
-| **vdo/ado Phase 1** | [x] | 提示词、缓存端点、播放器、ConfigView、路径条；**无** tool |
-
-## Backlog
-
-| # | 项 | 说明 |
+| # | 项 | 状态 |
 |---|-----|------|
-| 1 | tool/action 配置 **Phase 2** | 每工具数值进 TOML — **明确不做** |
-| 2 | vdo/ado **tool**（`video_scan` 等） | Phase 1 不做；有真实需求再议 |
-| **lianclaw 迁移（一次性）** | [x] | 8 条记忆 + 会话 S4/S8；工具消息已剥离；备份 `lya.db.bak-before-lianclaw-migrate` |
-| 4 | **上下文管理器** | `lya-token` + `lya-context` |
-
-| 项 | 说明 |
-|----|------|
-| 二进制体积 | 已做 slim 构建 |
-| models 字段 | `context_window` / `max_tokens` |
-
-## 封存（不做 / 不追踪）
-
-- 配置写回保留占位 `api_key`（前端无编辑页）
-- 图片 URL token 改造
-- bash 沙箱
-- Action cancel
-- 流式落库策略改动
-- HITL 长命令终端弹窗（近期）
-- HITL 确认超时自动拒绝
-- embedding / 自动召回
-- 配置文件 watcher
-- 全局 SSE（会话级够用）
-- 分支命名 / `branch_meta`
-- 递归删整枝（`delete_leaf` 够用）
-- 图片上传、会话导出、快捷键、移动端
-- notify 前台抑制（暂不做）
-- Storage 页「清除缓存」按钮（第一版不做）
+| 4 | 上下文管理器 | 暂缓 → [`plan.md` P2](./plan.md) |
