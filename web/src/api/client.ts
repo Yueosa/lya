@@ -177,11 +177,15 @@ export interface Memory {
   updated_at: string
 }
 
-/** 搜索命中。 */
+/** 搜索命中（与后端 `lya_memory::MemoryHit` 一致；不含正文）。 */
 export interface MemoryHit {
-  memory: Memory
-  /** 命中在哪个字段。 */
-  field: string
+  id: number
+  title: string
+  summary: string
+  tags: string[]
+  /** 命中字段：title / summary / tag / body */
+  matched_in: string
+  snippet: string
 }
 
 /** 新建记忆。 */
@@ -360,6 +364,10 @@ export class LyaClient {
 
   memories(): Promise<Memory[]> {
     return this.request('GET', '/api/memories')
+  }
+
+  memory(id: number): Promise<Memory> {
+    return this.request('GET', `/api/memories/${id}`)
   }
 
   searchMemories(q: string, limit = 20): Promise<MemoryHit[]> {

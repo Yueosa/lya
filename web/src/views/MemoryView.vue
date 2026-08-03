@@ -28,6 +28,7 @@ const FIELD_LABELS: Record<string, string> = {
   title: '标题',
   summary: '摘要',
   body: '正文',
+  tag: '标签',
   tags: '标签',
 }
 
@@ -82,6 +83,18 @@ function select(memory: Memory): void {
   selected.value = { ...memory }
   tagsDraft.value = memory.tags.join(', ')
   editing.value = false
+}
+
+async function selectHit(hit: MemoryHit): Promise<void> {
+  loading.value = true
+  try {
+    const full = await client.memory(hit.id)
+    select(full)
+  } catch {
+    toast('读取记忆失败', 'error')
+  } finally {
+    loading.value = false
+  }
 }
 
 async function save(): Promise<void> {
@@ -154,13 +167,13 @@ function parseTags(text: string): string[] {
           <template v-if="hits">
             <button
               v-for="hit in hits"
-              :key="hit.memory.id"
+              :key="hit.id"
               class="split-view__list-item"
-              :class="{ 'split-view__list-item--on': selected?.id === hit.memory.id }"
-              @click="select(hit.memory)"
+              :class="{ 'split-view__list-item--on': selected?.id === hit.id }"
+              @click="selectHit(hit)"
             >
-              <span class="split-view__list-title">{{ hit.memory.title }}</span>
-              <span class="split-view__list-meta">命中 · {{ fieldLabel(hit.field) }}</span>
+              <span class="split-view__list-title">{{ hit.title }}</span>
+              <span class="split-view__list-meta">命中 · {{ fieldLabel(hit.matched_in) }}</span>
             </button>
           </template>
           <template v-else>
