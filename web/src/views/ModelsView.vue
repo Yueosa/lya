@@ -138,12 +138,6 @@ function selectGroup(baseUrl: string): void {
             <h3>{{ gatewayLabel(selected.baseUrl) }}</h3>
           </header>
 
-          <p class="page__hint">
-            来自 <code>models.toml</code>。对话里选「显示名」；发请求用的是「API model」列。
-            <code>context_window</code> 是 lya 侧输入预算（不给 API）；
-            <code>max_tokens</code>、<code>thinking</code> 等透传进请求体，在原始文件里编辑即可。
-          </p>
-
           <div class="panel form-panel">
             <div class="row">
               <span class="gateway-card__label">网关地址</span>

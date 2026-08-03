@@ -193,9 +193,6 @@ async function answerMode(approved: boolean): Promise<void> {
           <Icon name="chevronRight" size="sm" />
         </button>
       </div>
-      <p v-if="batchNav && !canSubmitFocusedHitl" class="tray__batch-hint">
-        可自由浏览并分别填写备注；提交须按顺序，请先处理尚未审批的那一条
-      </p>
       <h3 class="tray__title">要执行 {{ block.tool_name }} 吗</h3>
       <p class="tray__summary">{{ block.summary }}</p>
 

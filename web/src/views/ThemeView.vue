@@ -48,10 +48,6 @@ function useTheme(): void {
             <button v-else class="btn btn--primary btn--sm" @click="useTheme">应用此主题</button>
           </header>
 
-          <p class="page__hint">
-            左侧切换预览，点「应用此主题」才会改全局配色与外壳。界面结构不变。
-          </p>
-
           <ThemePreview :theme-id="selected.id" />
           </div>
         </Transition>
