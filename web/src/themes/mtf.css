@@ -109,3 +109,7 @@
 [data-theme='mtf'] .split-view__list-item:active {
   transform: translateY(1px);
 }
+
+[data-theme='mtf'] .home__title {
+  text-shadow: var(--shadow-float);
+}

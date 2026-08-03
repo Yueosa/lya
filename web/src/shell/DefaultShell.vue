@@ -25,7 +25,7 @@ import Icon from '../ui/Icon.vue'
 import { NAV_ITEMS, type ShellProps, type View } from './types'
 import { NAV_ICONS } from './icons'
 
-defineProps<ShellProps>()
+const props = defineProps<ShellProps>()
 const emit = defineEmits<{ navigate: [view: View] }>()
 
 const collapsed = sidebarCollapsed
@@ -48,6 +48,15 @@ watch(
   viewingArchived,
   (on) => {
     if (on) showArchived.value = true
+  },
+  { immediate: true },
+)
+
+/** 首页聚焦大 logo，进入时自动收起侧栏（含首次访问）。 */
+watch(
+  () => props.view,
+  (v) => {
+    if (v === 'home') setSidebarCollapsed(true)
   },
   { immediate: true },
 )
