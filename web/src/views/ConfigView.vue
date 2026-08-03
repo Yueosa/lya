@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 
-import type { ConfigView as Config, UsageReport } from '../api/client'
+import type { ConfigView as Config, ToolInfo, UsageReport } from '../api/client'
 import { client, refreshRuntimeDefaults } from '../app/useChat'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
@@ -9,6 +9,11 @@ import RawToml from '../ui/RawToml.vue'
 import StoragePie from '../ui/StoragePie.vue'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
+import {
+  buildToolsEnabledPayload,
+  readGlobalToolsMode,
+  type GlobalToolsMode,
+} from '../utils/toolLimits'
 import { bytesToMegabytes, megabytesToBytes } from '../utils/formatBytes'
 
 type Tab = 'persona' | 'runtime' | 'storage' | 'raw'
@@ -16,7 +21,7 @@ type RawFile = 'core' | 'runtime' | 'models' | 'persona'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'persona', label: '人设' },
-  { id: 'runtime', label: '运行时' },
+  { id: 'runtime', label: '默认配置' },
   { id: 'storage', label: '存储' },
   { id: 'raw', label: '原始文件' },
 ]
@@ -36,6 +41,7 @@ const storageLoading = ref(false)
 
 const form = ref({
   maxToolRounds: 32,
+  maxParallelTools: 3,
   defaultWorkMode: 'agent',
   maxIndexEntries: 100,
   maxIndexChars: 4000,
@@ -52,13 +58,18 @@ const form = ref({
   cacheAudioWeb: true,
 })
 
+const catalogTools = ref<ToolInfo[]>([])
+const globalMode = ref<GlobalToolsMode>('all')
+const globalEnabled = ref<Set<string>>(new Set())
+
 onMounted(load)
 
 async function load(): Promise<void> {
   loadError.value = ''
   try {
-    const data = await client.config()
+    const [data, toolList] = await Promise.all([client.config(), client.tools()])
     config.value = data
+    catalogTools.value = toolList
     persona.value = data.persona ?? ''
     readForm(data.runtime)
   } catch (error) {
@@ -82,8 +93,12 @@ function readForm(runtime: Record<string, unknown>): void {
   const image = (media['image'] ?? {}) as Record<string, unknown>
   const video = (media['video'] ?? {}) as Record<string, unknown>
   const audio = (media['audio'] ?? {}) as Record<string, unknown>
+  const { mode, enabled } = readGlobalToolsMode(runtime)
+  globalMode.value = mode
+  globalEnabled.value = new Set(enabled)
   form.value = {
     maxToolRounds: Number(agent['max_tool_rounds'] ?? 32),
+    maxParallelTools: Number(agent['max_parallel_tools'] ?? 3),
     defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
     maxIndexEntries: Number(memory['max_index_entries'] ?? 100),
     maxIndexChars: Number(memory['max_index_chars'] ?? 4000),
@@ -101,14 +116,43 @@ function readForm(runtime: Record<string, unknown>): void {
   }
 }
 
+function setGlobalMode(mode: GlobalToolsMode): void {
+  globalMode.value = mode
+  if (mode === 'custom' && globalEnabled.value.size === 0) {
+    globalEnabled.value = new Set(catalogTools.value.map((tool) => tool.name))
+  }
+}
+
+function toggleGlobalTool(name: string, checked: boolean): void {
+  if (globalMode.value === 'all') {
+    globalMode.value = 'custom'
+    globalEnabled.value = new Set(
+      catalogTools.value.filter((tool) => tool.name !== name).map((tool) => tool.name),
+    )
+    if (checked) globalEnabled.value.add(name)
+    return
+  }
+  if (globalMode.value === 'none') {
+    globalMode.value = 'custom'
+    globalEnabled.value = new Set(checked ? [name] : [])
+    return
+  }
+  const next = new Set(globalEnabled.value)
+  if (checked) next.add(name)
+  else next.delete(name)
+  globalEnabled.value = next
+}
+
 async function saveRuntime(): Promise<void> {
   saving.value = true
   try {
     const applied = (await client.writeRuntime({
       agent: {
         max_tool_rounds: form.value.maxToolRounds,
+        max_parallel_tools: form.value.maxParallelTools,
         default_work_mode: form.value.defaultWorkMode,
       },
+      tools: buildToolsEnabledPayload(globalMode.value, globalEnabled.value),
       memory: {
         max_index_entries: form.value.maxIndexEntries,
         max_index_chars: form.value.maxIndexChars,
@@ -184,9 +228,9 @@ function pickTab(id: Tab): void {
 }
 
 const workModeOptions: PickerOption[] = [
-  { value: 'ask', label: '问答 — 只能看' },
-  { value: 'edit', label: '编辑 — 能读写文件' },
-  { value: 'agent', label: '代理 — 含执行命令' },
+  { value: 'ask', label: '问答' },
+  { value: 'edit', label: '编辑' },
+  { value: 'agent', label: '代理' },
 ]
 
 const shellConfirmOptions: PickerOption[] = [
@@ -226,7 +270,7 @@ watch(tab, (id) => {
 
         <Transition v-else name="lya-split" mode="out-in">
           <section v-if="tab === 'persona'" key="persona" class="page__pane">
-          <p class="page__hint">全局人设，写入 <code>persona.toml</code>，所有新会话默认继承。</p>
+          <p class="page__hint">全局人设，写入 <code>persona.toml</code>，所有新会话默认继承</p>
           <textarea v-model="persona" class="input cfg-text" rows="12" placeholder="全局人设" />
           <div class="row row--end">
             <button class="btn btn--primary" :disabled="saving" @click="savePersona">
@@ -236,6 +280,10 @@ watch(tab, (id) => {
         </section>
 
           <section v-else-if="tab === 'runtime'" key="runtime" class="page__pane">
+          <p class="page__hint">
+            写入 <code>runtime.toml</code>
+          </p>
+
           <div class="panel form-panel">
             <h3 class="form-panel__title">对话</h3>
             <label class="field">
@@ -245,7 +293,52 @@ watch(tab, (id) => {
             <label class="field">
               <span class="field__label">单轮最多调几次工具</span>
               <input v-model.number="form.maxToolRounds" class="input" type="number" min="1" max="200" />
-              <p class="field__note">到上限就停下，防止模型自己转圈停不下来</p>
+            </label>
+          </div>
+
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">工具</h3>
+            <p class="page__hint">新会话默认启用哪些 tool</p>
+            <div class="seg-row">
+              <button
+                class="btn btn--sm"
+                :class="{ 'btn--primary': globalMode === 'all' }"
+                @click="setGlobalMode('all')"
+              >
+                全部启用
+              </button>
+              <button
+                class="btn btn--sm"
+                :class="{ 'btn--primary': globalMode === 'custom' }"
+                @click="setGlobalMode('custom')"
+              >
+                自定义
+              </button>
+              <button
+                class="btn btn--sm"
+                :class="{ 'btn--primary': globalMode === 'none' }"
+                @click="setGlobalMode('none')"
+              >
+                全部关闭
+              </button>
+            </div>
+            <div v-if="globalMode === 'custom'" class="cfg-tool-checks">
+              <label v-for="tool in catalogTools" :key="tool.name" class="cfg-tool-check">
+                <input
+                  type="checkbox"
+                  :checked="globalEnabled.has(tool.name)"
+                  @change="toggleGlobalTool(tool.name, ($event.target as HTMLInputElement).checked)"
+                />
+                <span>{{ tool.raw_name }}</span>
+              </label>
+            </div>
+            <label class="field">
+              <span class="field__label">同条消息并行 tool 上限</span>
+              <input v-model.number="form.maxParallelTools" class="input" type="number" min="1" max="10" />
+            </label>
+            <label class="field">
+              <span class="field__label">bash 命令确认</span>
+              <Picker v-model="form.shellConfirm" :options="shellConfirmOptions" />
             </label>
           </div>
 
@@ -268,27 +361,24 @@ watch(tab, (id) => {
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">媒体 · 图片</h3>
-            <p class="page__hint">聊天图片与会话 <code>img_cache</code>；保存后立即生效。</p>
+            <p class="page__hint">聊天图片缓存</p>
             <label class="field">
               <span class="field__label">单张图片上限（MB）</span>
               <input v-model.number="form.maxImageMb" class="input" type="number" min="1" max="256" step="0.5" />
-              <p class="field__note">同时作用于 local-image 与会话 media 端点</p>
             </label>
             <label class="field field--check">
               <span class="field__label">缓存本地图片</span>
               <input v-model="form.cacheLocal" type="checkbox" />
-              <p class="field__note">关闭后仍可读原路径，但不写入 img_cache/local</p>
             </label>
             <label class="field field--check">
               <span class="field__label">缓存远程图片</span>
               <input v-model="form.cacheWeb" type="checkbox" />
-              <p class="field__note">关闭后每次访问重新拉取，不写入持久 web 缓存</p>
             </label>
           </div>
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">媒体 · 视频</h3>
-            <p class="page__hint">聊天 Markdown 视频与会话 <code>vdo_cache</code>。</p>
+            <p class="page__hint">聊天视频缓存</p>
             <label class="field">
               <span class="field__label">单个视频上限（MB）</span>
               <input v-model.number="form.maxVideoMb" class="input" type="number" min="1" max="4096" step="1" />
@@ -296,18 +386,16 @@ watch(tab, (id) => {
             <label class="field field--check">
               <span class="field__label">缓存本地视频</span>
               <input v-model="form.cacheVideoLocal" type="checkbox" />
-              <p class="field__note">关闭后仍可读原路径，但不写入 vdo_cache/local</p>
             </label>
             <label class="field field--check">
               <span class="field__label">缓存远程视频</span>
               <input v-model="form.cacheVideoWeb" type="checkbox" />
-              <p class="field__note">关闭后每次播放重新拉取，不写入 vdo_cache/web</p>
             </label>
           </div>
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">媒体 · 音频</h3>
-            <p class="page__hint">聊天 Markdown 音频与会话 <code>ado_cache</code>。</p>
+            <p class="page__hint">聊天音频缓存</p>
             <label class="field">
               <span class="field__label">单个音频上限（MB）</span>
               <input v-model.number="form.maxAudioMb" class="input" type="number" min="1" max="1024" step="1" />
@@ -315,34 +403,21 @@ watch(tab, (id) => {
             <label class="field field--check">
               <span class="field__label">缓存本地音频</span>
               <input v-model="form.cacheAudioLocal" type="checkbox" />
-              <p class="field__note">关闭后仍可读原路径，但不写入 ado_cache/local</p>
             </label>
             <label class="field field--check">
               <span class="field__label">缓存远程音频</span>
               <input v-model="form.cacheAudioWeb" type="checkbox" />
-              <p class="field__note">关闭后每次播放重新拉取，不写入 ado_cache/web</p>
-            </label>
-          </div>
-
-          <div class="panel form-panel">
-            <h3 class="form-panel__title">命令执行</h3>
-            <label class="field">
-              <span class="field__label">什么时候要你确认</span>
-              <Picker v-model="form.shellConfirm" :options="shellConfirmOptions" />
             </label>
           </div>
 
           <div class="row row--end">
             <button class="btn btn--primary" :disabled="saving" @click="saveRuntime">
-              {{ saving ? '保存中…' : '保存' }}
+              {{ saving ? '保存中…' : '保存默认配置' }}
             </button>
           </div>
         </section>
 
           <section v-else-if="tab === 'storage'" key="storage" class="page__pane">
-          <p class="page__hint">
-            只读统计 <code>~/.lya</code> 占用；第一版不提供清除按钮。
-          </p>
           <p v-if="storageLoading" class="split-view__hint">正在扫描…</p>
           <p v-else-if="storageError" class="page__error">{{ storageError }}</p>
           <template v-else-if="storage">
@@ -355,11 +430,6 @@ watch(tab, (id) => {
         </section>
 
           <section v-else key="raw" class="page__pane">
-          <p class="page__hint">
-            core 只读——改端口等需重启进程才生效。models 里
-            <code>context_window</code> 是 lya 输入预算；<code>max_tokens</code> 等透传键会原样进 API 请求体。
-            若缺少 <code>[media.*]</code>，请对照模板合并 <code>runtime.toml</code>。
-          </p>
           <div class="seg-row">
             <button
               v-for="file in RAW_FILES"
@@ -396,6 +466,31 @@ watch(tab, (id) => {
 .field--check input[type='checkbox'] {
   width: auto;
   justify-self: start;
+}
+
+.cfg-tool-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow: auto;
+  padding: 8px;
+  margin-bottom: 8px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.cfg-tool-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.cfg-tool-check input {
+  width: auto;
 }
 
 @media (max-width: 640px) {
