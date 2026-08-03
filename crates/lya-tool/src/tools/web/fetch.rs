@@ -8,18 +8,12 @@ use serde_json::{Value, json};
 
 use crate::confirm::{ConfirmRequest, ConfirmStep};
 use crate::context::ToolCtx;
+use crate::limits::web_fetch::{DEFAULT_MAX_CHARS, MAX_CHARS_CAP, MAX_DOWNLOAD_BYTES};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::web::html;
 use crate::tools::web::net::{Reach, classify_literal, classify_resolved, split_host_port};
 use crate::traits::{Tool, ToolCallFuture};
-
-/// 默认返回字符数。
-const DEFAULT_MAX_CHARS: usize = 6000;
-/// 返回字符数的硬顶。
-const MAX_CHARS_CAP: usize = 20_000;
-/// 下载字节数上限，防止一个视频文件把内存吃满。
-const MAX_DOWNLOAD_BYTES: usize = 4 * 1024 * 1024;
 
 /// lya 自己监听的端口。
 ///

@@ -7,6 +7,7 @@
 - 定义单个工具的 meta / parameters / prompt_hint / call
 - 启动时注册全部工具
 - 按名字列表 + RWX 权限筛选，导出提示词段与 OpenAI `tools[]` schema
+- 内置数值上限集中在 [`src/limits.rs`](src/limits.rs)（不可通过 `runtime.toml` 配置）
 
 ## 用法
 

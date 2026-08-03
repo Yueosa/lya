@@ -12,15 +12,13 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
+use crate::context::ToolCtx;
+use crate::limits::file_edit::MAX_EDIT_BYTES;
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::file::write::{count_lines, describe_path_error};
 use crate::tools::local::path::resolve_path;
-use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
-
-/// 可编辑文件的大小上限。
-const MAX_EDIT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// `file_edit` 工具。
 pub struct FileEditTool {

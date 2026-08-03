@@ -8,14 +8,12 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
+use crate::context::ToolCtx;
+use crate::limits::file_write::MAX_WRITE_BYTES;
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::path::{resolve_path, PathError};
-use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
-
-/// 单次写入的内容上限。
-const MAX_WRITE_BYTES: usize = 1024 * 1024;
 
 /// `file_write` 工具。
 pub struct FileWriteTool {

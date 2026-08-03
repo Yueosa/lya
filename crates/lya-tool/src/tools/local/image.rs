@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
 use crate::context::ToolCtx;
+use crate::limits::image_scan::{DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::file::manage::human_size;
@@ -26,13 +27,6 @@ use crate::traits::{Tool, ToolCallFuture};
 const EXTENSIONS: &[&str] = &[
     "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "ico", "avif", "heic", "heif",
 ];
-
-/// 默认最多列几张。
-const DEFAULT_LIMIT: usize = 100;
-/// 上限。
-const MAX_LIMIT: usize = 1000;
-/// 递归时最多往下几层。
-const MAX_DEPTH: usize = 8;
 
 /// `image_scan` 工具。
 pub struct ImageScanTool {

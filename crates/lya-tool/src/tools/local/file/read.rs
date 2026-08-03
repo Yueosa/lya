@@ -15,18 +15,12 @@ use regex::{Regex, RegexBuilder};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::context::ToolCtx;
+use crate::limits::file_read::{HARD_MAX_BYTES, MAX_FULL_BYTES, MAX_FULL_LINES};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::path::{resolve_path, PathError};
-use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
-
-/// 无范围限制时的最大返回行数。
-const MAX_FULL_LINES: usize = 2000;
-/// 无范围限制时的最大返回字节数。
-const MAX_FULL_BYTES: usize = 256 * 1024;
-/// 任意操作的硬上限（防止把巨大文件整文件读进内存）。
-const HARD_MAX_BYTES: u64 = 8 * 1024 * 1024;
 
 /// `file_read` 工具。
 pub struct FileReadTool {

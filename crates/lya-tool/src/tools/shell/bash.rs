@@ -7,22 +7,17 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::confirm::{ConfirmRequest, ConfirmStep};
+use crate::context::ToolCtx;
+use crate::limits::bash::{MAX_CAPTURE_BYTES, MAX_REPORT_CHARS, MAX_TIMEOUT_SECS};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::path::resolve_path;
 use crate::tools::shell::parse::{parse, ParsedCommand};
 use crate::tools::shell::rules::{judge, pipeline_risks};
-use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
-/// 默认超时秒数。
-pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
-/// 超时秒数上限。
-const MAX_TIMEOUT_SECS: u64 = 600;
-/// 单个流最多捕获多少字节。
-const MAX_CAPTURE_BYTES: usize = 50 * 1024;
-/// 回给模型的每个流最多多少字符。
-const MAX_REPORT_CHARS: usize = 2000;
+/// 默认超时秒数（见 [`crate::limits::bash`]）。
+pub use crate::limits::bash::DEFAULT_TIMEOUT_SECS;
 
 /// 什么时候需要用户确认。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

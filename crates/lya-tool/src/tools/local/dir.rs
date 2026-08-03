@@ -8,22 +8,14 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
+use crate::context::ToolCtx;
+use crate::limits::dir_list::{DEFAULT_DEPTH, DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
 use crate::tools::local::file::manage::human_size;
 use crate::tools::local::file::write::describe_path_error;
 use crate::tools::local::path::resolve_path;
-use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
-
-/// 默认展开深度。
-const DEFAULT_DEPTH: usize = 1;
-/// 最大展开深度。
-const MAX_DEPTH: usize = 8;
-/// 默认返回条目上限。
-const DEFAULT_LIMIT: usize = 300;
-/// 条目上限的硬顶。
-const MAX_LIMIT: usize = 2000;
 
 /// `dir_list` 工具。
 pub struct DirListTool {

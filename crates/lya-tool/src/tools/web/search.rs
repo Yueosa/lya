@@ -8,19 +8,14 @@ use percent_encoding::percent_decode_str;
 use scraper::{Html, Selector};
 use serde_json::{json, Value};
 
+use crate::context::ToolCtx;
+use crate::limits::web_search::{DEFAULT_MAX_RESULTS, MAX_RESULTS_CAP, SNIPPET_CHARS};
 use crate::meta::{ToolMeta, ToolResult};
 use crate::permission::Permission;
-use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// DDG 的无脚本搜索端点。
 const ENDPOINT: &str = "https://html.duckduckgo.com/html/";
-/// 默认返回条数。
-const DEFAULT_MAX_RESULTS: usize = 8;
-/// 返回条数上限。
-const MAX_RESULTS_CAP: usize = 20;
-/// 摘要截断长度。
-const SNIPPET_CHARS: usize = 200;
 
 /// `web_search` 工具。
 pub struct WebSearchTool {

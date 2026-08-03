@@ -1,4 +1,4 @@
-/** 内置 tool 的硬编码限制（只读展示，与 Rust 常量对应）。 */
+/** 内置 tool 的硬编码限制（只读展示，与 `lya-tool/src/limits.rs` 保持一致）。 */
 export interface ToolLimitRow {
   label: string
   value: string
