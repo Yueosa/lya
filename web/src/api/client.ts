@@ -151,35 +151,34 @@ export interface ConfigView {
   core_readonly: boolean
 }
 
-/** Local 缓存占用（含硬链接去重）。 */
-export interface LocalCacheStats {
+/**
+ * 一批文件的占用情况。
+ *
+ * 三个字节数各有各的意思，别混用：`logical_bytes` 是逐文件相加，`physical_bytes`
+ * 是按 inode 去重后真正压在盘上的量，`reclaimable_bytes` 是删掉能腾出来的量。
+ * 本地媒体缓存优先硬链接到用户原来的文件，那部分 `reclaimable_bytes` 是 0。
+ */
+export interface DiskUsage {
   logical_bytes: number
   physical_bytes: number
+  reclaimable_bytes: number
   shared_bytes: number
   file_count: number
   linked_file_count: number
-}
-
-/** Web 缓存占用。 */
-export interface WebCacheStats {
-  bytes: number
-  file_count: number
 }
 
 /** 树形占用节点。 */
 export interface UsageSection {
   id: string
   label: string
-  bytes: number
+  usage: DiskUsage
   children?: UsageSection[]
-  local?: LocalCacheStats
-  web?: WebCacheStats
 }
 
 /** `GET /api/storage/stats` 响应。 */
 export interface UsageReport {
   root: string
-  total_bytes: number
+  usage: DiskUsage
   sections: UsageSection[]
 }
 

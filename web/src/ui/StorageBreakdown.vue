@@ -1,281 +1,420 @@
+<!--
+  存储占用：一条堆叠横条 + 图例，下面每个分类一张可展开的卡片。
+
+  为什么不是甜甜圈加表格：横条在窄栏里不会挤成一团，图例天然排两列，而且
+  「谁占了大头」一眼就看得出来——这也是 GitHub 用语言条而不用饼图的原因。
+
+  为什么要区分深浅：本地媒体缓存优先硬链接到用户原来的文件，那些条目看着有几十
+  兆，删掉释放 0 字节。浅色那截就是这部分，不标出来的话「可回收 169 MB」是句谎话。
+-->
+
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 
-import type { LocalCacheStats, UsageReport, UsageSection } from '../api/client'
+import type { DiskUsage, UsageReport, UsageSection } from '../api/client'
 import { formatBytes } from '../utils/formatBytes'
 
-const props = defineProps<{
-  report: UsageReport
-}>()
+const props = defineProps<{ report: UsageReport }>()
 
 const COLORS = [
   'var(--accent)',
+  'var(--info)',
   'var(--success)',
   'var(--warning)',
   'var(--danger)',
-  'var(--info)',
-  'var(--accent-soft)',
   'var(--text-muted)',
 ]
 
-const collapsed = ref<Record<string, boolean>>({})
+/** 默认全折叠：一进来先看总览，要细节再点开。 */
+const opened = ref<Set<string>>(new Set())
 
-function toggle(id: string) {
-  collapsed.value[id] = !collapsed.value[id]
+function isOpen(id: string): boolean {
+  return opened.value.has(id)
 }
 
-function isOpen(id: string) {
-  return collapsed.value[id] !== true
+function toggle(id: string): void {
+  const next = new Set(opened.value)
+  if (!next.delete(id)) next.add(id)
+  opened.value = next
 }
 
-const slices = computed(() => {
-  const total = props.report.total_bytes
-  if (total <= 0) return [] as { id: string; label: string; bytes: number; percent: number; color: string; dash: string; offset: string }[]
+const total = computed(() => props.report.usage.physical_bytes)
 
-  let offset = 0
-  return props.report.sections
-    .filter((item) => item.bytes > 0)
-    .map((item, index) => {
-      const percent = (item.bytes / total) * 100
-      const dash = `${percent} ${100 - percent}`
-      const slice = {
-        id: item.id,
-        label: item.label,
-        bytes: item.bytes,
-        percent,
-        color: COLORS[index % COLORS.length] ?? 'var(--accent)',
-        dash,
-        offset: `${offset}`,
-      }
-      offset -= percent
-      return slice
-    })
-})
+function share(usage: DiskUsage): number {
+  return total.value > 0 ? (usage.physical_bytes / total.value) * 100 : 0
+}
 
+function percentText(usage: DiskUsage): string {
+  const value = share(usage)
+  if (value === 0) return '0%'
+  return value < 0.1 ? '<0.1%' : `${value.toFixed(1)}%`
+}
+
+function colorOf(index: number): string {
+  return COLORS[index % COLORS.length] ?? 'var(--accent)'
+}
+
+interface Segment {
+  id: string
+  label: string
+  color: string
+  percent: string
+  /** 独立占盘的那截。 */
+  ownPercent: number
+  /** 与外部共用 inode 的那截，画成浅色。 */
+  sharedPercent: number
+}
+
+const segments = computed<Segment[]>(() =>
+  props.report.sections
+    .map((section, index) => ({ section, color: colorOf(index) }))
+    .filter(({ section }) => section.usage.physical_bytes > 0)
+    .map(({ section, color }) => ({
+      id: section.id,
+      label: section.label,
+      color,
+      percent: percentText(section.usage),
+      ownPercent: total.value > 0 ? (section.usage.reclaimable_bytes / total.value) * 100 : 0,
+      sharedPercent: total.value > 0 ? (section.usage.shared_bytes / total.value) * 100 : 0,
+    })),
+)
+
+const cards = computed(() =>
+  props.report.sections.map((section, index) => ({ section, color: colorOf(index) })),
+)
+
+/** 有硬链接共用时把两个数都说清楚，否则一个数就够。 */
+function usageText(usage: DiskUsage): string {
+  if (usage.shared_bytes > 0) {
+    return `${formatBytes(usage.physical_bytes)}（可回收 ${formatBytes(usage.reclaimable_bytes)}）`
+  }
+  return formatBytes(usage.physical_bytes)
+}
+
+function fileCountText(usage: DiskUsage): string {
+  if (usage.file_count === 0) return '空'
+  if (usage.linked_file_count > 0) {
+    return `${usage.file_count} 个文件，其中 ${usage.linked_file_count} 个是硬链接`
+  }
+  return `${usage.file_count} 个文件`
+}
+
+/** 扁平化成缩进行，只展开用户点开过的层。 */
 interface Row {
   id: string
   depth: number
   label: string
-  bytes: number
-  percent: string
-  color: string
-  detail?: string
+  usage: DiskUsage
   hasChildren: boolean
   open: boolean
 }
 
-function formatLocal(local: LocalCacheStats): string {
-  if (local.file_count === 0) return '—'
-  if (local.shared_bytes > 0) {
-    return `${formatBytes(local.physical_bytes)} / ${formatBytes(local.logical_bytes)} (共用 ${formatBytes(local.shared_bytes)})`
-  }
-  return formatBytes(local.logical_bytes)
-}
-
-function flattenSection(section: UsageSection, depth: number, color: string, rows: Row[]) {
-  const total = props.report.total_bytes
-  const percent = total > 0 ? ((section.bytes / total) * 100).toFixed(1) : '0.0'
+function flatten(section: UsageSection, depth: number, rows: Row[]): void {
   const hasChildren = Boolean(section.children?.length)
-  const open = isOpen(section.id)
-
+  const open = hasChildren && isOpen(section.id)
   rows.push({
     id: section.id,
     depth,
     label: section.label,
-    bytes: section.bytes,
-    percent,
-    color,
+    usage: section.usage,
     hasChildren,
     open,
   })
-
-  if (!hasChildren || !open) {
-    if (section.local || section.web) {
-      if (section.local) {
-        rows.push({
-          id: `${section.id}.local`,
-          depth: depth + 1,
-          label: 'Local',
-          bytes: section.local.physical_bytes,
-          percent: total > 0 ? ((section.local.physical_bytes / total) * 100).toFixed(1) : '0.0',
-          color,
-          detail: formatLocal(section.local),
-          hasChildren: false,
-          open: true,
-        })
-      }
-      if (section.web) {
-        rows.push({
-          id: `${section.id}.web`,
-          depth: depth + 1,
-          label: 'Web',
-          bytes: section.web.bytes,
-          percent: total > 0 ? ((section.web.bytes / total) * 100).toFixed(1) : '0.0',
-          color,
-          detail: section.web.file_count === 0 ? '—' : formatBytes(section.web.bytes),
-          hasChildren: false,
-          open: true,
-        })
-      }
-    }
-    return
-  }
-
-  for (const child of section.children ?? []) {
-    flattenSection(child, depth + 1, color, rows)
-  }
+  if (!open) return
+  for (const child of section.children ?? []) flatten(child, depth + 1, rows)
 }
 
-const rows = computed(() => {
-  const out: Row[] = []
-  props.report.sections.forEach((section, index) => {
-    const color = COLORS[index % COLORS.length] ?? 'var(--accent)'
-    flattenSection(section, 0, color, out)
-  })
-  return out
-})
-
-function onRowClick(row: Row) {
-  if (row.hasChildren) toggle(row.id)
+function childRows(section: UsageSection): Row[] {
+  const rows: Row[] = []
+  for (const child of section.children ?? []) flatten(child, 0, rows)
+  return rows
 }
 </script>
 
 <template>
-  <div class="storage-breakdown">
-    <div v-if="slices.length === 0" class="storage-breakdown__empty">暂无占用数据</div>
-    <div v-else class="storage-breakdown__chart-wrap">
-      <svg viewBox="0 0 42 42" class="storage-breakdown__chart" aria-hidden="true">
-        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="var(--border)" stroke-width="4" />
-        <circle
-          v-for="slice in slices"
-          :key="slice.id"
-          cx="21"
-          cy="21"
-          r="15.915"
-          fill="transparent"
-          :stroke="slice.color"
-          stroke-width="4"
-          :stroke-dasharray="slice.dash"
-          :stroke-dashoffset="slice.offset"
-          transform="rotate(-90 21 21)"
-        />
-      </svg>
-      <div class="storage-breakdown__center">
-        <strong>{{ formatBytes(report.total_bytes) }}</strong>
-        <span>合计</span>
-      </div>
-    </div>
+  <div class="storage">
+    <p class="storage__total">
+      <strong>{{ formatBytes(report.usage.physical_bytes) }}</strong>
+      <span v-if="report.usage.shared_bytes > 0" class="storage__total-note">
+        其中 {{ formatBytes(report.usage.shared_bytes) }} 与目录外的原文件共用，删不掉
+      </span>
+    </p>
 
-    <table v-if="rows.length" class="storage-breakdown__table">
-      <thead>
-        <tr>
-          <th>分类</th>
-          <th>占用</th>
-          <th>占比</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr
-          v-for="row in rows"
-          :key="row.id"
-          :class="{
-            'storage-breakdown__row--branch': row.hasChildren,
-            'storage-breakdown__row--leaf': !row.hasChildren,
-          }"
-          @click="row.hasChildren ? onRowClick(row) : undefined"
+    <div v-if="segments.length === 0" class="storage__empty">暂无占用数据</div>
+
+    <template v-else>
+      <div class="storage__bar" role="img" aria-label="各分类占比">
+        <template v-for="segment in segments" :key="segment.id">
+          <span
+            v-if="segment.ownPercent > 0"
+            class="storage__seg"
+            :style="{ width: `${segment.ownPercent}%`, background: segment.color }"
+            :title="`${segment.label}（独立占盘）`"
+          />
+          <span
+            v-if="segment.sharedPercent > 0"
+            class="storage__seg storage__seg--shared"
+            :style="{ width: `${segment.sharedPercent}%`, '--local-seg': segment.color }"
+            :title="`${segment.label}（与原文件共用，删掉不释放空间）`"
+          />
+        </template>
+      </div>
+
+      <ul class="storage__legend">
+        <li v-for="segment in segments" :key="segment.id" class="storage__legend-item">
+          <span class="storage__dot" :style="{ background: segment.color }" />
+          <span class="storage__legend-label">{{ segment.label }}</span>
+          <span class="storage__legend-value">{{ segment.percent }}</span>
+        </li>
+      </ul>
+    </template>
+
+    <div class="storage__cards">
+      <section v-for="{ section, color } in cards" :key="section.id" class="panel storage__card">
+        <button
+          type="button"
+          class="storage__card-head"
+          :class="{ 'storage__card-head--plain': !section.children?.length }"
+          :aria-expanded="isOpen(section.id)"
+          :disabled="!section.children?.length"
+          @click="toggle(section.id)"
         >
-          <td :style="{ paddingLeft: `${8 + row.depth * 16}px` }">
-            <span class="storage-breakdown__swatch" :style="{ background: row.color }" />
-            <span v-if="row.hasChildren" class="storage-breakdown__toggle">{{ row.open ? '▾' : '▸' }}</span>
-            {{ row.label }}
-          </td>
-          <td>{{ row.detail ?? formatBytes(row.bytes) }}</td>
-          <td>{{ row.percent }}%</td>
-        </tr>
-      </tbody>
-    </table>
+          <span class="storage__dot" :style="{ background: color }" />
+          <span class="storage__card-title">{{ section.label }}</span>
+          <span class="storage__card-size">{{ usageText(section.usage) }}</span>
+          <span class="storage__card-share">{{ percentText(section.usage) }}</span>
+          <span
+            v-if="section.children?.length"
+            class="storage__caret"
+            :class="{ 'storage__caret--open': isOpen(section.id) }"
+            aria-hidden="true"
+            >▸</span
+          >
+        </button>
+
+        <p class="storage__card-meta">{{ fileCountText(section.usage) }}</p>
+
+        <ul v-if="isOpen(section.id)" class="storage__rows">
+          <li
+            v-for="row in childRows(section)"
+            :key="row.id"
+            class="storage__row"
+            :class="{ 'storage__row--branch': row.hasChildren }"
+            :style="{ paddingLeft: `${row.depth * 16}px` }"
+            @click="row.hasChildren ? toggle(row.id) : undefined"
+          >
+            <!-- 叶子行也占住这个宽度，否则同一层的标签会左右错开 -->
+            <span
+              class="storage__caret"
+              :class="{ 'storage__caret--open': row.open }"
+              aria-hidden="true"
+              >{{ row.hasChildren ? '▸' : '' }}</span
+            >
+            <span class="storage__row-label">{{ row.label }}</span>
+            <span v-if="row.usage.linked_file_count > 0" class="storage__badge">共用</span>
+            <span class="storage__row-size">{{ usageText(row.usage) }}</span>
+          </li>
+        </ul>
+      </section>
+    </div>
   </div>
 </template>
 
 <style scoped>
-.storage-breakdown {
+.storage {
   display: grid;
-  gap: 20px;
+  gap: 14px;
 }
 
-.storage-breakdown__empty {
-  color: var(--text-muted);
-}
-
-.storage-breakdown__chart-wrap {
-  position: relative;
-  width: min(220px, 100%);
-  margin-inline: auto;
-}
-
-.storage-breakdown__chart {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
-.storage-breakdown__center {
-  position: absolute;
-  inset: 0;
+.storage__total {
+  margin: 0;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  font-size: 12px;
-  color: var(--text-muted);
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-.storage-breakdown__center strong {
-  font-size: 16px;
+.storage__total strong {
+  font-size: var(--text-lg);
   color: var(--text);
 }
 
-.storage-breakdown__table {
+.storage__total-note {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.storage__empty {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.storage__bar {
+  display: flex;
+  height: 10px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-sunken);
+}
+
+.storage__seg {
+  height: 100%;
+  min-width: 2px;
+}
+
+/* 浅色 = 与目录外的原文件共用 inode，删了不腾空间 */
+.storage__seg--shared {
+  background: color-mix(in srgb, var(--local-seg) 30%, transparent) !important;
+}
+
+.storage__legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.storage__legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--text-sm);
+  min-width: 0;
+}
+
+.storage__legend-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.storage__legend-value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.storage__dot {
+  width: 9px;
+  height: 9px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+}
+
+.storage__cards {
+  display: grid;
+  gap: 10px;
+}
+
+.storage__card {
+  padding: 12px 14px;
+}
+
+.storage__card-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-
-.storage-breakdown__table th,
-.storage-breakdown__table td {
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--border);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: left;
-}
-
-.storage-breakdown__table th:last-child,
-.storage-breakdown__table td:last-child {
-  text-align: right;
-}
-
-.storage-breakdown__row--branch {
   cursor: pointer;
 }
 
-.storage-breakdown__row--branch:hover td {
-  background: color-mix(in srgb, var(--border) 35%, transparent);
+.storage__card-head--plain {
+  cursor: default;
 }
 
-.storage-breakdown__swatch {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  margin-right: 8px;
-  border-radius: 999px;
-  vertical-align: middle;
+.storage__card-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
 }
 
-.storage-breakdown__toggle {
-  display: inline-block;
-  width: 12px;
-  margin-right: 4px;
+.storage__card-size,
+.storage__card-share {
+  font-size: var(--text-sm);
   color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.storage__card-share {
+  min-width: 52px;
+  text-align: right;
+}
+
+.storage__caret {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--text-faint);
   font-size: 11px;
+  transition: transform 0.15s ease;
+}
+
+.storage__caret--open {
+  transform: rotate(90deg);
+}
+
+.storage__card-meta {
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.storage__rows {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 1px;
+}
+
+.storage__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.storage__row--branch {
+  cursor: pointer;
+}
+
+.storage__row--branch:hover {
+  background: var(--surface-hover);
+}
+
+.storage__row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.storage__row-size {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.storage__badge {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--info) 16%, transparent);
+  color: var(--info);
+  font-size: var(--text-xs);
 }
 </style>

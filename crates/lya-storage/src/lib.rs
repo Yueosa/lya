@@ -1,8 +1,21 @@
-//! 扫描 `data_root()` 体积分项，供配置页只读展示。
+//! 扫描 `data_root()` 体积分项，供存储页只读展示。
+//!
+//! # 为什么每个节点都带一整组数字
+//!
+//! 「这个目录占多少」不是一个数。本地媒体缓存优先用硬链接，指向用户原来的文件——
+//! 那些条目 `ls -l` 看着有 86 MB，删掉释放 0 字节。只报一个数就必然在骗人：报逐
+//! 文件之和会让人以为清一下能腾出 169 MB，报 inode 去重后的值又看不出「有东西
+//! 在别处共用」。所以每个节点都给出 [`DiskUsage`] 一整组，让界面能说清哪部分是
+//! 真占盘、哪部分只是别人的影子。
+//!
+//! 树是**齐整**的：每个节点都是「一组数字 + 可选子节点」，没有「缓存节点额外挂
+//! 两个特殊字段」这种例外。之前那种例外让前端没法统一处理折叠，Local/Web 两行
+//! 永远强制展开。
 
 #![deny(missing_docs)]
 
 use std::collections::HashMap;
+use std::fs::Metadata;
 use std::path::Path;
 
 use lya_config::data_root;
@@ -22,48 +35,35 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
 }
 
-/// Local 缓存占用（含硬链接去重）。
-#[derive(Debug, Clone, Serialize)]
-pub struct LocalCacheStats {
-    /// 逐文件 size 之和。
+/// 一批文件的占用情况。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DiskUsage {
+    /// 逐文件 size 之和。硬链接进来的文件在这里按全尺寸算。
     pub logical_bytes: u64,
-    /// 按 inode 去重后的磁盘占用。
+    /// 按 inode 去重后的占用，也就是这批文件在磁盘上实际压了多少。
     pub physical_bytes: u64,
-    /// 硬链接共用的字节（logical − physical）。
+    /// 删掉这批文件真能腾出来的字节：所有硬链接都在扫描范围内的那部分。
+    pub reclaimable_bytes: u64,
+    /// 与扫描范围之外共用 inode 的字节。删了不会腾出空间，原文件还在。
     pub shared_bytes: u64,
     /// 文件数。
     pub file_count: u64,
-    /// `nlink > 1` 的文件数。
+    /// 其中 `nlink > 1` 的文件数。
     pub linked_file_count: u64,
-}
-
-/// Web 缓存占用。
-#[derive(Debug, Clone, Serialize)]
-pub struct WebCacheStats {
-    /// 字节数。
-    pub bytes: u64,
-    /// 文件数。
-    pub file_count: u64,
 }
 
 /// 树形占用节点。
 #[derive(Debug, Clone, Serialize)]
 pub struct UsageSection {
-    /// 节点 id。
+    /// 节点 id，前端拿它记折叠状态。
     pub id: String,
     /// 展示名。
     pub label: String,
-    /// 该节点合计字节。
-    pub bytes: u64,
-    /// 子节点（数据库/配置文件按文件列出；缓存下为媒体类型）。
+    /// 该节点合计。
+    pub usage: DiskUsage,
+    /// 子节点。叶子为 `None`。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub children: Option<Vec<UsageSection>>,
-    /// 缓存叶子：Local 统计。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub local: Option<LocalCacheStats>,
-    /// 缓存叶子：Web 统计。
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub web: Option<WebCacheStats>,
 }
 
 /// 占用汇总。
@@ -71,8 +71,8 @@ pub struct UsageSection {
 pub struct UsageReport {
     /// 数据根目录。
     pub root: String,
-    /// 合计字节。
-    pub total_bytes: u64,
+    /// 整个数据目录的合计。分类之和加上「其它」等于它。
+    pub usage: DiskUsage,
     /// 顶层分类树。
     pub sections: Vec<UsageSection>,
 }
@@ -90,49 +90,65 @@ pub fn scan_usage() -> Result<UsageReport, StorageError> {
 }
 
 fn scan_usage_at(root: &Path) -> Result<UsageReport, StorageError> {
-    let total_bytes = walk_dir(root);
+    let mut whole = Scan::default();
+    whole.scan_dir(root);
+    let usage = whole.finish();
 
     let (database, config) = scan_root_files(root);
     let cache = scan_cache(&root.join("sessions"));
 
     let mut sections = vec![database, config, cache];
-    let counted: u64 = sections.iter().map(|section| section.bytes).sum();
-    if total_bytes > counted {
+
+    // 「其它」是兜底项：分类规则漏掉的文件不能凭空消失，否则分类之和对不上总数，
+    // 而对不上的时候没人分得清是漏扫了还是算错了。
+    let counted = sum_usage(sections.iter().map(|section| &section.usage));
+    if usage.physical_bytes > counted.physical_bytes {
+        let physical = usage.physical_bytes - counted.physical_bytes;
         sections.push(UsageSection {
             id: "other".into(),
             label: "其它".into(),
-            bytes: total_bytes - counted,
+            usage: DiskUsage {
+                logical_bytes: usage.logical_bytes.saturating_sub(counted.logical_bytes),
+                physical_bytes: physical,
+                // 只有本地媒体缓存会硬链接，剩下的散落文件都是独立占盘的
+                reclaimable_bytes: physical,
+                shared_bytes: 0,
+                file_count: usage.file_count.saturating_sub(counted.file_count),
+                linked_file_count: 0,
+            },
             children: None,
-            local: None,
-            web: None,
         });
     }
 
     Ok(UsageReport {
         root: root.to_string_lossy().into_owned(),
-        total_bytes,
+        usage,
         sections,
     })
 }
 
 fn scan_root_files(root: &Path) -> (UsageSection, UsageSection) {
-    let mut db_files: Vec<(String, u64)> = Vec::new();
-    let mut cfg_files: Vec<(String, u64)> = Vec::new();
+    let mut db_files: Vec<(String, DiskUsage)> = Vec::new();
+    let mut cfg_files: Vec<(String, DiskUsage)> = Vec::new();
 
     if let Ok(read) = std::fs::read_dir(root) {
         for entry in read.flatten() {
             let path = entry.path();
-            if !path.is_file() {
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue;
+            };
+            if !meta.is_file() {
                 continue;
             }
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            let bytes = file_size(&path);
+            let mut scan = Scan::default();
+            scan.add(&meta);
             if is_database_file(name) {
-                db_files.push((name.to_string(), bytes));
+                db_files.push((name.to_string(), scan.finish()));
             } else if name.ends_with(".toml") {
-                cfg_files.push((name.to_string(), bytes));
+                cfg_files.push((name.to_string(), scan.finish()));
             }
         }
     }
@@ -141,72 +157,120 @@ fn scan_root_files(root: &Path) -> (UsageSection, UsageSection) {
     cfg_files.sort_by(|a, b| a.0.cmp(&b.0));
 
     (
-        section_from_files("database", "数据库", &db_files),
+        group_databases(&db_files),
         section_from_files("config", "配置文件", &cfg_files),
     )
 }
 
-fn section_from_files(id: &str, label: &str, files: &[(String, u64)]) -> UsageSection {
-    let bytes: u64 = files.iter().map(|(_, size)| size).sum();
-    let children = if files.is_empty() {
-        None
-    } else {
-        Some(
-            files
-                .iter()
-                .map(|(name, size)| UsageSection {
-                    id: format!("{id}.{name}"),
-                    label: name.clone(),
-                    bytes: *size,
+/// 一个 `.db` 与它的 `-wal` / `-shm` 是同一个库的三个文件，列成三行只是噪音。
+fn group_databases(files: &[(String, DiskUsage)]) -> UsageSection {
+    let mut groups: Vec<(String, Vec<(String, DiskUsage)>)> = Vec::new();
+    for (name, usage) in files {
+        let key = database_group(name);
+        match groups.iter_mut().find(|(existing, _)| *existing == key) {
+            Some((_, members)) => members.push((name.clone(), usage.clone())),
+            None => groups.push((key, vec![(name.clone(), usage.clone())])),
+        }
+    }
+
+    let children: Vec<UsageSection> = groups
+        .into_iter()
+        .map(|(key, members)| {
+            // 只有一个文件时不必再套一层，套了反而多一次点击
+            if members.len() == 1 {
+                let (name, usage) = members.into_iter().next().expect("len == 1");
+                return UsageSection {
+                    id: format!("database.{name}"),
+                    label: name,
+                    usage,
                     children: None,
-                    local: None,
-                    web: None,
-                })
-                .collect(),
-        )
-    };
+                };
+            }
+            section_from_files(&format!("database.{key}"), &key, &members)
+        })
+        .collect();
+
     UsageSection {
+        usage: sum_usage(children.iter().map(|child| &child.usage)),
+        id: "database".into(),
+        label: "数据库".into(),
+        children: (!children.is_empty()).then_some(children),
+    }
+}
+
+/// `lya.db-wal` → `lya.db`；`lya.db.bak-…` 是另一个库，保持独立。
+fn database_group(name: &str) -> String {
+    for sidecar in ["-wal", "-shm", "-journal"] {
+        if let Some(base) = name.strip_suffix(sidecar) {
+            if base.ends_with(".db") {
+                return base.to_string();
+            }
+        }
+    }
+    name.to_string()
+}
+
+fn section_from_files(id: &str, label: &str, files: &[(String, DiskUsage)]) -> UsageSection {
+    let children: Vec<UsageSection> = files
+        .iter()
+        .map(|(name, usage)| UsageSection {
+            id: format!("{id}.{name}"),
+            label: name.clone(),
+            usage: usage.clone(),
+            children: None,
+        })
+        .collect();
+    UsageSection {
+        usage: sum_usage(children.iter().map(|child| &child.usage)),
         id: id.into(),
         label: label.into(),
-        bytes,
-        children,
-        local: None,
-        web: None,
+        children: (!children.is_empty()).then_some(children),
     }
 }
 
 fn is_database_file(name: &str) -> bool {
-    name.ends_with(".db-wal") || name.ends_with(".db-shm") || name.ends_with(".db")
+    // `.db.bak-before-lianclaw-migrate` 这类备份也是数据库，以前被归进「其它」，
+    // 存储页上就成了一坨没人认得的匿名占用
+    name.ends_with(".db") || name.contains(".db-") || name.contains(".db.")
 }
 
 fn scan_cache(sessions: &Path) -> UsageSection {
-    let mut children = Vec::new();
-    for (id, label, dir_name) in CACHE_DIRS {
-        let mut local = LocalScan::default();
-        let mut web = WebScan::default();
-        scan_session_cache(sessions, dir_name, &mut local, &mut web);
-        let bytes = local.logical_bytes + web.bytes;
-        children.push(UsageSection {
-            id: id.into(),
-            label: label.into(),
-            bytes,
-            children: None,
-            local: Some(local.into_stats()),
-            web: Some(web.into_stats()),
-        });
-    }
-    let bytes: u64 = children.iter().map(|child| child.bytes).sum();
+    let children: Vec<UsageSection> = CACHE_DIRS
+        .iter()
+        .map(|(id, label, dir_name)| {
+            let mut local = Scan::default();
+            let mut web = Scan::default();
+            scan_session_cache(sessions, dir_name, &mut local, &mut web);
+            let local = UsageSection {
+                id: format!("{id}.local"),
+                label: "本地文件".into(),
+                usage: local.finish(),
+                children: None,
+            };
+            let web = UsageSection {
+                id: format!("{id}.web"),
+                label: "网络下载".into(),
+                usage: web.finish(),
+                children: None,
+            };
+            UsageSection {
+                usage: sum_usage([&local.usage, &web.usage]),
+                id: (*id).into(),
+                label: (*label).into(),
+                children: Some(vec![local, web]),
+            }
+        })
+        .collect();
+
     UsageSection {
+        usage: sum_usage(children.iter().map(|child| &child.usage)),
         id: "cache".into(),
         label: "缓存".into(),
-        bytes,
         children: Some(children),
-        local: None,
-        web: None,
     }
 }
 
-fn scan_session_cache(sessions: &Path, cache_dir: &str, local: &mut LocalScan, web: &mut WebScan) {
+fn scan_session_cache(sessions: &Path, cache_dir: &str, local: &mut Scan, web: &mut Scan) {
     let Ok(read) = std::fs::read_dir(sessions) else {
         return;
     };
@@ -220,43 +284,58 @@ fn scan_session_cache(sessions: &Path, cache_dir: &str, local: &mut LocalScan, w
     }
 }
 
+fn sum_usage<'a>(parts: impl IntoIterator<Item = &'a DiskUsage>) -> DiskUsage {
+    let mut total = DiskUsage::default();
+    for part in parts {
+        total.logical_bytes += part.logical_bytes;
+        total.physical_bytes += part.physical_bytes;
+        total.reclaimable_bytes += part.reclaimable_bytes;
+        total.shared_bytes += part.shared_bytes;
+        total.file_count += part.file_count;
+        total.linked_file_count += part.linked_file_count;
+    }
+    total
+}
+
+/// inode 去重的体积累加器。
 #[derive(Default)]
-struct LocalScan {
+struct Scan {
     logical_bytes: u64,
     file_count: u64,
     linked_file_count: u64,
-    inodes: HashMap<(u64, u64), u64>,
+    inodes: HashMap<(u64, u64), Inode>,
 }
 
-impl LocalScan {
+struct Inode {
+    size: u64,
+    /// 这个 inode 在本次扫描里出现了几次。
+    seen: u64,
+    /// 系统里一共有几个硬链接指向它。
+    nlink: u64,
+}
+
+impl Scan {
     fn scan_dir(&mut self, path: &Path) {
-        if !path.exists() {
+        let Ok(meta) = std::fs::symlink_metadata(path) else {
+            return;
+        };
+        if meta.is_file() {
+            self.add(&meta);
             return;
         }
-        if path.is_file() {
-            self.scan_file(path);
+        // 不跟符号链接走，否则一个指回上层的链接就能让扫描转圈
+        if !meta.is_dir() {
             return;
         }
         let Ok(read) = std::fs::read_dir(path) else {
             return;
         };
         for entry in read.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                self.scan_file(&path);
-            } else if path.is_dir() {
-                self.scan_dir(&path);
-            }
+            self.scan_dir(&entry.path());
         }
     }
 
-    fn scan_file(&mut self, path: &Path) {
-        let Ok(meta) = std::fs::metadata(path) else {
-            return;
-        };
-        if !meta.is_file() {
-            return;
-        }
+    fn add(&mut self, meta: &Metadata) {
         let size = meta.len();
         self.logical_bytes += size;
         self.file_count += 1;
@@ -265,77 +344,34 @@ impl LocalScan {
         }
         self.inodes
             .entry((meta.dev(), meta.ino()))
-            .or_insert(size);
+            .and_modify(|inode| inode.seen += 1)
+            .or_insert(Inode {
+                size,
+                seen: 1,
+                nlink: meta.nlink(),
+            });
     }
 
-    fn into_stats(self) -> LocalCacheStats {
-        let physical_bytes: u64 = self.inodes.values().copied().sum();
-        LocalCacheStats {
+    fn finish(self) -> DiskUsage {
+        let mut physical_bytes = 0;
+        let mut reclaimable_bytes = 0;
+        for inode in self.inodes.values() {
+            physical_bytes += inode.size;
+            // 扫描范围内看到的链接数 < 系统里的总链接数，说明外面还有人指着它：
+            // 删掉我们这份，磁盘上的数据依然被原文件占着
+            if inode.seen >= inode.nlink {
+                reclaimable_bytes += inode.size;
+            }
+        }
+        DiskUsage {
             logical_bytes: self.logical_bytes,
             physical_bytes,
-            shared_bytes: self.logical_bytes.saturating_sub(physical_bytes),
+            reclaimable_bytes,
+            shared_bytes: physical_bytes - reclaimable_bytes,
             file_count: self.file_count,
             linked_file_count: self.linked_file_count,
         }
     }
-}
-
-#[derive(Default)]
-struct WebScan {
-    bytes: u64,
-    file_count: u64,
-}
-
-impl WebScan {
-    /// 只统计目录下直接文件（持久 web 缓存是扁平的）。
-    fn scan_dir(&mut self, path: &Path) {
-        if !path.is_dir() {
-            return;
-        }
-        let Ok(read) = std::fs::read_dir(path) else {
-            return;
-        };
-        for entry in read.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                self.bytes += file_size(&path);
-                self.file_count += 1;
-            }
-        }
-    }
-
-    fn into_stats(self) -> WebCacheStats {
-        WebCacheStats {
-            bytes: self.bytes,
-            file_count: self.file_count,
-        }
-    }
-}
-
-fn file_size(path: &Path) -> u64 {
-    std::fs::metadata(path).map(|m| m.len()).unwrap_or(0)
-}
-
-fn walk_dir(path: &Path) -> u64 {
-    if !path.exists() {
-        return 0;
-    }
-    if path.is_file() {
-        return file_size(path);
-    }
-    let mut total = 0u64;
-    let Ok(read) = std::fs::read_dir(path) else {
-        return 0;
-    };
-    for entry in read.flatten() {
-        let path = entry.path();
-        if path.is_file() {
-            total += file_size(&path);
-        } else if path.is_dir() {
-            total += walk_dir(&path);
-        }
-    }
-    total
 }
 
 #[cfg(test)]
@@ -350,9 +386,18 @@ mod tests {
         file.write_all(bytes).unwrap();
     }
 
+    fn scan_of(path: &Path) -> DiskUsage {
+        let mut scan = Scan::default();
+        scan.scan_dir(path);
+        scan.finish()
+    }
+
     #[test]
-    fn walk_missing_dir_is_zero() {
-        assert_eq!(walk_dir(Path::new("/nonexistent/lya-test-dir")), 0);
+    fn scan_missing_dir_is_zero() {
+        assert_eq!(
+            scan_of(Path::new("/nonexistent/lya-test-dir")).physical_bytes,
+            0
+        );
     }
 
     #[test]
@@ -361,26 +406,56 @@ mod tests {
         assert!(is_database_file("lya.db-wal"));
         assert!(is_database_file("lya.db-shm"));
         assert!(is_database_file("backup.db"));
+        assert!(is_database_file("lya.db.bak-before-lianclaw-migrate"));
         assert!(!is_database_file("runtime.toml"));
     }
 
     #[test]
-    fn local_scan_deduplicates_hard_links() {
+    fn sidecars_group_with_their_database_backups_do_not() {
+        assert_eq!(database_group("lya.db-wal"), "lya.db");
+        assert_eq!(database_group("lya.db-shm"), "lya.db");
+        assert_eq!(database_group("lya.db"), "lya.db");
+        assert_eq!(
+            database_group("lya.db.bak-before-lianclaw-migrate"),
+            "lya.db.bak-before-lianclaw-migrate"
+        );
+    }
+
+    #[test]
+    fn links_inside_the_scan_are_reclaimable() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("source.bin");
         let link = dir.path().join("link.bin");
         write_file(&source, &[1, 2, 3, 4]);
         fs::hard_link(&source, &link).unwrap();
 
-        let mut scan = LocalScan::default();
-        scan.scan_dir(dir.path());
-        let stats = scan.into_stats();
+        let usage = scan_of(dir.path());
 
-        assert_eq!(stats.file_count, 2);
-        assert_eq!(stats.linked_file_count, 2);
-        assert_eq!(stats.logical_bytes, 8);
-        assert_eq!(stats.physical_bytes, 4);
-        assert_eq!(stats.shared_bytes, 4);
+        assert_eq!(usage.file_count, 2);
+        assert_eq!(usage.linked_file_count, 2);
+        assert_eq!(usage.logical_bytes, 8);
+        assert_eq!(usage.physical_bytes, 4);
+        // 两个链接都在范围内，删掉整个目录这 4 字节就真回来了
+        assert_eq!(usage.reclaimable_bytes, 4);
+        assert_eq!(usage.shared_bytes, 0);
+    }
+
+    #[test]
+    fn links_reaching_outside_the_scan_are_not_reclaimable() {
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("original.bin");
+        let cache = dir.path().join("cache");
+        write_file(&outside, &[0; 64]);
+        fs::create_dir_all(&cache).unwrap();
+        fs::hard_link(&outside, cache.join("linked.bin")).unwrap();
+
+        // 只扫 cache/，原文件在范围外——正是本地媒体硬链接缓存的形状
+        let usage = scan_of(&cache);
+
+        assert_eq!(usage.logical_bytes, 64);
+        assert_eq!(usage.physical_bytes, 64);
+        assert_eq!(usage.reclaimable_bytes, 0);
+        assert_eq!(usage.shared_bytes, 64);
     }
 
     #[test]
@@ -390,28 +465,56 @@ mod tests {
 
         write_file(&root.join("lya.db"), &[0; 100]);
         write_file(&root.join("lya.db-wal"), &[0; 50]);
+        write_file(&root.join("lya.db.bak-old"), &[0; 7]);
         write_file(&root.join("core.toml"), b"");
-        write_file(
-            &root.join("sessions/s1/img_cache/local/a.png"),
-            &[0; 10],
-        );
+        write_file(&root.join("sessions/s1/img_cache/local/a.png"), &[0; 10]);
         write_file(&root.join("sessions/s1/img_cache/web/b.png"), &[0; 20]);
-        write_file(
-            &root.join("sessions/s1/vdo_cache/web/c.mp4"),
-            &[0; 30],
-        );
+        write_file(&root.join("sessions/s1/vdo_cache/web/c.mp4"), &[0; 30]);
 
         let report = scan_usage_at(root).unwrap();
 
-        assert_eq!(report.total_bytes, 100 + 50 + 20 + 10 + 30);
+        assert_eq!(report.usage.physical_bytes, 100 + 50 + 7 + 20 + 10 + 30);
         assert_eq!(report.sections.len(), 3);
-        assert_eq!(report.sections[0].id, "database");
-        assert_eq!(report.sections[0].bytes, 150);
+
+        let database = &report.sections[0];
+        assert_eq!(database.id, "database");
+        assert_eq!(database.usage.physical_bytes, 157);
+        let db_groups = database.children.as_ref().unwrap();
+        // lya.db 与它的 -wal 合成一个节点，备份自己一行
+        assert_eq!(db_groups.len(), 2);
+        assert_eq!(db_groups[0].label, "lya.db");
+        assert_eq!(db_groups[0].usage.physical_bytes, 150);
+        assert_eq!(db_groups[1].label, "lya.db.bak-old");
+
         assert_eq!(report.sections[1].id, "config");
-        assert_eq!(report.sections[2].id, "cache");
-        let cache_children = report.sections[2].children.as_ref().unwrap();
-        assert_eq!(cache_children[0].local.as_ref().unwrap().logical_bytes, 10);
-        assert_eq!(cache_children[0].web.as_ref().unwrap().bytes, 20);
-        assert_eq!(cache_children[1].web.as_ref().unwrap().bytes, 30);
+        let cache = &report.sections[2];
+        assert_eq!(cache.id, "cache");
+        assert_eq!(cache.usage.physical_bytes, 60);
+
+        // 父节点等于子节点之和，一层层都成立
+        let image = &cache.children.as_ref().unwrap()[0];
+        assert_eq!(image.usage.physical_bytes, 30);
+        let image_children = image.children.as_ref().unwrap();
+        assert_eq!(image_children[0].usage.physical_bytes, 10);
+        assert_eq!(image_children[1].usage.physical_bytes, 20);
+    }
+
+    #[test]
+    fn nested_web_dirs_are_counted_not_dumped_into_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        // 旧版本 cache_web=false 时会把下载塞进 web/.ephemeral/，
+        // 以前的扫描只看目录下的直接文件，这些字节全落进「其它」
+        write_file(&root.join("sessions/s1/img_cache/web/.ephemeral/x.png"), &[0; 42]);
+
+        let report = scan_usage_at(root).unwrap();
+
+        let cache = report
+            .sections
+            .iter()
+            .find(|section| section.id == "cache")
+            .unwrap();
+        assert_eq!(cache.usage.physical_bytes, 42);
+        assert!(report.sections.iter().all(|section| section.id != "other"));
     }
 }
