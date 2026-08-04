@@ -42,6 +42,16 @@ impl Default for IndexBudget {
     }
 }
 
+/// 索引里每条最多列几个标签。
+///
+/// 不进 `runtime.toml`：这是渲染细节，不是给人调的旋钮。
+///
+/// 标签在索引里占的份额和它的价值不成比例——11 条记忆的索引里标签占了 31%，最长的
+/// 一条 20 个标签烧掉 110 字符。模型判断「这条是不是我要的」看的是标题和摘要，标签的
+/// 作用是让 `memory_search` 在服务端匹配得到，以及给模型一点项目词汇。写入提示词要求
+/// 「最具体的放前面」，所以截前几个正好留下有信息量的，砍掉尾巴上的泛类词。
+const MAX_TAGS: usize = 4;
+
 /// 编号语义的说明。常量而非拼接，它必须逐字节稳定。
 const NUMBERING_NOTE: &str =
     "编号是每条记忆的固定标识，不随列表变化，删掉的号也不会补位——不连续是正常的。\
@@ -116,7 +126,8 @@ pub fn render_index(memories: &[Memory], budget: &IndexBudget) -> String {
 fn render_entry(memory: &Memory, summary_chars: usize) -> String {
     let mut entry = format!("#{} {}\n", memory.id, memory.title);
     if !memory.tags.is_empty() {
-        entry.push_str(&format!("   {}\n", memory.tags.join(", ")));
+        let shown = memory.tags.len().min(MAX_TAGS);
+        entry.push_str(&format!("   {}\n", memory.tags[..shown].join(", ")));
     }
     let summary = memory.summary.trim();
     if !summary.is_empty() {
@@ -216,6 +227,22 @@ mod tests {
         let text = render_index(&items, &budget);
         assert!(text.contains("#2 最新"));
         assert!(text.contains("另有 1 条较早的记忆未列出"));
+    }
+
+    #[test]
+    fn only_the_leading_tags_are_listed() {
+        let mut item = memory(1, "标签很多", 100);
+        item.tags = vec![
+            "最具体".into(),
+            "次具体".into(),
+            "再次".into(),
+            "第四".into(),
+            "泛类一".into(),
+            "泛类二".into(),
+        ];
+        let text = render_index(&[item], &IndexBudget::default());
+        assert!(text.contains("最具体, 次具体, 再次, 第四"));
+        assert!(!text.contains("泛类"), "尾巴上的泛类词不该占索引：{text}");
     }
 
     #[test]
