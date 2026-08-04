@@ -52,7 +52,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_parent
 
 -- 跨会话的显式笔记。正文直接入库，不拆到外部文件，保证单一真相。
 CREATE TABLE IF NOT EXISTS memories (
-    -- 自增整数：索引要常驻 prompt，短 id 比 uuid 省 token 且模型更容易引用准
+    -- 自增整数：索引要常驻 prompt，短 id 比 uuid 省 token 且模型更容易引用准。
+    -- 这个 id 就是模型看到的编号，不再另算一套展示序号——序号会随写入重排，
+    -- 而历史消息里的旧序号不会跟着改，同一个号在一个上下文里能指两条记忆
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     -- 唯一：同名即视为同一条记忆，写入天然变成更新
     title               TEXT NOT NULL UNIQUE,
@@ -62,18 +64,13 @@ CREATE TABLE IF NOT EXISTS memories (
     body                TEXT NOT NULL DEFAULT '',
     -- 溯源用；会话删除时**不**级联，记忆要比会话活得久
     source_session_id   TEXT,
-    -- 置顶的那条固定占索引 #1，让模型侧编号和自增 id 解耦
-    pinned              INTEGER NOT NULL DEFAULT 0 CHECK (pinned IN (0, 1)),
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );
 
+-- 索引按 id 升序列出，但超预算时丢的是最久没更新的，所以这个索引仍有用
 CREATE INDEX IF NOT EXISTS idx_memories_updated
     ON memories(updated_at DESC);
-
--- 部分唯一索引：置顶最多一条，不用应用层保证
-CREATE UNIQUE INDEX IF NOT EXISTS idx_memories_single_pin
-    ON memories(pinned) WHERE pinned = 1;
 
 -- 标签拆关联表而不是塞 JSON，便于按标签直接查
 CREATE TABLE IF NOT EXISTS memory_tags (

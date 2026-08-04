@@ -8,7 +8,7 @@ use crate::error::MemoryError;
 /// 一条长期记忆。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Memory {
-    /// SQLite 自增 id；API 与前端用这个，模型侧用展示编号。
+    /// SQLite 自增 id。API、前端和模型都用它——模型看到的 `#N` 就是这个数。
     pub id: i64,
     /// 标题，全局唯一。
     pub title: String,
@@ -22,10 +22,8 @@ pub struct Memory {
     pub source_session_id: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
-    /// 最后更新时间；非常驻索引里其余条目按它倒序为 #2、#3…
+    /// 最后更新时间；常驻索引超预算时，丢的是这个最旧的几条。
     pub updated_at: DateTime<Utc>,
-    /// 置顶在索引 `#1`，全库最多一条。
-    pub pinned: bool,
 }
 
 /// 新建记忆的入参。
