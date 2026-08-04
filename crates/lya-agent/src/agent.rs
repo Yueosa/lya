@@ -7,7 +7,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use lya_action::{ActionCtx, ActionOutcome, ActionRegistry, FormAnswer, render_form_answer};
 use lya_llm::{
-    ApiMode, CAPABILITY_WEB_SEARCH, ChatStreamRequest, CompletionAssembler, LlmEndpoint,
+    ApiMode, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH, ChatStreamRequest, CompletionAssembler,
+    LlmEndpoint,
     StreamEvent, WebSearchStatus,
 };
 use lya_prompt::RESPONSES_NATIVE_SEARCH;
@@ -270,11 +271,16 @@ impl<B: ChatBackend> Agent<B> {
                 let action_bundle = self.actions.bundle(meta.work_mode);
                 let memory_section = bail!(self.memory.index_section());
 
+                // 模型自己判断不了「本会话支不支持看图」，由这里查 capabilities
+                // 后在提示词里下断言
+                let vision = endpoint.supports(api_mode, CAPABILITY_VISION);
+
                 let mut input = PromptInput::new()
                     .with_actions(action_bundle.prompt.clone())
                     .with_tools(mode_bundle.tools.prompt.clone())
                     .with_mode(mode_bundle.mode_prompt.clone())
-                    .with_memory(memory_section);
+                    .with_memory(memory_section)
+                    .with_vision(vision);
                 if native_web {
                     input = input.with_extra(RESPONSES_NATIVE_SEARCH);
                 }

@@ -3,7 +3,7 @@
 use crate::identity::{
     format_persona_section, DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
-use crate::media::CHAT_MEDIA_HINT;
+use crate::media::chat_media_section;
 use crate::input::PromptInput;
 
 /// 提示词组装器。
@@ -57,27 +57,30 @@ impl PromptBuilder {
 
     /// 组装完整 system prompt。
     ///
-    /// 顺序：系统认知 → 自我认知 → 时间锚点 → 聊天媒体 → action → tools → mode
-    /// → memory → extra → 人设。
+    /// 顺序：系统认知 → 自我认知 → 时间锚点 → 聊天媒体 → 动作 → 工具 → 能力补充
+    /// → 模式 → 记忆 → 人设。
     ///
-    /// 记忆排在能力三段（action / tools / mode）之后：先讲「你能做什么」，
-    /// 再讲「你已经知道什么」。
+    /// 记忆排在能力几段之后：先讲「你能做什么」，再讲「你已经知道什么」。
+    /// 能力补充（如原生联网）紧跟工具段——它说的是这类活儿怎么干，隔太远会被忽略。
     ///
     /// 全程**不含任何随时间变化的内容**——整段必须是逐字节确定的，否则前缀
     /// 缓存每轮都会失效。当前时间通过消息前缀传达，见 [`TIME_ANCHOR`]。
+    ///
+    /// 注意记忆段是例外：它随记忆库变化，而 system 是第一条消息，改一个字节
+    /// 就是整个请求全量 miss。取舍见 `docs/plan.md` 的延后表。
     pub fn build(&self, input: &PromptInput) -> String {
         let mut parts: Vec<String> = Vec::new();
 
         parts.push(SYSTEM_AWARENESS.trim().to_string());
         parts.push(SELF_AWARENESS.trim().to_string());
         parts.push(TIME_ANCHOR.trim().to_string());
-        parts.push(CHAT_MEDIA_HINT.trim().to_string());
+        parts.push(chat_media_section(input.vision));
 
         push_optional(&mut parts, input.action_section.as_deref());
         push_optional(&mut parts, input.tool_section.as_deref());
+        push_optional(&mut parts, input.extra_section.as_deref());
         push_optional(&mut parts, input.mode_section.as_deref());
         push_optional(&mut parts, input.memory_section.as_deref());
-        push_optional(&mut parts, input.extra_section.as_deref());
 
         let persona_body = resolve_persona_body(self, input);
         let persona_section = format_persona_section(persona_body);
@@ -125,7 +128,6 @@ mod tests {
         assert!(sys < self_pos && self_pos < media && media < persona);
         assert!(text.contains("clip.mp4"));
         assert!(text.contains("lya"));
-        assert!(text.contains("小恋"));
         assert!(text.contains(DEFAULT_PERSONA.trim().lines().next().unwrap()));
     }
 
@@ -133,17 +135,30 @@ mod tests {
     fn injects_external_sections() {
         let text = PromptBuilder::new().build(
             &PromptInput::new()
-                .with_actions("=== [元认知] ===\nform / memory")
-                .with_tools("## Tools\n### file_read")
+                .with_actions("=== [动作] 元认知动作 ===\nform / memory")
+                .with_tools("=== [工具] 可用工具 ===\n### file_read")
+                .with_extra("=== [联网] 原生搜索 ===\n内置搜索")
                 .with_mode("=== [模式] ask ===\n只读")
-                .with_memory("=== [记忆] Memory ===\n#1 环境操作偏好"),
+                .with_memory("=== [记忆] 长期记忆索引 ===\n#1 环境操作偏好"),
         );
-        let action = text.find("=== [元认知]").unwrap();
-        let tools = text.find("## Tools").unwrap();
+        let action = text.find("=== [动作]").unwrap();
+        let tools = text.find("=== [工具]").unwrap();
+        let network = text.find("=== [联网]").unwrap();
         let mode = text.find("=== [模式]").unwrap();
         let memory = text.find("=== [记忆]").unwrap();
         let persona = text.find("=== [人设]").unwrap();
-        assert!(action < tools && tools < mode && mode < memory && memory < persona);
+        // 能力补充紧跟工具段，记忆在能力之后，人设收尾
+        assert!(action < tools && tools < network);
+        assert!(network < mode && mode < memory && memory < persona);
+    }
+
+    #[test]
+    fn vision_verdict_follows_input() {
+        let blind = PromptBuilder::new().build(&PromptInput::new());
+        assert!(blind.contains("看不到"));
+
+        let seeing = PromptBuilder::new().build(&PromptInput::new().with_vision(true));
+        assert!(seeing.contains("能读懂"));
     }
 
     #[test]

@@ -118,15 +118,17 @@ impl ToolRegistry {
             return ToolBundle::empty();
         }
 
-        let mut prompt = String::from("=== [工具] Tools ===\n\n");
+        let mut prompt = String::from("=== [工具] 可用工具 ===\n\n");
         let mut schemas = Vec::with_capacity(selected.len());
         let mut names = Vec::with_capacity(selected.len());
 
         for tool in &selected {
             let meta = tool.meta();
             names.push(meta.name.clone());
+            // 标注写成「权限: -R-」而不是裸的「-R-」：动作段同一位置放的是流转
+            // 方式，两个裸方括号并排出现时模型分不清哪个是哪个
             prompt.push_str(&format!(
-                "### {} ({}) [{}]\n{}\n\n{}\n\n",
+                "### {} ({}) [权限: {}]\n{}\n\n{}\n\n",
                 meta.name,
                 meta.raw_name,
                 meta.prmt,

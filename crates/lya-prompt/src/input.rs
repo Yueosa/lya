@@ -30,8 +30,16 @@ pub struct PromptInput {
     /// 放的是标题 / 标签 / 摘要，不含正文；模型按编号取正文。
     pub memory_section: Option<String>,
 
-    /// 其它一次性上下文（记忆召回摘要、系统状态等）；少用，优先独立 SystemMessage。
+    /// 紧跟工具段的能力补充说明（如 Responses 原生联网）。
+    ///
+    /// 放在工具段后面而不是最末尾：它讲的是「这类活儿该怎么干」，离工具列表
+    /// 越远越容易被忽略。
     pub extra_section: Option<String>,
+
+    /// 本会话模型能否读懂图片内容（`models.toml` 的 `vision` capability）。
+    ///
+    /// 影响聊天媒体段的措辞。默认 `false`——看不见是更安全的假设。
+    pub vision: bool,
 }
 
 impl PromptInput {
@@ -64,9 +72,15 @@ impl PromptInput {
         self
     }
 
-    /// 设置额外说明段（如 Responses 原生联网提示）。
+    /// 设置紧跟工具段的能力补充说明（如 Responses 原生联网提示）。
     pub fn with_extra(mut self, section: impl Into<String>) -> Self {
         self.extra_section = Some(section.into());
+        self
+    }
+
+    /// 声明本会话模型能读懂图片内容。
+    pub fn with_vision(mut self, vision: bool) -> Self {
+        self.vision = vision;
         self
     }
 

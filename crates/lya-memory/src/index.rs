@@ -10,7 +10,7 @@
 use crate::types::Memory;
 
 /// 索引段落标题。
-pub const MEMORY_SECTION_TITLE: &str = "=== [记忆] Memory ===";
+pub const MEMORY_SECTION_TITLE: &str = "=== [记忆] 长期记忆索引 ===";
 
 /// 常驻索引的体积上限。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

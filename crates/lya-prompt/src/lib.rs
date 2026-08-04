@@ -15,8 +15,11 @@
 //! ## 拼接顺序
 //!
 //! ```text
-//! 系统认知 → 自我认知 → 时间锚点 → 聊天媒体 → [元认知] → [工具] → [模式] → [记忆] → [额外] → 人设(末尾)
+//! [系统] → [自我认知] → [时间] → [界面] → [动作] → [工具] → [能力补充] → [模式] → [记忆] → [人设]
 //! ```
+//!
+//! 段落标题统一成 `=== [类别] 中文说明 ===` 一种形状，避免出现 `[运行时]`
+//! 这种按来源命名、`[Responses]` 这种按 API 命名的混排。
 //!
 //! 人设放最后：只影响语气风格，并在文案中声明不覆盖前面的行为规则。
 //!
@@ -37,5 +40,5 @@ pub use builder::PromptBuilder;
 pub use identity::{
     DEFAULT_PERSONA, RESPONSES_NATIVE_SEARCH, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
-pub use media::CHAT_MEDIA_HINT;
+pub use media::chat_media_section;
 pub use input::PromptInput;

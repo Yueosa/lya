@@ -42,7 +42,7 @@ pub mod responses;
 pub mod sse;
 
 pub use client::{ChatEventStream, LlmClient};
-pub use endpoint::{ApiMode, CAPABILITY_WEB_SEARCH, LlmEndpoint};
+pub use endpoint::{ApiMode, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH, LlmEndpoint};
 pub use error::LlmError;
 pub use event::{
     ChatCompletion, CompletionAssembler, StreamEvent, ToolCallDelta, WebSearchStatus,

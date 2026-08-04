@@ -11,6 +11,9 @@ use crate::error::LlmError;
 /// Responses 原生联网能力键（与 `models.toml` capabilities 一致）。
 pub const CAPABILITY_WEB_SEARCH: &str = "web_search";
 
+/// 原生看图能力键（与 `models.toml` capabilities 一致）。
+pub const CAPABILITY_VISION: &str = "vision";
+
 /// LLM 调用栈。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiMode {
