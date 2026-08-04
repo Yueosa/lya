@@ -5,6 +5,7 @@ import type { HitlBlock } from '../../api/wire'
 import { buildTimeline } from '../../model/timeline'
 import { applyEvent, applySnapshot, canSend as canSendTo, emptyState, isRunning } from '../../store/session'
 import { toast } from '../../ui/useToast'
+import { bindSessionPrefs } from '../usePrefs'
 import { report } from './errors'
 import { loadTools } from './settings'
 import { refreshTree } from './snapshot'
@@ -123,6 +124,7 @@ export const pendingHitlBatch = computed<{ index: number; total: number } | null
 export async function openSession(id: string): Promise<void> {
   closeSession()
   currentId.value = id
+  bindSessionPrefs(id)
   loading.value = true
   hydrating.value = true
 
@@ -155,6 +157,7 @@ export function closeSession(): void {
   unsubscribe.value?.()
   unsubscribe.value = null
   currentId.value = null
+  bindSessionPrefs(null)
   state.value = emptyState()
   tree.value = null
   focusedHitlId.value = null

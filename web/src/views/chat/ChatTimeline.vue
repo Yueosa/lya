@@ -32,7 +32,6 @@ import {
   hasText,
   isFirstToolBlockInBatch,
   lastTextBlockIndex,
-  lineCount,
   reasonLabel,
   shouldSkipToolBlock,
   toolArgsBroken,
@@ -40,7 +39,6 @@ import {
   toolBatchLabel,
   toolBlocksInMessage,
   toolLabel,
-  toolLineCount,
   visibleBlocks,
   providerSearchLabel,
 } from './chatBlockHelpers'
@@ -193,8 +191,6 @@ function onEditKey(event: KeyboardEvent): void {
             streaming
             :busy="item.message.status === 'streaming'"
             :auto-collapse="prefs.autoCollapseAside"
-            :fold-threshold="prefs.asideFoldLineThreshold"
-            :content-lines="lineCount(block.text)"
           >
             {{ block.text }}
           </CollapsibleBlock>
@@ -222,8 +218,6 @@ function onEditKey(event: KeyboardEvent): void {
             :label="toolBatchLabel(item.message.toolBatch, state.messages)"
             :busy="toolBlocksInMessage(item.message.blocks).some((tb) => !tb.call.result)"
             :auto-collapse="prefs.autoCollapseAside"
-            :fold-threshold="prefs.asideFoldLineThreshold"
-            :content-lines="1"
           >
             <div class="chat__tool-batch">
               <CollapsibleBlock
@@ -234,8 +228,6 @@ function onEditKey(event: KeyboardEvent): void {
                 :busy="!tb.call.result"
                 :failed="tb.call.result?.ok === false"
                 :auto-collapse="prefs.autoCollapseAside"
-                :fold-threshold="prefs.asideFoldLineThreshold"
-                :content-lines="toolLineCount(tb)"
               >
                 <FormPreview
                   v-if="formCall(tb)"
@@ -265,8 +257,6 @@ function onEditKey(event: KeyboardEvent): void {
             :busy="!block.call.result"
             :failed="block.call.result?.ok === false"
             :auto-collapse="prefs.autoCollapseAside"
-            :fold-threshold="prefs.asideFoldLineThreshold"
-            :content-lines="toolLineCount(block)"
           >
             <FormPreview
               v-if="formCall(block)"

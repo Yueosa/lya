@@ -4,17 +4,6 @@ import type { Block, Message, ToolCallView } from '../../model/timeline'
 import type { MessageRecord, ToolBatchMeta } from '../../api/wire'
 import { parseFormCall } from '../../utils/parseFormCall'
 
-export function lineCount(text: string): number {
-  if (!text) return 0
-  return text.split('\n').length
-}
-
-export function toolLineCount(block: Block): number {
-  if (block.type !== 'tool') return 0
-  const args = toolArgsText(block.call)
-  return lineCount(block.call.result?.content ?? '') + (args ? lineCount(args) + 1 : 0)
-}
-
 /**
  * 模型实际发出的参数，供界面原样展示。
  *

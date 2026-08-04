@@ -1,3 +1,4 @@
+import { forgetSessionPrefs } from '../usePrefs'
 import { report } from './errors'
 import { closeSession } from './subscription'
 import { client } from './client'
@@ -24,6 +25,8 @@ export async function removeSession(id: string): Promise<void> {
   sessions.value = sessions.value.filter((item) => item.id !== id)
   archivedSessions.value = archivedSessions.value.filter((item) => item.id !== id)
   if (currentId.value === id) closeSession()
+  // 会话没了，localStorage 里它那份显示偏好留着只会慢慢攒垃圾
+  forgetSessionPrefs(id)
 }
 
 /** 改标题。 */

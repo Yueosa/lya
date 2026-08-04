@@ -23,35 +23,29 @@ const props = withDefaults(
     failed?: boolean
     /** 流式结束后是否自动收起（仅 streaming 有效）。 */
     autoCollapse?: boolean
-    /** 内容行数；超过阈值且非 busy 时默认折叠。 */
-    contentLines?: number
-    /** 与 `contentLines` 配合的行数阈值。 */
-    foldThreshold?: number
   }>(),
   {
     busy: false,
     streaming: false,
     autoCollapse: true,
-    contentLines: 0,
-    foldThreshold: 0,
   },
 )
 
+/** 只有正在输出的流式块一开始就是展开的，其余一律先收起。 */
 function shouldStartCollapsed(): boolean {
-  if (props.streaming && props.busy) return false
-  if (props.autoCollapse) return true
-  return props.contentLines > props.foldThreshold
+  return !(props.streaming && props.busy)
 }
 
 const open = ref(!shouldStartCollapsed())
 /** 用户是不是自己点过。 */
 const touched = ref(false)
 
+// 在会话中途打开「自动收起」时，把已经输出完的块顺手收掉
 watch(
-  () => [props.contentLines, props.foldThreshold, props.busy, props.autoCollapse, props.streaming] as const,
-  () => {
+  () => props.autoCollapse,
+  (autoCollapse) => {
     if (!props.streaming || touched.value || props.busy) return
-    if (props.autoCollapse || props.contentLines > props.foldThreshold) open.value = false
+    if (autoCollapse) open.value = false
   },
 )
 
