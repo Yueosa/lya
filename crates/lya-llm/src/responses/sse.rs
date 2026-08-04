@@ -241,9 +241,7 @@ impl ResponsesSseParser {
             return None;
         }
         // `output_item.done` 常早于 completed，且不带 action；等 completed 合成完整 item。
-        if item.get("action").is_none() {
-            return None;
-        }
+        item.get("action")?;
         self.web_search_persisted.insert(id.to_string(), ());
         Some(normalize_web_search_call_item(item))
     }

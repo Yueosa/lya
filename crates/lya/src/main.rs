@@ -16,12 +16,12 @@ fn main() {
 fn run() -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
-        return tray::run();
+        tray::run()
     }
 
     #[cfg(not(target_os = "linux"))]
     {
-        return run_headless();
+        run_headless()
     }
 }
 

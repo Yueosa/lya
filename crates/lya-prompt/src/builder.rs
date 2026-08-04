@@ -69,12 +69,12 @@ impl PromptBuilder {
     /// 注意记忆段是例外：它随记忆库变化，而 system 是第一条消息，改一个字节
     /// 就是整个请求全量 miss。取舍见 `docs/plan.md` 的延后表。
     pub fn build(&self, input: &PromptInput) -> String {
-        let mut parts: Vec<String> = Vec::new();
-
-        parts.push(SYSTEM_AWARENESS.trim().to_string());
-        parts.push(SELF_AWARENESS.trim().to_string());
-        parts.push(TIME_ANCHOR.trim().to_string());
-        parts.push(chat_media_section(input.vision));
+        let mut parts: Vec<String> = vec![
+            SYSTEM_AWARENESS.trim().to_string(),
+            SELF_AWARENESS.trim().to_string(),
+            TIME_ANCHOR.trim().to_string(),
+            chat_media_section(input.vision),
+        ];
 
         push_optional(&mut parts, input.action_section.as_deref());
         push_optional(&mut parts, input.tool_section.as_deref());
