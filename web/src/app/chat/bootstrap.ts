@@ -31,6 +31,36 @@ export async function bootstrap(): Promise<void> {
   }
 }
 
+/** 正在进行的令牌刷新；同一批媒体一起报错时只握手一次。 */
+let tokenRefresh: Promise<string | null> | null = null
+
+/**
+ * 重新握手取当前令牌。
+ *
+ * 令牌每次进程启动重新生成（泄露出去的链接活不过一次重启），代价是**服务端一重启，
+ * 已经打开的页面上所有媒体地址就全部作废**，表现为清一色的 403。开发期反复重启时
+ * 这尤其烦人。重新握手一次就能拿到新令牌，不必让用户自己按 F5。
+ *
+ * 安全性没变：握手接口受同源守卫保护，恶意页面调不到。
+ */
+export async function refreshImageToken(): Promise<string | null> {
+  tokenRefresh ??= (async () => {
+    try {
+      const info = await client.bootstrap()
+      if (info.home) imageBootstrap.value = { token: info.image_token, home: info.home }
+      return info.image_token
+    } catch {
+      return null
+    } finally {
+      // 下次再失败时重新握手，别把这一次的结果一直用下去
+      queueMicrotask(() => {
+        tokenRefresh = null
+      })
+    }
+  })()
+  return tokenRefresh
+}
+
 /** 从 runtime.toml 刷新默认工作模式与 API 栈。 */
 export async function refreshRuntimeDefaults(): Promise<void> {
   try {

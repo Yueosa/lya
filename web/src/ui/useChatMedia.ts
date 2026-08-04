@@ -6,6 +6,7 @@
  * 视频音频仍然走浏览器自带的播放器，不给它们造灯箱。
  */
 
+import { refreshImageToken } from '../app/chat/bootstrap'
 import {
   fetchMediaMeta,
   isSessionMediaSrc,
@@ -78,14 +79,47 @@ function upsertErrorNote(el: HTMLElement, origin: string | null): void {
   if (!existing) el.insertAdjacentElement('afterend', note)
 }
 
+/**
+ * 换上新令牌重试一次。
+ *
+ * 媒体地址里带的令牌每次服务端启动都会换，所以服务端一重启，已经打开的页面上所有
+ * 媒体就集体 403——刷新一下就好，但不该要用户自己想到这一步。`error` 事件读不到
+ * 状态码，所以不判是不是 403，直接重新握手：令牌真变了才值得重试，没变说明是别的
+ * 毛病（文件没了、远程挂了），照常报错。
+ */
+async function retryWithFreshToken(el: HTMLElement, src: string): Promise<boolean> {
+  const url = new URL(src, window.location.origin)
+  const stale = url.searchParams.get('token')
+  if (!stale) return false
+
+  const fresh = await refreshImageToken()
+  if (!fresh || fresh === stale) return false
+
+  url.searchParams.set('token', fresh)
+  el.setAttribute('src', `${url.pathname}${url.search}`)
+  // <img> 改 src 就会重新请求，媒体元素得自己说一声
+  if (el instanceof HTMLMediaElement) el.load()
+  return true
+}
+
 function bindError(el: HTMLElement, src: string): void {
   el.addEventListener(
     'error',
     () => {
-      // 破图图标和空播放器都不如一句话，藏掉换成提示
-      el.dataset['failed'] = '1'
-      const query = src.split('?')[1] ?? ''
-      upsertErrorNote(el, new URLSearchParams(query).get('src'))
+      void (async () => {
+        if (el.dataset['tokenRetried'] !== '1') {
+          el.dataset['tokenRetried'] = '1'
+          if (await retryWithFreshToken(el, src)) {
+            // 重试也可能失败，得再挂一次——上一个监听器是 once
+            bindError(el, el.getAttribute('src') ?? src)
+            return
+          }
+        }
+        // 破图图标和空播放器都不如一句话，藏掉换成提示
+        el.dataset['failed'] = '1'
+        const query = src.split('?')[1] ?? ''
+        upsertErrorNote(el, new URLSearchParams(query).get('src'))
+      })()
     },
     { once: true },
   )
