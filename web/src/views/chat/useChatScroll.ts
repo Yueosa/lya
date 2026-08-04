@@ -8,8 +8,20 @@
  * 也不该动位置——打开分支树面板会重新拉一次树，`tree` 一赋值 `timeline` 就重算，
  * 而用户只是开了个侧栏，阅读位置不该被冲到底。
  *
- * 所以「该不该重新贴底」只认一个信号：内容容器的高度变了。常驻 `ResizeObserver`
- * 盯着它，谁让内容长高都一样处理，媒体加载完也算，且只在用户本来就贴着底时才跟。
+ * 所以「该不该重新归位」只认一个信号：内容容器的高度变了。常驻 `ResizeObserver`
+ * 盯着它，谁让内容长高都一样处理，媒体加载完也算。
+ *
+ * # 别从 scroll 事件反推「这一下是谁滚的」
+ *
+ * 这是「进会话落不到底」反复修不好的根。原先每次程序化滚动都要举一个
+ * `programmaticScroll` 标志，让 `onScroll` 认出来别当成用户意图。这条路走不通：
+ * scroll 事件是异步派发的，而进会话时几次归位又常常叠在一起跑，标志总有撤早的时候
+ * ——一撤早，我们自己造的滚动就被记成「用户往上翻了」，跟随状态当场丢掉，之后图片
+ * 再撑高也没人管，页面就停在半路。加代次、加阈值都只是让它更难触发，没有拆掉前提。
+ *
+ * 现在**只认真实输入事件**：`wheel` 和 `touchmove` 是用户，除此以外的位置变化一律
+ * 是我们自己干的。在用户第一次动手之前，内容每长高一次就重新归位一次，落到进来时
+ * 记下的那个位置（多数情况就是底部）——也就是「一直往下滚，直到用户打断」。
  */
 
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
@@ -78,11 +90,14 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
   const atScrollTop = ref(true)
   const atScrollBottom = ref(true)
   const lastTurnFinished = ref(false)
-  /** 内容长高时要不要跟着贴底。用户往上翻就false，翻回底部就 true。 */
-  const stuckToBottom = ref(restoreOffset <= BOTTOM_EPS)
-  let programmaticScroll = false
-  /** [`settle`] 的代次，见那里的注释。 */
-  let settleGeneration = 0
+  /** 内容长高时要不要跟着贴底。用户往上翻就 false，翻回底部就 true。 */
+  const stuckToBottom = ref(true)
+  /**
+   * 用户是否已经自己动过滚动条。
+   *
+   * 在这之前位置归我们管，`onScroll` 读到的一切都是我们自己造成的，不代表任何意图。
+   */
+  const userTookOver = ref(false)
   let layoutObserver: ResizeObserver | null = null
 
   watch(
@@ -200,11 +215,8 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     const id = currentId.value
     if (id) savedOffsets.set(id, Math.max(0, max - el.scrollTop))
 
-    if (programmaticScroll) return
-    // 铺首屏期间位置归 restoreScroll() 管，不能有第二个人写：那会儿内容正在长高，
-    // 「此刻没贴底」是过程量不是用户意图。这段时间容器还是 visibility: hidden，
-    // 也不可能有真的用户滚动
-    if (hydrating.value || !timelineReady.value) return
+    // 用户还没动过手，这一下就是我们自己滚的，读不出任何意图
+    if (!userTookOver.value) return
     stuckToBottom.value = nearBottom
     if (running.value && scrollPercent.value < 92) {
       prefs.followStream = false
@@ -212,35 +224,41 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     if (atScrollBottom.value) lastTurnFinished.value = false
   }
 
+  /** 用户第一次自己动滚动条：从这里开始位置归他。 */
+  function takeOver(): void {
+    if (userTookOver.value) return
+    userTookOver.value = true
+    // 交接的这一刻是不是还算贴着底，按松阈值判一次，别让交接本身取消跟随
+    onScroll()
+  }
+
   /**
-   * 连着试三帧：一次 nextTick 后布局还可能再变一次（字体、媒体）。
+   * 我们接管期间该把滚动条放在哪。
    *
-   * 认代次而不是共享一个布尔：进会话时 `revealTimeline` 连发三次 `restoreScroll`，
-   * `ResizeObserver` 还会再插几次，它们叠在几帧里跑。共享布尔的话，最先跑到最内层的
-   * 那一次会替还在写 `scrollTop` 的其余几次把守卫撤掉，它们造成的 scroll 事件就被
-   * 当成用户滚动，跟随状态当场丢掉。谁最后发起谁说了算，旧的直接不干了。
+   * 进来时贴着底的（含首次打开）就一直贴底；记着位置的就保持那个**离底距离**。
+   */
+  function anchorTop(el: HTMLElement): number {
+    const max = Math.max(0, el.scrollHeight - el.clientHeight)
+    return restoreOffset <= BOTTOM_EPS ? max : Math.max(0, max - restoreOffset)
+  }
+
+  /**
+   * 连着试三帧：一次 `nextTick` 之后布局还可能再变一次（字体、媒体）。
+   *
+   * 只给「跳到最新」这类一次性跳转用。内容长高引起的归位不走这里——`ResizeObserver`
+   * 的回调在绘制前跑，就地写完这一帧就是对的，不需要追帧，也就不会有几次归位叠在
+   * 一起互相打架。
    */
   function settle(place: (el: HTMLElement) => void): void {
     const el = scroller.value
     if (!el) return
-    const generation = ++settleGeneration
-    programmaticScroll = true
-    const step = (next: () => void): void => {
-      if (generation !== settleGeneration) return
-      place(el)
-      next()
-    }
     nextTick(() => {
-      step(() => {
+      place(el)
+      requestAnimationFrame(() => {
+        place(el)
         requestAnimationFrame(() => {
-          step(() => {
-            requestAnimationFrame(() => {
-              step(() => {
-                programmaticScroll = false
-                onScroll()
-              })
-            })
-          })
+          place(el)
+          onScroll()
         })
       })
     })
@@ -253,14 +271,10 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     })
   }
 
-  /** 回到进入会话时记下的位置；之前就在底部（含首次打开）就直接贴底。 */
+  /** 回到进入会话时记下的位置。 */
   function restoreScroll(): void {
-    if (restoreOffset <= BOTTOM_EPS) {
-      scrollBottom()
-      return
-    }
     settle((el) => {
-      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - restoreOffset)
+      el.scrollTop = anchorTop(el)
     })
   }
 
@@ -279,19 +293,28 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     // 媒体可能好几秒后才报出自己的尺寸
     if (content.value) {
       layoutObserver = new ResizeObserver(() => {
-        // 还在铺首屏，位置该听「进来时记下的那个」的。窗口和 onScroll 让位的那段
-        // 一致：这期间位置只有 restoreScroll() 一个主人
-        if (hydrating.value || !timelineReady.value) {
-          restoreScroll()
+        const el = scroller.value
+        if (!el) return
+        // 用户还没接手：内容每长高一次就重新归位一次，一直到他自己动手为止。
+        // 就地同步写——回调在绘制前跑，这一帧的位置立刻就是对的
+        if (!userTookOver.value) {
+          el.scrollTop = anchorTop(el)
           return
         }
         if (!stuckToBottom.value) return
         // 正在输出时跟不跟由偏好定；不在输出时，贴底就该一直贴着
         if (running.value && !prefs.followStream) return
-        scrollBottom()
+        el.scrollTop = el.scrollHeight
       })
       layoutObserver.observe(content.value)
     }
+
+    // 只认真实输入，不从 scroll 事件反推。滚动条本身是隐藏的（scrollbar-width: none），
+    // 拖不了；键盘滚动要容器拿到焦点，而焦点常年在输入框上。所以这两个就是全部入口
+    const el = scroller.value
+    el?.addEventListener('wheel', takeOver, { passive: true })
+    el?.addEventListener('touchmove', takeOver, { passive: true })
+
     nextTick(() => {
       onScroll()
       restoreScroll()
@@ -301,6 +324,9 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
   onUnmounted(() => {
     layoutObserver?.disconnect()
     layoutObserver = null
+    const el = scroller.value
+    el?.removeEventListener('wheel', takeOver)
+    el?.removeEventListener('touchmove', takeOver)
     stopEnterMotion()
   })
 
