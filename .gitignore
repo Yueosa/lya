@@ -1,4 +1,5 @@
 /target/
+/output/
 .DS_Store
 web/node_modules/
 web/dist/
