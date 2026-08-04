@@ -15,7 +15,6 @@ import {
   currentId,
   focusedHitlId,
   hydrating,
-  loading,
   state,
   tree,
   unsubscribe,
@@ -125,13 +124,11 @@ export async function openSession(id: string): Promise<void> {
   closeSession()
   currentId.value = id
   bindSessionPrefs(id)
-  loading.value = true
   hydrating.value = true
 
   unsubscribe.value = client.subscribe(id, {
     onSnapshot: (snapshot) => {
       state.value = applySnapshot(state.value, snapshot)
-      loading.value = false
       void loadTools()
       void refreshTree()
       queueMicrotask(() => {

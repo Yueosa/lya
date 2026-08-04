@@ -1,7 +1,7 @@
 import type { SessionTree } from '../../api/wire'
 import { applySnapshot } from '../../store/session'
 import { report } from './errors'
-import { refreshSnapshot, refreshTree } from './snapshot'
+import { refreshSnapshot, refreshTree, setTree } from './snapshot'
 import { client } from './client'
 import { currentId, state, tree } from './state'
 
@@ -79,7 +79,7 @@ export async function loadTree(): Promise<SessionTree | null> {
   if (!id) return null
   try {
     const data = await client.tree(id)
-    tree.value = data.nodes
+    setTree(data.nodes)
     return data
   } catch (error) {
     report(error, '读取分支树')

@@ -301,6 +301,8 @@ function go(view: View): void {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* 加载遮罩挂在视图旁边，靠这层定位 */
+  position: relative;
 }
 
 @media (max-width: 520px) {

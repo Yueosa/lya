@@ -1,19 +1,53 @@
-/** 聊天区滚动：跟随流式、跳转按钮、hydration 尾部渲染。 */
+/**
+ * 聊天区滚动：贴底跟随、跳转按钮、进入会话时的尾部渐显与位置恢复。
+ *
+ * # 别用 timeline 当「该滚了」的信号
+ *
+ * 时间线变了不等于高度定了：视频、图片在那一刻还不知道自己多高，此时的
+ * `scrollHeight` 不含它们，滚过去落不到真正的底部。反过来，高度没变的时间线变化
+ * 也不该动位置——打开分支树面板会重新拉一次树，`tree` 一赋值 `timeline` 就重算，
+ * 而用户只是开了个侧栏，阅读位置不该被冲到底。
+ *
+ * 所以「该不该重新贴底」只认一个信号：内容容器的高度变了。常驻 `ResizeObserver`
+ * 盯着它，谁让内容长高都一样处理，媒体加载完也算，且只在用户本来就贴着底时才跟。
+ */
 
 import { computed, nextTick, onMounted, onUnmounted, ref, watch, type Ref } from 'vue'
 
-import { hydrating, running, timeline } from '../../app/useChat'
+import { currentId, hydrating, running, timeline } from '../../app/useChat'
 import { prefs } from '../../app/usePrefs'
 import { sessionEnterMotionMs } from '../../ui/useMotion'
 
 const INITIAL_TAIL = 48
 
-export function useChatScroll(scroller: Ref<HTMLElement | null>) {
+/** 离底多少像素以内算「贴着底」。 */
+const BOTTOM_EPS = 2
+
+/**
+ * 每个会话记一个「离底多远」。
+ *
+ * 记距底距离而不是 `scrollTop`：会话是往下长的，上面的媒体加载完会把整体撑高，
+ * 那时候「离最新消息多远」才是用户真正记得的位置。贴底这个最常见的情况也刚好
+ * 就是 0，恢复起来没有误差。
+ */
+const savedOffsets = new Map<string, number>()
+
+/** 会话删了就把它的位置忘掉，否则这个 map 只增不减。 */
+export function forgetScrollPosition(id: string): void {
+  savedOffsets.delete(id)
+}
+
+export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HTMLElement | null>) {
   const renderTail = ref<number | null>(null)
   const timelineReady = ref(false)
   /** 仅进入会话时短暂为 true；SSE 流式更新不再播放入场动画。 */
   const sessionEnterMotion = ref(false)
   let enterMotionTimer: number | null = null
+
+  // 组件建立时就把上次的位置抄下来：之后的每次滚动都会覆盖 map 里的值
+  const sessionAtEnter = currentId.value
+  const restoreOffset =
+    sessionAtEnter !== null ? (savedOffsets.get(sessionAtEnter) ?? 0) : 0
 
   const timelineOffset = computed(() => {
     const items = timeline.value
@@ -34,6 +68,8 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
   const atScrollTop = ref(true)
   const atScrollBottom = ref(true)
   const lastTurnFinished = ref(false)
+  /** 内容长高时要不要跟着贴底。用户往上翻就false，翻回底部就 true。 */
+  const stuckToBottom = ref(restoreOffset <= BOTTOM_EPS)
   let programmaticScroll = false
   let layoutObserver: ResizeObserver | null = null
 
@@ -43,7 +79,7 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
       if (len > INITIAL_TAIL && prevLen === 0 && hydrating.value) {
         renderTail.value = INITIAL_TAIL
         await nextTick()
-        scrollBottom()
+        restoreScroll()
       }
     },
   )
@@ -67,11 +103,11 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
       renderTail.value = INITIAL_TAIL
     }
     await nextTick()
-    scrollBottom()
+    restoreScroll()
 
     const finish = (): void => {
       requestAnimationFrame(() => {
-        scrollBottom()
+        restoreScroll()
         timelineReady.value = true
         startEnterMotion()
       })
@@ -81,22 +117,19 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
       requestAnimationFrame(() => {
         renderTail.value = null
         nextTick(() => {
-          scrollBottom()
+          restoreScroll()
           finish()
         })
       })
     } else {
       finish()
     }
-
-    window.setTimeout(stopLayoutScroll, 600)
   }
 
   watch(hydrating, async (on, wasOn) => {
     if (on) {
       stopEnterMotion()
       timelineReady.value = false
-      startLayoutScroll()
       return
     }
 
@@ -109,16 +142,6 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
     if (!wasOn) return
     await revealTimeline()
   }, { immediate: true })
-
-  watch(
-    timeline,
-    async () => {
-      if (!prefs.followStream || !scroller.value) return
-      await nextTick()
-      scrollBottom()
-    },
-    { deep: true },
-  )
 
   watch(running, (on, was) => {
     if (was && !on && prefs.followStream) lastTurnFinished.value = true
@@ -152,32 +175,35 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
       atScrollTop.value = true
       atScrollBottom.value = true
     } else {
-      atScrollTop.value = el.scrollTop <= 2
-      atScrollBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - 2
+      atScrollTop.value = el.scrollTop <= BOTTOM_EPS
+      atScrollBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - BOTTOM_EPS
       scrollPercent.value = atScrollBottom.value
         ? 100
         : Math.min(100, Math.round((el.scrollTop / max) * 100))
     }
+
+    const id = currentId.value
+    if (id) savedOffsets.set(id, Math.max(0, max - el.scrollTop))
+
     if (programmaticScroll) return
+    stuckToBottom.value = atScrollBottom.value
     if (running.value && scrollPercent.value < 92) {
       prefs.followStream = false
     }
     if (atScrollBottom.value) lastTurnFinished.value = false
   }
 
-  function scrollBottom(): void {
+  /** 连着试三帧：一次 nextTick 后布局还可能再变一次（字体、媒体）。 */
+  function settle(place: (el: HTMLElement) => void): void {
     const el = scroller.value
     if (!el) return
     programmaticScroll = true
-    const attempt = (): void => {
-      el.scrollTop = el.scrollHeight
-    }
     nextTick(() => {
-      attempt()
+      place(el)
       requestAnimationFrame(() => {
-        attempt()
+        place(el)
         requestAnimationFrame(() => {
-          attempt()
+          place(el)
           programmaticScroll = false
           onScroll()
         })
@@ -185,20 +211,22 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
     })
   }
 
-  function startLayoutScroll(): void {
-    const el = scroller.value
-    if (!el || layoutObserver) return
-    layoutObserver = new ResizeObserver(() => {
-      if (prefs.followStream && (hydrating.value || atScrollBottom.value)) {
-        scrollBottom()
-      }
+  function scrollBottom(): void {
+    stuckToBottom.value = true
+    settle((el) => {
+      el.scrollTop = el.scrollHeight
     })
-    layoutObserver.observe(el)
   }
 
-  function stopLayoutScroll(): void {
-    layoutObserver?.disconnect()
-    layoutObserver = null
+  /** 回到进入会话时记下的位置；之前就在底部（含首次打开）就直接贴底。 */
+  function restoreScroll(): void {
+    if (restoreOffset <= BOTTOM_EPS) {
+      scrollBottom()
+      return
+    }
+    settle((el) => {
+      el.scrollTop = Math.max(0, el.scrollHeight - el.clientHeight - restoreOffset)
+    })
   }
 
   function jumpLatest(): void {
@@ -212,15 +240,31 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>) {
   }
 
   onMounted(() => {
-    if (hydrating.value) startLayoutScroll()
+    // 盯内容不盯滚动容器：容器高度不随消息变。也不能定时摘掉，
+    // 媒体可能好几秒后才报出自己的尺寸
+    if (content.value) {
+      layoutObserver = new ResizeObserver(() => {
+        // 还在铺首屏，位置该听「进来时记下的那个」的
+        if (hydrating.value) {
+          restoreScroll()
+          return
+        }
+        if (!stuckToBottom.value) return
+        // 正在输出时跟不跟由偏好定；不在输出时，贴底就该一直贴着
+        if (running.value && !prefs.followStream) return
+        scrollBottom()
+      })
+      layoutObserver.observe(content.value)
+    }
     nextTick(() => {
       onScroll()
-      if (prefs.followStream) scrollBottom()
+      restoreScroll()
     })
   })
 
   onUnmounted(() => {
-    stopLayoutScroll()
+    layoutObserver?.disconnect()
+    layoutObserver = null
     stopEnterMotion()
   })
 

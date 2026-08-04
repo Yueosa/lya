@@ -5,7 +5,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-import { loading, hydrating, readOnly } from '../app/useChat'
+import { hydrating, readOnly } from '../app/useChat'
 import BranchTree from './BranchTree.vue'
 import Composer from './Composer.vue'
 import SessionPanel from './session/SessionPanel.vue'
@@ -19,12 +19,13 @@ import { useChatScroll } from './chat/useChatScroll'
 import './chat/chat.css'
 
 const scroller = ref<HTMLElement | null>(null)
+const content = ref<HTMLElement | null>(null)
 const treeOpen = ref(false)
 const sessionOpen = ref(false)
 const editing = ref<{ id: number; text: string } | null>(null)
 
 const { displayTimeline, timelineOffset, timelineReady, sessionEnterMotion, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
-  useChatScroll(scroller)
+  useChatScroll(scroller, content)
 
 function closePanels(except?: 'tree' | 'session'): void {
   if (except !== 'tree') treeOpen.value = false
@@ -57,15 +58,19 @@ function toggleSession(): void {
       <div
         ref="scroller"
         class="chat__stream"
-        :class="{ 'chat__stream--loading': loading || hydrating || !timelineReady }"
+        :class="{ 'chat__stream--loading': hydrating || !timelineReady }"
         @scroll="onScroll"
       >
-        <ChatTimeline
-          v-model:editing="editing"
-          :items="displayTimeline"
-          :timeline-offset="timelineOffset"
-          :motion-ready="sessionEnterMotion"
-        />
+        <!-- 内容单独一层：ResizeObserver 只有盯着它才看得见「内容长高了」，
+             盯滚动容器自己只能看到窗口变化 -->
+        <div ref="content" class="chat__stream-content">
+          <ChatTimeline
+            v-model:editing="editing"
+            :items="displayTimeline"
+            :timeline-offset="timelineOffset"
+            :motion-ready="sessionEnterMotion"
+          />
+        </div>
       </div>
 
       <ScrollJumpButton
@@ -76,11 +81,6 @@ function toggleSession(): void {
       />
 
       <Composer v-if="!readOnly" />
-
-      <div v-if="loading || hydrating || !timelineReady" class="chat__loading" aria-live="polite">
-        <span class="chat__loading-spinner" aria-hidden="true" />
-        <span class="chat__loading-text">加载中…</span>
-      </div>
     </div>
 
     <Transition name="lya-drawer">

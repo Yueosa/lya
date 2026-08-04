@@ -1,3 +1,4 @@
+import { forgetScrollPosition } from '../../views/chat/useChatScroll'
 import { forgetSessionPrefs } from '../usePrefs'
 import { report } from './errors'
 import { closeSession } from './subscription'
@@ -25,8 +26,9 @@ export async function removeSession(id: string): Promise<void> {
   sessions.value = sessions.value.filter((item) => item.id !== id)
   archivedSessions.value = archivedSessions.value.filter((item) => item.id !== id)
   if (currentId.value === id) closeSession()
-  // 会话没了，localStorage 里它那份显示偏好留着只会慢慢攒垃圾
+  // 会话没了，它那份显示偏好和滚动位置留着只会慢慢攒垃圾
   forgetSessionPrefs(id)
+  forgetScrollPosition(id)
 }
 
 /** 改标题。 */

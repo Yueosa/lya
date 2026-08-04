@@ -12,6 +12,14 @@ export const imageBootstrap = ref<{ token: string; home: string } | null>(null)
 /** 首屏快照到达前为 true。 */
 export const hydrating = ref(false)
 
+/**
+ * 会话列表在拉取中。
+ *
+ * 和 `hydrating` 分开：列表刷新是全局的（配置一变就会刷），会话首屏加载是单个会话的。
+ * 混成一个 ref 的话，后台刷一下列表就会让聊天页以为自己在加载。
+ */
+export const sessionsLoading = ref(false)
+
 /** 配置里的默认模型。 */
 export const defaultModel = ref<{ id: string; name: string } | null>(null)
 
@@ -22,7 +30,6 @@ export const archivedSessions = ref<SessionMeta[]>([])
 /** 当前打开的会话。 */
 export const currentId = ref<string | null>(null)
 export const state = ref<SessionState>(emptyState())
-export const loading = ref(false)
 
 /** SSE 取消句柄。 */
 export const unsubscribe = shallowRef<(() => void) | null>(null)

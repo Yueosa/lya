@@ -12,13 +12,13 @@ import {
   archivedSessions,
   createSession,
   currentId,
-  loading,
   models,
   openSession,
   refreshSessions,
   removeSession,
   rename,
   sessions,
+  sessionsLoading,
   setArchived,
 } from '../app/useChat'
 import { confirm, confirmAsync, prompt } from '../ui/useDialog'
@@ -147,7 +147,7 @@ async function deleteSelected(): Promise<void> {
     <h2 class="sessions__title">选择会话</h2>
 
     <div class="sessions__panel">
-      <p v-if="loading && allSessions.length === 0" class="sessions__hint">正在读取…</p>
+      <p v-if="sessionsLoading && allSessions.length === 0" class="sessions__hint">正在读取…</p>
       <p v-else-if="allSessions.length === 0" class="sessions__hint">
         还没有会话，点下方「新建」开始第一句。
       </p>

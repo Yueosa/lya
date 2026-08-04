@@ -6,7 +6,7 @@
 -->
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { shellFor } from '../shell/registry'
 import type { View } from '../shell/types'
@@ -27,6 +27,7 @@ import {
   bootstrap,
   client,
   currentId,
+  hydrating,
   loadModels,
   refreshRuntimeDefaults,
   refreshSessions,
@@ -36,6 +37,37 @@ import { setupImageLightbox } from '../ui/useImageLightbox'
 const view = ref<View>('home')
 
 const shell = computed(() => shellFor(themeId.value))
+
+/**
+ * 加载遮罩放在这里而不是 ChatView 里：页面切换有 out-in 过渡，等 ChatView 挂上来
+ * 的时候快照往往已经到了，遮罩根本没机会画出来（MC 主题过渡是 0ms，所以只有它「正常」）。
+ * 再加一个最短显示时长，免得快的时候闪一下反而更难看。
+ */
+const BUSY_MIN_MS = 240
+const busy = ref(false)
+let busyTimer: number | null = null
+let busySince = 0
+
+watch(hydrating, (on) => {
+  if (busyTimer !== null) {
+    clearTimeout(busyTimer)
+    busyTimer = null
+  }
+  if (on) {
+    busySince = performance.now()
+    busy.value = true
+    return
+  }
+  const rest = BUSY_MIN_MS - (performance.now() - busySince)
+  if (rest <= 0) {
+    busy.value = false
+    return
+  }
+  busyTimer = window.setTimeout(() => {
+    busy.value = false
+    busyTimer = null
+  }, rest)
+})
 
 // 图片令牌要尽早拿，否则先渲染出来的本地图片会是坏的
 void bootstrap()
@@ -56,6 +88,7 @@ onMounted(() => {
   onUnmounted(() => {
     stop()
     stopLightbox()
+    if (busyTimer !== null) clearTimeout(busyTimer)
   })
 })
 
@@ -87,6 +120,13 @@ function navigate(next: View): void {
         <p>在左侧选一个会话，或点「新对话」开始。</p>
       </div>
     </Transition>
+
+    <Transition name="lya-veil">
+      <div v-if="busy" class="app__busy" aria-live="polite">
+        <span class="app__busy-spinner" aria-hidden="true" />
+        <span class="app__busy-text">加载中…</span>
+      </div>
+    </Transition>
   </component>
 
   <UiHost />
@@ -95,6 +135,37 @@ function navigate(next: View): void {
 <style scoped>
 .app__todo {
   padding: 24px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.app__busy {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  pointer-events: none;
+}
+
+.app__busy-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: lya-spin 0.75s linear infinite;
+}
+
+.app__busy-text {
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: var(--border-width) solid var(--border);
   color: var(--text-muted);
   font-size: var(--text-sm);
 }

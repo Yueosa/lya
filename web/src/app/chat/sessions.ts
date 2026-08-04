@@ -6,16 +6,16 @@ import {
   archivedSessions,
   defaultWorkMode,
   defaultApiMode,
-  loading,
   models,
   sessions,
+  sessionsLoading,
 } from './state'
 import { openSession } from './subscription'
 import { modelIdForNewSession } from './modelPick'
 
 /** 拉会话列表。 */
 export async function refreshSessions(): Promise<void> {
-  loading.value = true
+  sessionsLoading.value = true
   try {
     const [active, archived] = await Promise.all([
       client.listSessions(),
@@ -26,7 +26,7 @@ export async function refreshSessions(): Promise<void> {
   } catch (error) {
     report(error, '读取会话列表')
   } finally {
-    loading.value = false
+    sessionsLoading.value = false
   }
 }
 

@@ -21,6 +21,12 @@
   }
 }
 
+@keyframes lya-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes lya-slide-in-left {
   from {
     opacity: 0;
@@ -205,6 +211,15 @@
   animation: lya-fade-out var(--duration-fast) ease both;
 }
 
+/* 加载遮罩 */
+.lya-veil-enter-active {
+  animation: lya-fade-in var(--duration-fast) ease both;
+}
+
+.lya-veil-leave-active {
+  animation: lya-fade-out var(--duration-fast) ease both;
+}
+
 /* 管理页详情切换 */
 .lya-split-enter-active {
   animation: lya-split-in var(--duration-normal) ease both;
@@ -253,6 +268,8 @@
   .lya-aside-enter,
   .lya-page-enter-active,
   .lya-page-leave-active,
+  .lya-veil-enter-active,
+  .lya-veil-leave-active,
   .lya-split-enter-active,
   .lya-split-leave-active,
   .lya-drawer-enter-active,

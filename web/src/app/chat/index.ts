@@ -13,8 +13,8 @@ export {
   defaultApiMode,
   focusedHitlId,
   hydrating,
-  loading,
   sessions,
+  sessionsLoading,
   state,
   tree,
 } from './state'
