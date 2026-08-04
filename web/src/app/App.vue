@@ -24,17 +24,19 @@ import ThemeView from '../views/ThemeView.vue'
 import ToolsView from '../views/ToolsView.vue'
 import SessionsView from '../views/SessionsView.vue'
 import {
+  archivedSessions,
   bootstrap,
   client,
   currentId,
   hydrating,
   loadModels,
+  openSession,
   refreshRuntimeDefaults,
   refreshSessions,
+  sessions,
 } from './useChat'
+import { savedSession, setView, view } from './useNav'
 import { setupImageLightbox } from '../ui/useImageLightbox'
-
-const view = ref<View>('home')
 
 const shell = computed(() => shellFor(themeId.value))
 
@@ -76,8 +78,37 @@ void refreshRuntimeDefaults()
 // 会话列表在这里拉而不是各外壳自己拉：原先只有 DefaultShell 的 onMounted 拉过，
 // 于是 MC 外壳的主菜单永远显示「0 活跃 0 归档」，splash 也抽不到会话名——数据在
 // 服务端好好的，只是没人去取。谁需要会话列表不该由排版决定
-void refreshSessions()
+const sessionsReady = refreshSessions()
 const stopLightbox = setupImageLightbox()
+
+/**
+ * 回到刷新前的位置。
+ *
+ * 会话可能已经不在了——在别处删掉、或者换了个数据目录，所以要等列表回来核对一遍。
+ * 对不上就退回首页，别让用户对着一个永远加载不出来的空对话页发呆。
+ *
+ * 核对期间要盖住遮罩：那会儿视图已经是 `chat` 而 `currentId` 还是空的，不盖就会先闪
+ * 一下空对话页（`settings` 更难看，会闪出「在左侧选一个会话」）。
+ */
+const needsRestore = view.value === 'chat' || view.value === 'settings'
+const restoring = ref(needsRestore)
+
+void (async () => {
+  if (!needsRestore) return
+  try {
+    const id = savedSession()
+    await sessionsReady
+    const known =
+      id !== null && [...sessions.value, ...archivedSessions.value].some((s) => s.id === id)
+    if (!known) {
+      setView('home')
+      return
+    }
+    await openSession(id)
+  } finally {
+    restoring.value = false
+  }
+})()
 
 // 全局事件：配置或会话列表在别处变了，这边跟着刷新。和会话流分开订阅——
 // 它们与「当前打开哪个会话」无关，换会话不该断掉
@@ -99,10 +130,10 @@ onMounted(() => {
 function navigate(next: View): void {
   // 没有会话时会话设置无处可挂；对话页本身会显示空态，侧栏里再建
   if (next === 'settings' && !currentId.value) {
-    view.value = 'chat'
+    setView('chat')
     return
   }
-  view.value = next
+  setView(next)
 }
 </script>
 
@@ -111,7 +142,7 @@ function navigate(next: View): void {
     <Transition name="lya-page" mode="out-in">
       <HomeView v-if="view === 'home'" key="home" />
       <ChatView v-else-if="view === 'chat'" :key="`chat-${currentId ?? 'none'}`" />
-      <SessionsView v-else-if="view === 'sessions'" key="sessions" @opened="view = 'chat'" />
+      <SessionsView v-else-if="view === 'sessions'" key="sessions" @opened="setView('chat')" />
       <SessionPanel v-else-if="view === 'settings' && currentId" :key="`settings-${currentId}`" layout="page" />
       <MemoryView v-else-if="view === 'memory'" key="memory" />
       <ToolsView v-else-if="view === 'tools'" key="tools" />
@@ -126,7 +157,7 @@ function navigate(next: View): void {
     </Transition>
 
     <Transition name="lya-veil">
-      <div v-if="busy" class="app__busy" aria-live="polite">
+      <div v-if="busy || restoring" class="app__busy" aria-live="polite">
         <span class="app__busy-spinner" aria-hidden="true" />
         <span class="app__busy-text">加载中…</span>
       </div>
