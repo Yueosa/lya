@@ -40,6 +40,49 @@ fn cache_control() -> HeaderValue {
     HeaderValue::from_static("private, max-age=86400")
 }
 
+fn partial_body(bytes: Vec<u8>, mime: &str, start: u64, end: u64, size: u64) -> Response {
+    let length = bytes.len() as u64;
+    match Response::builder()
+        .status(StatusCode::PARTIAL_CONTENT)
+        .header(CONTENT_TYPE, mime)
+        .header(ACCEPT_RANGES, "bytes")
+        .header(CONTENT_RANGE, format!("bytes {start}-{end}/{size}"))
+        .header(CONTENT_LENGTH, length)
+        .header(CACHE_CONTROL, cache_control())
+        .body(Body::from(bytes))
+    {
+        Ok(response) => response,
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+fn full_body(bytes: Vec<u8>, mime: &str) -> Response {
+    let size = bytes.len() as u64;
+    match Response::builder()
+        .status(StatusCode::OK)
+        .header(CONTENT_TYPE, mime)
+        .header(ACCEPT_RANGES, "bytes")
+        .header(CONTENT_LENGTH, size)
+        .header(CACHE_CONTROL, cache_control())
+        .body(Body::from(bytes))
+    {
+        Ok(response) => response,
+        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    }
+}
+
+/// 同上，但字节已经在内存里（没留存的远程媒体）。
+pub fn serve_ranged_bytes(bytes: Vec<u8>, mime: &str, headers: &HeaderMap) -> Response {
+    let size = bytes.len() as u64;
+    if let Some(range_header) = headers.get(RANGE).and_then(|value| value.to_str().ok()) {
+        if let Some((start, end)) = parse_range(range_header, size) {
+            let slice = bytes[start as usize..=end as usize].to_vec();
+            return partial_body(slice, mime, start, end, size);
+        }
+    }
+    full_body(bytes, mime)
+}
+
 /// 以整文件或 Range 片段响应；始终带 `Accept-Ranges: bytes`。
 pub async fn serve_ranged_file(path: &Path, mime: &str, headers: &HeaderMap) -> Response {
     let file = match tokio::fs::File::open(path).await {
@@ -69,35 +112,12 @@ pub async fn serve_ranged_file(path: &Path, mime: &str, headers: &HeaderMap) -> 
             if std_file.read_exact(&mut buf).is_err() {
                 return (StatusCode::INTERNAL_SERVER_ERROR, "read 失败").into_response();
             }
-
-            let content_range = format!("bytes {start}-{end}/{size}");
-            return match Response::builder()
-                .status(StatusCode::PARTIAL_CONTENT)
-                .header(CONTENT_TYPE, mime)
-                .header(ACCEPT_RANGES, "bytes")
-                .header(CONTENT_RANGE, content_range)
-                .header(CONTENT_LENGTH, length)
-                .header(CACHE_CONTROL, cache_control())
-                .body(Body::from(buf))
-            {
-                Ok(response) => response,
-                Err(err) => return (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-            };
+            return partial_body(buf, mime, start, end, size);
         }
     }
 
     match tokio::fs::read(path).await {
-        Ok(bytes) => match Response::builder()
-            .status(StatusCode::OK)
-            .header(CONTENT_TYPE, mime)
-            .header(ACCEPT_RANGES, "bytes")
-            .header(CONTENT_LENGTH, size)
-            .header(CACHE_CONTROL, cache_control())
-            .body(Body::from(bytes))
-        {
-            Ok(response) => response,
-            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
-        },
+        Ok(bytes) => full_body(bytes, mime),
         Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
     }
 }

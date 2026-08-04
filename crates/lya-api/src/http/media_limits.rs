@@ -9,18 +9,18 @@ pub fn media_limits() -> MediaLimits {
         .map(|cfg| MediaLimits {
             image: CategoryLimits {
                 max_bytes: cfg.runtime.media.image.max_bytes,
-                cache_local: cfg.runtime.media.image.cache_local,
-                cache_web: cfg.runtime.media.image.cache_web,
+                retain_local: cfg.runtime.media.image.retain_local,
+                retain_web: cfg.runtime.media.image.retain_web,
             },
             video: CategoryLimits {
                 max_bytes: cfg.runtime.media.video.max_bytes,
-                cache_local: cfg.runtime.media.video.cache_local,
-                cache_web: cfg.runtime.media.video.cache_web,
+                retain_local: cfg.runtime.media.video.retain_local,
+                retain_web: cfg.runtime.media.video.retain_web,
             },
             audio: CategoryLimits {
                 max_bytes: cfg.runtime.media.audio.max_bytes,
-                cache_local: cfg.runtime.media.audio.cache_local,
-                cache_web: cfg.runtime.media.audio.cache_web,
+                retain_local: cfg.runtime.media.audio.retain_local,
+                retain_web: cfg.runtime.media.audio.retain_web,
             },
         })
         .unwrap_or_default()

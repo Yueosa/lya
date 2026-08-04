@@ -44,14 +44,14 @@ const form = ref({
   indexSummaryChars: 120,
   shellConfirm: 'unknown',
   maxImageMb: 32,
-  cacheLocal: true,
-  cacheWeb: true,
+  retainLocal: true,
+  retainWeb: true,
   maxVideoMb: 512,
-  cacheVideoLocal: true,
-  cacheVideoWeb: true,
+  retainVideoLocal: true,
+  retainVideoWeb: true,
   maxAudioMb: 128,
-  cacheAudioLocal: true,
-  cacheAudioWeb: true,
+  retainAudioLocal: true,
+  retainAudioWeb: true,
 })
 
 const catalogTools = ref<ToolInfo[]>([])
@@ -104,14 +104,14 @@ function readForm(runtime: Record<string, unknown>): void {
     indexSummaryChars: Number(memory['index_summary_chars'] ?? 120),
     shellConfirm: String(shell['confirm'] ?? 'unknown'),
     maxImageMb: bytesToMegabytes(Number(image['max_bytes'] ?? 32 * 1024 * 1024)),
-    cacheLocal: image['cache_local'] !== false,
-    cacheWeb: image['cache_web'] !== false,
+    retainLocal: image['retain_local'] !== false,
+    retainWeb: image['retain_web'] !== false,
     maxVideoMb: bytesToMegabytes(Number(video['max_bytes'] ?? 512 * 1024 * 1024)),
-    cacheVideoLocal: video['cache_local'] !== false,
-    cacheVideoWeb: video['cache_web'] !== false,
+    retainVideoLocal: video['retain_local'] !== false,
+    retainVideoWeb: video['retain_web'] !== false,
     maxAudioMb: bytesToMegabytes(Number(audio['max_bytes'] ?? 128 * 1024 * 1024)),
-    cacheAudioLocal: audio['cache_local'] !== false,
-    cacheAudioWeb: audio['cache_web'] !== false,
+    retainAudioLocal: audio['retain_local'] !== false,
+    retainAudioWeb: audio['retain_web'] !== false,
   }
 }
 
@@ -165,18 +165,18 @@ async function saveRuntime(): Promise<void> {
       media: {
         image: {
           max_bytes: megabytesToBytes(form.value.maxImageMb),
-          cache_local: form.value.cacheLocal,
-          cache_web: form.value.cacheWeb,
+          retain_local: form.value.retainLocal,
+          retain_web: form.value.retainWeb,
         },
         video: {
           max_bytes: megabytesToBytes(form.value.maxVideoMb),
-          cache_local: form.value.cacheVideoLocal,
-          cache_web: form.value.cacheVideoWeb,
+          retain_local: form.value.retainVideoLocal,
+          retain_web: form.value.retainVideoWeb,
         },
         audio: {
           max_bytes: megabytesToBytes(form.value.maxAudioMb),
-          cache_local: form.value.cacheAudioLocal,
-          cache_web: form.value.cacheAudioWeb,
+          retain_local: form.value.retainAudioLocal,
+          retain_web: form.value.retainAudioWeb,
         },
       },
     })) as Record<string, unknown>
@@ -260,7 +260,6 @@ watch(tab, (id) => {
             <label class="field">
               <span class="field__label">默认模型</span>
               <Picker v-model="form.defaultModel" :options="modelOptions" />
-              <span class="field__note">会话没单独指定模型时用它；在「模型」页维护清单</span>
             </label>
             <label class="field">
               <span class="field__label">新会话默认模式</span>
@@ -355,52 +354,49 @@ watch(tab, (id) => {
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">媒体 · 图片</h3>
-            <p class="page__hint">聊天图片缓存</p>
             <label class="field">
               <span class="field__label">单张图片上限（MB）</span>
               <input v-model.number="form.maxImageMb" class="input" type="number" min="1" max="256" step="0.5" />
             </label>
             <label class="field field--check">
-              <span class="field__label">缓存本地图片</span>
-              <input v-model="form.cacheLocal" type="checkbox" />
+              <span class="field__label">本地图片留一份</span>
+              <input v-model="form.retainLocal" type="checkbox" />
             </label>
             <label class="field field--check">
-              <span class="field__label">缓存远程图片</span>
-              <input v-model="form.cacheWeb" type="checkbox" />
+              <span class="field__label">远程图片留一份</span>
+              <input v-model="form.retainWeb" type="checkbox" />
             </label>
           </div>
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">媒体 · 视频</h3>
-            <p class="page__hint">聊天视频缓存</p>
             <label class="field">
               <span class="field__label">单个视频上限（MB）</span>
               <input v-model.number="form.maxVideoMb" class="input" type="number" min="1" max="4096" step="1" />
             </label>
             <label class="field field--check">
-              <span class="field__label">缓存本地视频</span>
-              <input v-model="form.cacheVideoLocal" type="checkbox" />
+              <span class="field__label">本地视频留一份</span>
+              <input v-model="form.retainVideoLocal" type="checkbox" />
             </label>
             <label class="field field--check">
-              <span class="field__label">缓存远程视频</span>
-              <input v-model="form.cacheVideoWeb" type="checkbox" />
+              <span class="field__label">远程视频留一份</span>
+              <input v-model="form.retainVideoWeb" type="checkbox" />
             </label>
           </div>
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">媒体 · 音频</h3>
-            <p class="page__hint">聊天音频缓存</p>
             <label class="field">
               <span class="field__label">单个音频上限（MB）</span>
               <input v-model.number="form.maxAudioMb" class="input" type="number" min="1" max="1024" step="1" />
             </label>
             <label class="field field--check">
-              <span class="field__label">缓存本地音频</span>
-              <input v-model="form.cacheAudioLocal" type="checkbox" />
+              <span class="field__label">本地音频留一份</span>
+              <input v-model="form.retainAudioLocal" type="checkbox" />
             </label>
             <label class="field field--check">
-              <span class="field__label">缓存远程音频</span>
-              <input v-model="form.cacheAudioWeb" type="checkbox" />
+              <span class="field__label">远程音频留一份</span>
+              <input v-model="form.retainAudioWeb" type="checkbox" />
             </label>
           </div>
 

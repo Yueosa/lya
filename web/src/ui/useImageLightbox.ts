@@ -2,7 +2,7 @@
  * 聊天图片灯箱：放大、复制图片、复制路径/URL、保存。
  */
 
-import { fetchMediaMeta, mediaPathText, type MediaMeta } from './mediaMeta'
+import { fetchMediaMeta, mediaOriginText, mediaRetainText, type MediaMeta } from './mediaMeta'
 import { toast } from './useToast'
 
 let overlay: HTMLDivElement | null = null
@@ -87,13 +87,28 @@ export async function openImageLightbox(displayUrl: string, alt = ''): Promise<v
     }),
   )
 
-  const pathText = meta ? mediaPathText(meta) : null
-  if (pathText) {
+  const originText = meta ? mediaOriginText(meta) : null
+  if (originText) {
     toolbar.appendChild(
-      makeButton('复制路径', async () => {
+      makeButton(meta?.kind === 'web' ? '复制链接' : '复制路径', async () => {
         try {
-          await navigator.clipboard.writeText(pathText)
-          toast('路径已复制', 'success')
+          await navigator.clipboard.writeText(originText)
+          toast('已复制', 'success')
+        } catch {
+          toast('复制失败', 'error')
+        }
+      }),
+    )
+  }
+
+  // 远程图片留在本地的那一份，只有这里能复制到
+  const retainText = meta ? mediaRetainText(meta) : null
+  if (retainText) {
+    toolbar.appendChild(
+      makeButton('复制本地路径', async () => {
+        try {
+          await navigator.clipboard.writeText(retainText)
+          toast('已复制', 'success')
         } catch {
           toast('复制失败', 'error')
         }

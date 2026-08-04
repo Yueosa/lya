@@ -386,12 +386,19 @@ function headerBar(block: HTMLElement): HTMLElement {
   display: block;
   max-width: 100%;
   max-height: min(72vh, 640px);
-  width: auto;
+  /* 元数据没到之前先占一块 16/9 的地方，见 useChatMedia.trackVideoRatio */
+  width: 100%;
   height: auto;
+  aspect-ratio: var(--local-media-ratio, 16 / 9);
   object-fit: contain;
   margin-inline: auto;
   border-radius: var(--radius-sm);
   background: var(--bg-sunken);
+}
+
+/* 知道真实尺寸了就按真实尺寸摆，小视频不该被拉满整栏 */
+.md :deep(video.lya-chat-video[data-sized='1']) {
+  width: auto;
 }
 
 .md :deep(audio.lya-chat-audio) {
@@ -408,6 +415,25 @@ function headerBar(block: HTMLElement): HTMLElement {
   word-break: break-all;
   line-height: 1.4;
   text-align: center;
+}
+
+/* 加载失败的媒体藏掉，位置留给下面那行提示 */
+.md :deep(img[data-failed='1']),
+.md :deep(video[data-failed='1']),
+.md :deep(audio[data-failed='1']) {
+  display: none;
+}
+
+.md :deep(.lya-chat-media-error) {
+  margin: 4px 0 0.6em;
+  padding: 10px 12px;
+  border: var(--border-width) dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  word-break: break-all;
+  line-height: 1.5;
 }
 
 .md :deep(table) {

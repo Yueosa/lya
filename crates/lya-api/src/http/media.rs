@@ -7,13 +7,13 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use lya_llm::LlmClient;
-use lya_media::{CategoryLimits, MediaCacheError, MediaCategory};
+use lya_media::{CategoryLimits, MediaBytes, MediaCacheError, MediaCategory};
 use serde::Serialize;
 
 use lya_hub::SessionHub;
 
 use super::media_limits::{audio_limits, image_limits, video_limits};
-use super::media_serve::serve_ranged_file;
+use super::media_serve::{serve_ranged_bytes, serve_ranged_file};
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
 
@@ -32,12 +32,21 @@ pub struct MediaQuery {
 }
 
 /// 元数据 JSON。
+///
+/// 来源和落盘位置分开给：远程媒体的来源是 URL，而它在盘上留没留、留在哪儿、是硬链接
+/// 还是独立拷贝，只有这里说了前端才看得见。
 #[derive(Debug, Serialize)]
 pub struct MediaMeta {
     kind: &'static str,
     filename: String,
-    copy_path: Option<String>,
-    copy_url: Option<String>,
+    /// 本地媒体的源文件路径。
+    source_path: Option<String>,
+    /// 远程媒体的原始 URL。
+    origin_url: Option<String>,
+    /// 我们留的那一份在哪；没留则为空。
+    retained_path: Option<String>,
+    /// `hardlink`（与源文件共用空间）或 `copy`。
+    retained_kind: Option<&'static str>,
     display_url: String,
 }
 
@@ -67,15 +76,27 @@ fn display_url(session_id: &str, segment: &str, query: &MediaQuery) -> String {
     )
 }
 
+/// 一类媒体的端点参数。
+struct MediaKind {
+    category: MediaCategory,
+    /// URL 里的路径段，回显 `display_url` 用。
+    segment: &'static str,
+    limits: CategoryLimits,
+    /// 播放器要拖进度条的类型走 Range。
+    ranged: bool,
+}
+
 async fn session_media(
     State(hub): Hub,
     Path(session_id): Path<String>,
     Query(query): Query<MediaQuery>,
     headers: HeaderMap,
-    category: MediaCategory,
-    segment: &'static str,
-    limits: CategoryLimits,
-    ranged: bool,
+    MediaKind {
+        category,
+        segment,
+        limits,
+        ranged,
+    }: MediaKind,
 ) -> Response {
     if query.token != hub.image_token() {
         return (StatusCode::FORBIDDEN, "令牌不对").into_response();
@@ -107,34 +128,50 @@ async fn session_media(
     };
 
     if query.meta.as_deref() == Some("1") {
+        let display_url = display_url(&session_id, segment, &query);
+        let (retained_path, retained_kind) = match &cached.retained {
+            Some(retained) => (
+                Some(retained.path.to_string_lossy().into_owned()),
+                Some(retained.kind.as_str()),
+            ),
+            None => (None, None),
+        };
         return Json(MediaMeta {
             kind: cached.kind,
             filename: cached.filename,
-            copy_path: cached.copy_path,
-            copy_url: cached.copy_url,
-            display_url: display_url(&session_id, segment, &query),
+            source_path: cached.source_path,
+            origin_url: cached.origin_url,
+            retained_path,
+            retained_kind,
+            display_url,
         })
         .into_response();
     }
 
-    if ranged {
-        return serve_ranged_file(&cached.path, cached.mime, &headers).await;
-    }
-
-    match std::fs::read(&cached.path) {
-        Ok(bytes) => (
-            [
-                (header::CONTENT_TYPE, cached.mime),
-                (header::CACHE_CONTROL, "private, max-age=86400"),
-            ],
-            bytes,
-        )
-            .into_response(),
-        Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+    match cached.bytes {
+        MediaBytes::File(path) if ranged => serve_ranged_file(&path, cached.mime, &headers).await,
+        MediaBytes::File(path) => match std::fs::read(&path) {
+            Ok(bytes) => whole_body(bytes, cached.mime),
+            Err(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()).into_response(),
+        },
+        // 没留存的远程媒体只在内存里，Range 也在内存里切
+        MediaBytes::Memory(bytes) if ranged => serve_ranged_bytes(bytes, cached.mime, &headers),
+        MediaBytes::Memory(bytes) => whole_body(bytes, cached.mime),
     }
 }
 
-/// 读取或缓存一张会话图片。
+fn whole_body(bytes: Vec<u8>, mime: &'static str) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, mime),
+            (header::CACHE_CONTROL, "private, max-age=86400"),
+        ],
+        bytes,
+    )
+        .into_response()
+}
+
+/// 读取或留存一张会话图片。
 pub async fn session_image(
     hub: Hub,
     Path(session_id): Path<String>,
@@ -146,15 +183,17 @@ pub async fn session_image(
         Path(session_id),
         query,
         headers,
-        MediaCategory::Image,
-        "image",
-        image_limits(),
-        false,
+        MediaKind {
+            category: MediaCategory::Image,
+            segment: "image",
+            limits: image_limits(),
+            ranged: false,
+        },
     )
     .await
 }
 
-/// 读取或缓存一段会话视频（支持 Range）。
+/// 读取或留存一段会话视频（支持 Range）。
 pub async fn session_video(
     hub: Hub,
     Path(session_id): Path<String>,
@@ -166,15 +205,17 @@ pub async fn session_video(
         Path(session_id),
         query,
         headers,
-        MediaCategory::Video,
-        "video",
-        video_limits(),
-        true,
+        MediaKind {
+            category: MediaCategory::Video,
+            segment: "video",
+            limits: video_limits(),
+            ranged: true,
+        },
     )
     .await
 }
 
-/// 读取或缓存一段会话音频（支持 Range）。
+/// 读取或留存一段会话音频（支持 Range）。
 pub async fn session_audio(
     hub: Hub,
     Path(session_id): Path<String>,
@@ -186,10 +227,12 @@ pub async fn session_audio(
         Path(session_id),
         query,
         headers,
-        MediaCategory::Audio,
-        "audio",
-        audio_limits(),
-        true,
+        MediaKind {
+            category: MediaCategory::Audio,
+            segment: "audio",
+            limits: audio_limits(),
+            ranged: true,
+        },
     )
     .await
 }

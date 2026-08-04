@@ -1335,6 +1335,7 @@ dependencies = [
  "lya-tool",
  "serde",
  "sha2",
+ "tempfile",
  "thiserror",
 ]
 

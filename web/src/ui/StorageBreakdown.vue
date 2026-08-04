@@ -136,7 +136,7 @@ function childRows(section: UsageSection): Row[] {
     <p class="storage__total">
       <strong>{{ formatBytes(report.usage.physical_bytes) }}</strong>
       <span v-if="report.usage.shared_bytes > 0" class="storage__total-note">
-        其中 {{ formatBytes(report.usage.shared_bytes) }} 与目录外的原文件共用，删不掉
+        其中 {{ formatBytes(report.usage.shared_bytes) }} 与目录外的原文件共用
       </span>
     </p>
 

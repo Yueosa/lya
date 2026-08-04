@@ -133,68 +133,71 @@ pub struct MediaSettings {
     pub audio: AudioMediaSettings,
 }
 
-/// 图片缓存与大小限制。
+/// 图片留存与大小限制。
+///
+/// `retain_*` 说的是「要不要自己留一份」，不是「要不要缓存」：留了，源文件被移走或
+/// 远程挂掉之后照样能看。关掉只影响以后新出现的媒体，已经留下的一律照用。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ImageMediaSettings {
     /// 单张图片大小上限（字节）；`/api/local-image` 与会话 media 端点共用。
     pub max_bytes: u64,
-    /// 是否写入 `img_cache/local`。
-    pub cache_local: bool,
-    /// 是否下载并写入 `img_cache/web`。
-    pub cache_web: bool,
+    /// 本地图片是否在 `img_cache/local` 留一份。
+    pub retain_local: bool,
+    /// 远程图片下载后是否留在 `img_cache/web`。
+    pub retain_web: bool,
 }
 
 impl Default for ImageMediaSettings {
     fn default() -> Self {
         Self {
             max_bytes: 32 * 1024 * 1024,
-            cache_local: true,
-            cache_web: true,
+            retain_local: true,
+            retain_web: true,
         }
     }
 }
 
-/// 视频缓存与大小限制（`vdo_cache`）。
+/// 视频留存与大小限制（`vdo_cache`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VideoMediaSettings {
     /// 单个视频大小上限（字节）。
     pub max_bytes: u64,
-    /// 是否写入 `vdo_cache/local`。
-    pub cache_local: bool,
-    /// 是否下载并写入 `vdo_cache/web`。
-    pub cache_web: bool,
+    /// 本地视频是否在 `vdo_cache/local` 留一份。
+    pub retain_local: bool,
+    /// 远程视频下载后是否留在 `vdo_cache/web`。
+    pub retain_web: bool,
 }
 
 impl Default for VideoMediaSettings {
     fn default() -> Self {
         Self {
             max_bytes: 512 * 1024 * 1024,
-            cache_local: true,
-            cache_web: true,
+            retain_local: true,
+            retain_web: true,
         }
     }
 }
 
-/// 音频缓存与大小限制（`ado_cache`）。
+/// 音频留存与大小限制（`ado_cache`）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AudioMediaSettings {
     /// 单个音频大小上限（字节）。
     pub max_bytes: u64,
-    /// 是否写入 `ado_cache/local`。
-    pub cache_local: bool,
-    /// 是否下载并写入 `ado_cache/web`。
-    pub cache_web: bool,
+    /// 本地音频是否在 `ado_cache/local` 留一份。
+    pub retain_local: bool,
+    /// 远程音频下载后是否留在 `ado_cache/web`。
+    pub retain_web: bool,
 }
 
 impl Default for AudioMediaSettings {
     fn default() -> Self {
         Self {
             max_bytes: 128 * 1024 * 1024,
-            cache_local: true,
-            cache_web: true,
+            retain_local: true,
+            retain_web: true,
         }
     }
 }

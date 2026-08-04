@@ -40,22 +40,25 @@ max_index_chars = 4000
 # 索引里每条摘要截断到多少字符
 index_summary_chars = 120
 
+# retain_* 决定「要不要自己留一份」：留了，源文件被移走或远程挂掉之后照样能看。
+# 关掉只影响以后新出现的媒体，已经留下的一律照用，不会被删。
 [media.image]
 # 单张图片大小上限（字节）；local-image 与会话 media 端点共用
 max_bytes = 33554432
-# 是否写入 sessions/{id}/img_cache/local
-cache_local = true
-# 是否下载并写入 img_cache/web
-cache_web = true
+# 本地图片是否在 sessions/{id}/img_cache/local 留一份（优先硬链接，不占额外空间）
+retain_local = true
+# 远程图片下载后是否留在 img_cache/web；关掉则每次经内存代理，不落盘
+retain_web = true
 
 [media.video]
 # 单个视频大小上限（字节）
 max_bytes = 536870912
-cache_local = true
-cache_web = true
+retain_local = true
+# 视频建议留着：播放器拖进度条会发 Range 请求，不落盘就得重新下载整个文件
+retain_web = true
 
 [media.audio]
 # 单个音频大小上限（字节）
 max_bytes = 134217728
-cache_local = true
-cache_web = true
+retain_local = true
+retain_web = true

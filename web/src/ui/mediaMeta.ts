@@ -10,8 +10,14 @@
 export interface MediaMeta {
   kind: 'local' | 'web'
   filename: string
-  copy_path: string | null
-  copy_url: string | null
+  /** 本地媒体的源文件路径。 */
+  source_path: string | null
+  /** 远程媒体的原始 URL。 */
+  origin_url: string | null
+  /** 我们自己留的那一份在哪；没留则为 null。 */
+  retained_path: string | null
+  /** `hardlink`（与源文件共用空间）或 `copy`。 */
+  retained_kind: 'hardlink' | 'copy' | null
   display_url: string
 }
 
@@ -28,7 +34,20 @@ export async function fetchMediaMeta(displayUrl: string): Promise<MediaMeta> {
   return response.json() as Promise<MediaMeta>
 }
 
-/** 路径条与「复制路径」显示什么：本地路径优先，没有就退回原始 URL。 */
-export function mediaPathText(meta: MediaMeta): string | null {
-  return meta.copy_path ?? meta.copy_url
+/** 媒体从哪儿来：本地文件路径，或远程 URL。 */
+export function mediaOriginText(meta: MediaMeta): string | null {
+  return meta.source_path ?? meta.origin_url
+}
+
+/**
+ * 我们留的那一份在哪，以及它占不占额外空间。
+ *
+ * 远程媒体只报 URL 的话，「这个视频已经在本地存了 86 MB」这件事界面上完全看不出来；
+ * 而本地媒体的副本多数是硬链接，说成「又存了一份」也是骗人。两件事都得说清。
+ */
+export function mediaRetainText(meta: MediaMeta): string | null {
+  if (!meta.retained_path) return null
+  // 本地媒体的硬链接副本没有新增占用，路径本身也和源文件是同一份数据，不值得占一行
+  if (meta.kind === 'local' && meta.retained_kind === 'hardlink') return null
+  return meta.retained_path
 }

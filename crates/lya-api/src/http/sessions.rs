@@ -222,6 +222,11 @@ pub async fn remove(State(hub): Hub, Path(id): Path<String>) -> Result<StatusCod
         return Err(ApiError::bad_request("这个会话正在生成中，先停下再删除"));
     }
     hub.agent().sessions().delete_session(&id)?;
+    // 库里没了，盘上那份也不该留：会话不在了，它的媒体再没有界面能看到。
+    // 删不掉也不该让删除会话失败——库里已经没了，重试也不会成功
+    if let Err(err) = lya_media::remove_session_media(&id) {
+        eprintln!("会话 {id} 的媒体目录没删干净：{err}");
+    }
     hub.broadcast_global("sessions_changed", serde_json::json!({ "id": id }));
     Ok(StatusCode::NO_CONTENT)
 }
