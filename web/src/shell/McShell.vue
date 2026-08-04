@@ -12,13 +12,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
 import type { Memory } from '../api/client'
-import {
-  archivedSessions,
-  client,
-  createSession,
-  models,
-  sessions,
-} from '../app/useChat'
+import { archivedSessions, client, models, sessions } from '../app/useChat'
 import {
   buildSplashLines,
   menuFootLeft,
@@ -88,11 +82,6 @@ onUnmounted(() => {
   if (splashTimer) clearInterval(splashTimer)
 })
 
-async function startNewChat(): Promise<void> {
-  await createSession()
-  emit('navigate', 'chat')
-}
-
 function go(view: View): void {
   emit('navigate', view)
 }
@@ -115,9 +104,6 @@ function go(view: View): void {
 
       <div class="mc-shell__menu-wrap">
         <div class="mc-shell__menu">
-          <button class="btn btn--lg mc-shell__entry mc-shell__entry--wide" @click="startNewChat">
-            新的对话
-          </button>
           <button class="btn btn--lg mc-shell__entry mc-shell__entry--wide" @click="go('sessions')">
             对话列表
           </button>

@@ -3,7 +3,7 @@ import type { ModelInfo } from '../api/client'
 import type { SessionMeta } from '../api/wire'
 
 const FALLBACKS = [
-  'Also try 新的对话！',
+  'Also try 对话列表！',
   'Also try 写一条记忆！',
   '喵~',
   '今天也要开心聊天！',

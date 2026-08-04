@@ -73,6 +73,10 @@ watch(hydrating, (on) => {
 void bootstrap()
 void loadModels()
 void refreshRuntimeDefaults()
+// 会话列表在这里拉而不是各外壳自己拉：原先只有 DefaultShell 的 onMounted 拉过，
+// 于是 MC 外壳的主菜单永远显示「0 活跃 0 归档」，splash 也抽不到会话名——数据在
+// 服务端好好的，只是没人去取。谁需要会话列表不该由排版决定
+void refreshSessions()
 const stopLightbox = setupImageLightbox()
 
 // 全局事件：配置或会话列表在别处变了，这边跟着刷新。和会话流分开订阅——

@@ -16,7 +16,7 @@ describe('mcMenuSplash', () => {
   })
 
   it('无数据时用 fallback', () => {
-    expect(buildSplashLines([], [], [], [])).toContain('Also try 新的对话！')
+    expect(buildSplashLines([], [], [], [])).toContain('Also try 对话列表！')
   })
 
   it('pickSplash 可复现', () => {

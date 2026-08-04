@@ -3,7 +3,7 @@
 -->
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 import type { SessionMeta } from '../api/wire'
 import {
@@ -11,7 +11,6 @@ import {
   createSession,
   currentId,
   openSession,
-  refreshSessions,
   removeSession,
   rename,
   sessions,
@@ -60,8 +59,6 @@ watch(
   },
   { immediate: true },
 )
-
-onMounted(refreshSessions)
 
 function toggleCollapse(): void {
   setSidebarCollapsed(!collapsed.value)
