@@ -16,4 +16,4 @@
 | 媒体缓存与 serving | [`lya-media`](../lya-media) |
 | 磁盘占用统计 | [`lya-storage`](../lya-storage) |
 
-见 [`docs/architecture.md`](../../docs/architecture.md)。
+依赖方向只允许向内：`lya-core → {lya-api, lya-hub, lya-media, lya-storage}`。

@@ -9,7 +9,7 @@ OpenAI 兼容 LLM 客户端：支持 **Completions** 与 **Responses** 双栈。
 - **Responses**：`POST …/responses`，SSE → 同上 + 原生 `web_search_call` 状态
 - 非流式 `chat`、流式 `chat_stream`；可选 [`CompletionAssembler`] 拼完整结果
 
-双栈规格见仓库 [`docs/responses-api.md`](../../docs/responses-api.md)。
+双栈的会话侧语义（何时锁定 `api_mode`、模型能力如何声明）见根 [`README`](../../README.md)。
 
 ## 依赖
 
