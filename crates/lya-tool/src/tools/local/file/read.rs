@@ -28,8 +28,8 @@ pub struct FileReadTool {
     meta: ToolMeta,
     /// OpenAI `parameters` JSON Schema。
     parameters: Value,
-    /// 用法说明。
-    prompt_hint: &'static str,
+    /// 用法说明。数值从 `limits.rs` 取，别在文案里手写。
+    prompt_hint: String,
 }
 
 impl FileReadTool {
@@ -94,14 +94,18 @@ impl FileReadTool {
                 "required": ["path"],
                 "additionalProperties": false
             }),
-            prompt_hint: concat!(
-                "使用 file_read 读取本地文本：\n",
-                "1) 大文件先用 search（关键词/正则）或 start/end 行范围，不要无脑全量读取。\n",
-                "2) 未指定范围时最多返回约 2000 行 / 256KiB，超出会截断并标记 truncated。\n",
-                "3) 路径：相对路径与 ~/ 基于家目录；需要访问非家目录必须用 / 开头的绝对路径；",
-                "用 ../ 从家目录相对逃逸会被拒绝。\n",
-                "4) 二进制文件会被拒绝，只返回元信息说明。\n",
-                "5) 已读过的内容不要重复读取。"
+            prompt_hint: format!(
+                concat!(
+                    "使用 file_read 读取本地文本：\n",
+                    "1) 大文件先用 search（关键词/正则）或 start/end 行范围，不要无脑全量读取。\n",
+                    "2) 未指定范围时最多返回约 {} 行 / {} KiB，超出会截断并标记 truncated。\n",
+                    "3) 路径：相对路径与 ~/ 基于家目录；需要访问非家目录必须用 / 开头的绝对路径；",
+                    "用 ../ 从家目录相对逃逸会被拒绝。\n",
+                    "4) 二进制文件会被拒绝，只返回元信息说明。\n",
+                    "5) 同一段内容没有变化就不要重复读；但你自己改过文件之后要重读确认结果。"
+                ),
+                MAX_FULL_LINES,
+                MAX_FULL_BYTES / 1024
             ),
         }
     }
@@ -123,7 +127,7 @@ impl Tool for FileReadTool {
     }
 
     fn prompt_hint(&self) -> &str {
-        self.prompt_hint
+        &self.prompt_hint
     }
 
     fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {

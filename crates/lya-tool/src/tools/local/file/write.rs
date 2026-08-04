@@ -21,8 +21,8 @@ pub struct FileWriteTool {
     meta: ToolMeta,
     /// OpenAI `parameters` JSON Schema。
     parameters: Value,
-    /// 用法说明。
-    prompt_hint: &'static str,
+    /// 用法说明。数值从 `limits.rs` 取，别在文案里手写。
+    prompt_hint: String,
 }
 
 impl FileWriteTool {
@@ -59,13 +59,16 @@ impl FileWriteTool {
                 "required": ["path", "content"],
                 "additionalProperties": false
             }),
-            prompt_hint: concat!(
-                "使用 file_write 落盘内容：\n",
-                "1) **覆盖前先读**。overwrite 会丢掉原文件的全部内容，没读过就覆盖等于盲写。\n",
-                "2) 只改一小段时用 file_edit，不要把整个文件重写一遍——重写过程中很容易顺手改坏没打算动的地方。\n",
-                "3) 追加日志、往文件尾补内容用 mode=append。\n",
-                "4) 单次内容上限 1MiB；父目录不存在会报错，确实需要新建时设 create_dirs。\n",
-                "5) 写完会返回行数变化，可据此确认改动规模是否符合预期。"
+            prompt_hint: format!(
+                concat!(
+                    "使用 file_write 落盘内容：\n",
+                    "1) **覆盖前先读**。overwrite 会丢掉原文件的全部内容，没读过就覆盖等于盲写。\n",
+                    "2) 只改一小段时用 file_edit，不要把整个文件重写一遍——重写过程中很容易顺手改坏没打算动的地方。\n",
+                    "3) 追加日志、往文件尾补内容用 mode=append。\n",
+                    "4) 单次内容上限 {} MiB；父目录不存在会报错，确实需要新建时设 create_dirs。\n",
+                    "5) 写完会返回行数变化，可据此确认改动规模是否符合预期。"
+                ),
+                MAX_WRITE_BYTES / (1024 * 1024)
             ),
         }
     }
@@ -87,7 +90,7 @@ impl Tool for FileWriteTool {
     }
 
     fn prompt_hint(&self) -> &str {
-        self.prompt_hint
+        &self.prompt_hint
     }
 
     fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
