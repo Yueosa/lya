@@ -57,10 +57,73 @@ MTF 是**主题**不是外壳，它的宽松卡片外观靠 `themes/mtf.css` 的
 
 ## 当前优先
 
-### P2 — 上下文管理器（暂缓，先占位）
+功能面已经够用，接下来是三件事：**收尾 → 整理 → 发版**，然后才谈新功能。
 
-- [ ] `lya-token` + `lya-context`
-- [ ] 消费 `models.context_window`；按会话 `api_mode` 选 assembler
+### P0 — 前端收尾
+
+- [ ] **主题预览过时。** `ThemePreview.vue`（外观页用）里的导航是手写的，MC 那套缺
+      「人设」「存储」，MTF 那套只有三项假条目；输入栏样例还带着早已搬去会话设置的
+      模式段选择和模型按钮，用的还是 `.input` 而不是真正的 `.composer__input`。
+      更要紧的是它**没有**近几轮加的那些东西：带行号的代码块、可折叠的工具块、
+      媒体路径条与失败占位、跳到最新按钮、存储卡片。换主题时看不到这些，等于没预览
+- [ ] `#preview`（`Preview.vue`）和 `ThemePreview.vue` 是两套各写各的样例，交集只有
+      按钮/气泡/代码。要么合成一份，要么讲清楚两者分工
+- [ ] **刷新回到首页。** `view` 是个裸 `ref('home')`，`currentId` 也不持久化，F5 之后
+      回首页且丢掉当前会话。至少把这两个存起来
+
+### P1 — 后端分层
+
+依赖图**已经是干净的 DAG**（见「crate 分层」一节），所以这不是解耦，是**让分层看得见**：
+现在全都平铺在 `crates/lya-*`，光看名字分不出基础设施、领域和服务。
+
+- [ ] 目录按层分组（`crates/{infra,domain,app}/...`）。workspace members 用通配符，
+      纯移动，不改代码不改名
+- [ ] 修 `lya-config` → `lya-mode` → `lya-tool` → `lya-http` 这条倒挂的边。config 只为了
+      `default_work_mode` 要一个 `Mode` 枚举，就把整个工具层拖进了配置层
+- [ ] 数据根 `~/.lya` 在 `lya-db` 和 `lya-config` 各解析了一遍，定一处
+- [ ] 每个 crate 的模块头注释重新过一遍「职责 / 非职责」，和实际依赖对上
+
+### P2 — 发 v1.0.0
+
+- [ ] 前两项做完再发。版本号一旦出去，schema 和配置键就不好随便改了
+
+### P3 — 之后（不排期）
+
+- [ ] `lya-token` + `lya-context`：消费 `models.context_window`，按会话 `api_mode`
+      选 assembler
+- [ ] 多模态图片输入（见延后表，要先给 `ChatMessage.content` 补多段结构）
+- [ ] 新主题。加一套的成本已经很低：一个 `{id}.css` 定齐 58 个 token、往 `THEMES`
+      注册、导入 CSS，契约测试会兜住漏掉的 token。想要自己的排版再往
+      `shell/registry.ts` 的 `OVERRIDES` 加一行
+
+---
+
+## crate 分层（现状，以 `cargo` 依赖为准）
+
+依赖图无环，层级本来就清楚，只是目录看不出来。「被用」= 有多少个 crate 直接依赖它。
+
+| 层 | crate | 直接依赖 | 被用 |
+|----|-------|---------|------|
+| 0 | `lya-db` / `lya-http` / `lya-prompt` | 无 | 5 / 7 / 3 |
+| 1 | `lya-llm` | http | 4 |
+| 1 | `lya-memory` | db | 5 |
+| 1 | `lya-tool` | http | 7 |
+| 2 | `lya-mode` | tool | 6 |
+| 3 | `lya-config` | mode | 6 |
+| 3 | `lya-session` | db, mode | 5 |
+| 4 | `lya-action` | memory, mode, session, tool | 4 |
+| 4 | `lya-media` | config, http, tool | 1 |
+| 4 | `lya-storage` | config | 1 |
+| 5 | `lya-agent` | 上面十个 | 3 |
+| 6 | `lya-hub` | agent + 十个 | 2 |
+| 7 | `lya-api` | hub + 十一个 | 1 |
+| 8 | `lya-core` | api + 十一个 | 1 |
+| 9 | `lya` | core | — |
+
+唯一真正别扭的是 `lya-config` 落在第 3 层：它只需要一个 `Mode` 枚举，却因此排在整个
+工具层之上，而 `lya-media` / `lya-storage` 又只为了 `data_root()` 依赖它，等于把 http
+和 tool 一起拖了进去。把 `Mode` 抽成叶子之后，config 能回到第 0 层，media 和 storage
+跟着降两层。
 
 ---
 
@@ -119,8 +182,12 @@ MTF 是**主题**不是外壳，它的宽松卡片外观靠 `themes/mtf.css` 的
 
 细节不重复，git log 可查。
 
-- [x] 进会话没滚到底：`settle()` 重入时互相撤守卫，程序化滚动被当成用户滚动而丢掉跟随状态。
-      改成认代次 + 铺首屏期间位置只有一个主人 + 贴底与跟随拆两个阈值（2026-08-05）
+- [x] MC 外壳去掉「新的对话」（对话列表里有「新建」）；会话列表改由 `App.vue` 启动时拉，
+      原先只有 `DefaultShell` 拉过，MC 主菜单因此永远显示「0 活跃 0 归档」（2026-08-05）
+- [x] 进会话一直往下滚到用户自己动手：不再从 scroll 事件反推是谁滚的，只认 wheel /
+      touchmove。归位改在 `ResizeObserver` 回调里就地同步写，不必追帧（2026-08-05）
+- [x] 媒体 403 自愈：令牌随进程启动轮换，服务端一重启旧页面上的媒体就集体失效，
+      现在失败后重新握手一次，令牌真变了才重试（2026-08-05）
 - [x] 记忆索引编号改用库内 id、排序改 id 升序，删掉 `pinned`：编号从「位置」变成「身份」，
       不再出现历史里的 `#2` 和当前索引的 `#2` 指两条记忆。标签每条只列前 4 个，
       索引 1725 → 1478 字符（2026-08-05）
