@@ -40,6 +40,10 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 2,
         sql: include_str!("../migrations/002_model_id.sql"),
     },
+    Migration {
+        version: 3,
+        sql: include_str!("../migrations/003_api_mode.sql"),
+    },
 ];
 
 /// 迁移台账里用的归属名。

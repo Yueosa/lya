@@ -242,6 +242,10 @@ function go(view: View): void {
   grid-column: 1 / -1;
 }
 
+.mc-shell__menu :deep(.new-stack) {
+  grid-column: 1 / -1;
+}
+
 .mc-shell__foot {
   position: relative;
   z-index: 1;

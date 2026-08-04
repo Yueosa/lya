@@ -210,6 +210,21 @@ select.input {
   transition: var(--transition);
 }
 
+.seg__btn:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.seg__btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* 默认选中态；工作模式那三档用更高特异度的规则各自配色 */
+.seg__btn--on {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 .seg__icon {
   display: inline-flex;
   align-items: center;

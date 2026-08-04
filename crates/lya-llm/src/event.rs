@@ -1,6 +1,37 @@
 //! 流式事件与完成态拼装。
 
+use serde_json::Value;
+
 use crate::message::ToolCall;
+
+/// Responses 原生联网状态（Phase 3 起 agent 消费）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebSearchStatus {
+    /// 搜索准备中。
+    InProgress {
+        /// provider 侧 call id（UI 用）。
+        call_id: String,
+    },
+    /// 正在搜索。
+    Searching {
+        /// provider 侧 call id。
+        call_id: String,
+    },
+    /// 搜索完成。
+    Completed {
+        /// provider 侧 call id。
+        call_id: String,
+        /// 搜索词（若 provider 提供）。
+        query: Option<String>,
+    },
+    /// 搜索失败。
+    Failed {
+        /// provider 侧 call id。
+        call_id: String,
+        /// 错误摘要。
+        message: Option<String>,
+    },
+}
 
 /// 流式 chat 的统一事件。
 ///
@@ -16,6 +47,10 @@ pub enum StreamEvent {
     ReasoningDelta(String),
     /// tool_calls 某一 index 的增量片段。
     ToolCallDelta(ToolCallDelta),
+    /// Responses 原生联网状态。
+    WebSearchStatus(WebSearchStatus),
+    /// 可落库的原生 `web_search_call` input item（Responses 回放用）。
+    WebSearchCallItem(Value),
     /// 本轮生成结束（`finish_reason`，如 `stop` / `tool_calls` / `length`）。
     Finished {
         /// 结束原因；可能为 `None`（对端未给或仅 `[DONE]`）。
@@ -84,6 +119,8 @@ impl CompletionAssembler {
             StreamEvent::TextDelta(text) => self.content.push_str(text),
             StreamEvent::ReasoningDelta(text) => self.reasoning.push_str(text),
             StreamEvent::ToolCallDelta(delta) => self.apply_tool_delta(delta),
+            StreamEvent::WebSearchStatus(_) => {}
+            StreamEvent::WebSearchCallItem(_) => {}
             StreamEvent::Finished { reason } => {
                 if reason.is_some() {
                     self.finish_reason = reason.clone();

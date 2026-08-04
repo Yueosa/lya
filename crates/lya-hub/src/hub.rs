@@ -68,6 +68,21 @@ pub struct TurnBuffer {
     pub reasoning: String,
     /// 本轮的调用状态。
     pub calls: Vec<CallState>,
+    /// Responses 原生联网状态（当轮 UI 用；Phase 4 再落库）。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provider_searches: Vec<ProviderSearchState>,
+}
+
+/// Responses 原生联网的当轮状态。
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ProviderSearchState {
+    /// provider 侧 call id。
+    pub call_id: String,
+    /// `in_progress` / `searching` / `completed` / `failed`。
+    pub phase: String,
+    /// 搜索词（若有）。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
 }
 
 /// 一次工具或动作调用的状态。
@@ -644,6 +659,7 @@ fn apply(buffer: &mut TurnBuffer, event: &AgentEvent) {
             buffer.content.clear();
             buffer.reasoning.clear();
             buffer.message_id = None;
+            buffer.provider_searches.clear();
         }
         AgentEvent::Delta(text) => buffer.content.push_str(text),
         AgentEvent::Reasoning(text) => buffer.reasoning.push_str(text),
@@ -673,6 +689,26 @@ fn apply(buffer: &mut TurnBuffer, event: &AgentEvent) {
         } => {
             if let Some(call) = buffer.calls.iter_mut().find(|c| &c.call_id == call_id) {
                 call.success = Some(*success);
+            }
+        }
+        AgentEvent::ProviderSearch {
+            call_id,
+            phase,
+            query,
+        } => {
+            if let Some(slot) = buffer
+                .provider_searches
+                .iter_mut()
+                .find(|s| s.call_id == *call_id)
+            {
+                slot.phase = phase.as_str().into();
+                slot.query = query.clone();
+            } else {
+                buffer.provider_searches.push(ProviderSearchState {
+                    call_id: call_id.clone(),
+                    phase: phase.as_str().into(),
+                    query: query.clone(),
+                });
             }
         }
         AgentEvent::ToolBatchStarted { .. }

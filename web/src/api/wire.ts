@@ -124,6 +124,8 @@ export interface LyaExtras {
   hitl?: HitlBlock
   /** 杂项。HITL 解决后用户的原始作答存在 `meta.answer`。 */
   meta?: Record<string, unknown>
+  /** Responses API 原生 output items（如 `web_search_call`），供回灌与 UI 回放。 */
+  responses_items?: unknown[]
 }
 
 /** 一条消息的完整载荷。 */
@@ -150,6 +152,9 @@ export interface MessageRecord {
   created_at: string
 }
 
+/** LLM API 栈；创建会话时锁定。 */
+export type ApiMode = 'completions' | 'responses'
+
 /** 会话元数据。 */
 export interface SessionMeta {
   id: string
@@ -160,6 +165,8 @@ export interface SessionMeta {
   persona: string | null
   /** null 表示用配置里的默认模型。 */
   model_id: string | null
+  /** 创建时锁定的 API 栈。 */
+  api_mode: ApiMode
   /** null 表示启用全部工具。 */
   enabled_tools: string[] | null
   created_at: string
@@ -175,6 +182,13 @@ export interface CallState {
   ok: boolean | null
 }
 
+/** Responses 原生联网的当轮状态。 */
+export interface ProviderSearchState {
+  call_id: string
+  phase: 'in_progress' | 'searching' | 'completed' | 'failed'
+  query?: string
+}
+
 /**
  * 正在跑的那一轮的实时缓冲。
  *
@@ -187,6 +201,7 @@ export interface TurnBuffer {
   content: string
   reasoning: string
   calls: CallState[]
+  provider_searches?: ProviderSearchState[]
 }
 
 /** 订阅会话时先收到的快照。 */
@@ -213,6 +228,8 @@ export type TurnEndReason =
   | { kind: 'max_rounds' }
   | { kind: 'cancelled' }
   | { kind: 'empty_response' }
+  /** 工具连续失败太多次，判定为原地打转。 */
+  | { kind: 'tool_failure_loop'; count: number; last_tool: string }
   | { kind: 'failed'; message: string }
 
 /**
@@ -244,6 +261,12 @@ export type LyaEvent =
       batch_id?: string
       review_index?: number
       review_total?: number
+    }
+  | {
+      type: 'provider_search'
+      call_id: string
+      phase: ProviderSearchState['phase']
+      query?: string
     }
   | { type: 'turn_end'; reason: TurnEndReason }
 

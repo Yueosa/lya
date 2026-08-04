@@ -2,7 +2,7 @@
 import { ref, shallowRef } from 'vue'
 
 import type { ModelInfo, ToolInfo } from '../../api/client'
-import type { Mode, SessionMeta } from '../../api/wire'
+import type { ApiMode, Mode, SessionMeta } from '../../api/wire'
 import type { MessageRecord } from '../../api/wire'
 import { emptyState, type SessionState } from '../../store/session'
 
@@ -32,6 +32,9 @@ export const tree = ref<MessageRecord[] | null>(null)
 
 /** 运行时默认工作模式。 */
 export const defaultWorkMode = ref<Mode>('agent')
+
+/** 运行时默认 API 栈（新会话继承；空会话可在设置里改）。 */
+export const defaultApiMode = ref<ApiMode>('completions')
 
 /** 模型与工具清单。 */
 export const models = ref<ModelInfo[]>([])

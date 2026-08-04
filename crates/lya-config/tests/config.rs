@@ -3,11 +3,39 @@
 use std::fs;
 use std::path::Path;
 
-use lya_config::{Config, ConfigError, LogLevel, MODELS_FILE};
+use lya_config::{
+    ApiMode, Config, ConfigError, LogLevel, MODELS_FILE, validate_session_binding,
+};
 use lya_mode::Mode;
 
 fn write(dir: &Path, name: &str, text: &str) {
     fs::write(dir.join(name), text).unwrap();
+}
+
+fn sample_model(id: &str, with_responses: bool) -> String {
+    let responses = if with_responses {
+        r#"
+[models.modes.responses]
+capabilities = ["text", "web_search"]
+params = { model = "x-flash", max_output_tokens = 4096 }
+"#
+    } else {
+        ""
+    };
+    format!(
+        r#"
+[[models]]
+id = "{id}"
+name = "Name {id}"
+base_url = "https://api.example.com"
+api_key = "sk-real"
+context_window = 1048576
+
+[models.modes.completions]
+capabilities = ["text"]
+params = {{ model = "{id}", max_tokens = 4096, reasoning_effort = "high" }}
+{responses}"#
+    )
 }
 
 #[test]
@@ -20,6 +48,7 @@ fn missing_files_fall_back_to_defaults() {
     assert_eq!(config.core.http.timeout_secs, 120);
     assert_eq!(config.runtime.agent.max_tool_rounds, 32);
     assert_eq!(config.runtime.agent.default_work_mode, Mode::Agent);
+    assert_eq!(config.runtime.agent.default_api_mode, ApiMode::Completions);
     assert_eq!(config.runtime.media.image.max_bytes, 32 * 1024 * 1024);
     assert!(config.runtime.media.image.cache_local);
     assert!(config.runtime.media.image.cache_web);
@@ -37,23 +66,26 @@ fn generated_templates_parse_and_are_consistent() {
     let created = Config::init_missing(dir.path()).unwrap();
     assert_eq!(created.len(), 4);
 
-    // 模板必须自洽：default_model 指向的 id 确实在清单里，否则校验会失败
     let config = Config::load_from(dir.path()).unwrap();
     assert_eq!(config.models.models.len(), 2);
-    assert!(config.persona.unwrap().contains("小恋恋"));
+    let flash = config.models.get("deepseek-v4-flash").unwrap();
+    assert!(flash.supports(ApiMode::Completions));
+    assert!(flash.supports(ApiMode::Responses));
+    assert!(flash.can(ApiMode::Responses, "web_search"));
+    let pro = config.models.get("deepseek-v4-pro").unwrap();
+    assert!(pro.supports(ApiMode::Completions));
+    assert!(!pro.supports(ApiMode::Responses));
+    assert!(config.persona.as_ref().unwrap().contains("小恋恋"));
     assert_eq!(
         config.runtime.agent.default_model.as_deref(),
         Some("deepseek-v4-flash")
     );
 
-    // 但密钥还是占位符，不该被当成可用
-    let config = Config::load_from(dir.path()).unwrap();
     assert!(matches!(
         config.check_ready(),
         Err(ConfigError::NotReady(_))
     ));
 
-    // 再跑一次不覆盖已有文件
     assert!(Config::init_missing(dir.path()).unwrap().is_empty());
 }
 
@@ -72,7 +104,7 @@ fn models_file_is_owner_only() {
 }
 
 #[test]
-fn extra_model_fields_pass_through() {
+fn legacy_flat_model_format_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
     write(
         dir.path(),
@@ -83,55 +115,47 @@ id = "ds"
 name = "DeepSeek"
 base_url = "https://api.deepseek.com"
 api_key = "sk-real"
+capabilities = ["text"]
 model = "deepseek-v4-flash"
-reasoning_effort = "high"
-thinking = { type = "enabled" }
 max_tokens = 4096
 "#,
     );
+    assert!(matches!(
+        Config::load_from(dir.path()),
+        Err(ConfigError::Parse { .. })
+    ));
+}
 
+#[test]
+fn mode_params_are_scoped_not_merged_at_top_level() {
+    let dir = tempfile::tempdir().unwrap();
+    write(dir.path(), MODELS_FILE, &sample_model("ds", true));
     let config = Config::load_from(dir.path()).unwrap();
     let entry = config.models.get("ds").unwrap();
-    assert_eq!(entry.params["model"], "deepseek-v4-flash");
-    assert_eq!(entry.params["reasoning_effort"], "high");
-    assert_eq!(entry.params["max_tokens"], 4096);
-    // 嵌套表也要原样带过去
-    assert_eq!(entry.params["thinking"]["type"], "enabled");
-    // 固定字段不该混进透传参数
-    for fixed in ["id", "name", "base_url", "api_key", "context_window"] {
-        assert!(!entry.params.contains_key(fixed), "{fixed} 不该被透传");
-    }
-
+    assert_eq!(
+        entry.params_for(ApiMode::Completions)["max_tokens"],
+        4096
+    );
+    assert_eq!(
+        entry.params_for(ApiMode::Responses)["max_output_tokens"],
+        4096
+    );
+    assert!(!entry.params_for(ApiMode::Completions).contains_key("max_output_tokens"));
     config.check_ready().unwrap();
 }
 
 #[test]
-fn context_window_is_lya_metadata_not_api_param() {
+fn context_window_is_lya_metadata_not_in_params() {
     let dir = tempfile::tempdir().unwrap();
-    write(
-        dir.path(),
-        MODELS_FILE,
-        r#"
-[[models]]
-id = "ds"
-name = "DeepSeek"
-base_url = "https://api.deepseek.com"
-api_key = "sk-real"
-context_window = 1048576
-model = "deepseek-v4-flash"
-max_tokens = 8192
-"#,
-    );
-
+    write(dir.path(), MODELS_FILE, &sample_model("ds", false));
     let config = Config::load_from(dir.path()).unwrap();
     let entry = config.models.get("ds").unwrap();
     assert_eq!(entry.context_window, Some(1_048_576));
-    assert_eq!(entry.params["max_tokens"], 8192);
-    assert!(!entry.params.contains_key("context_window"));
+    assert!(!entry.params_for(ApiMode::Completions).contains_key("context_window"));
 }
 
 #[test]
-fn capabilities_default_to_text_only() {
+fn capabilities_are_per_mode() {
     let dir = tempfile::tempdir().unwrap();
     write(
         dir.path(),
@@ -143,45 +167,70 @@ name = "只会说话的"
 base_url = "https://a"
 api_key = "k"
 
+[models.modes.completions]
+capabilities = ["text"]
+params = { model = "plain" }
+
 [[models]]
 id = "eyes"
 name = "会看图的"
 base_url = "https://b"
 api_key = "k"
+
+[models.modes.completions]
 capabilities = ["text", "vision"]
+params = { model = "eyes" }
 "#,
     );
 
     let config = Config::load_from(dir.path()).unwrap();
     let plain = config.models.get("plain").unwrap();
-    // 没写 capabilities 就按纯文本算，老配置不用改也能跑
-    assert!(plain.can("text"));
-    assert!(!plain.can("vision"));
-    assert_eq!(plain.effective_capabilities(), vec!["text".to_string()]);
+    assert!(plain.can(ApiMode::Completions, "text"));
+    assert!(!plain.can(ApiMode::Completions, "vision"));
 
     let eyes = config.models.get("eyes").unwrap();
-    assert!(eyes.can("vision"));
+    assert!(eyes.can(ApiMode::Completions, "vision"));
+    assert_eq!(
+        config.models.first_with(ApiMode::Completions, "vision").unwrap().id,
+        "eyes"
+    );
+    assert!(config.models.first_with(ApiMode::Completions, "video").is_none());
+}
 
-    // 视觉工具靠它挑「谁能看图」，不用让用户再配一遍
-    assert_eq!(config.models.first_with("vision").unwrap().id, "eyes");
-    assert!(config.models.first_with("video").is_none());
+#[test]
+fn validate_session_binding_checks_api_mode() {
+    let dir = tempfile::tempdir().unwrap();
+    write(
+        dir.path(),
+        MODELS_FILE,
+        &format!(
+            "{}{}",
+            sample_model("flash", true),
+            sample_model("pro", false).replace("flash", "pro")
+        ),
+    );
+    let config = Config::load_from(dir.path()).unwrap();
+
+    validate_session_binding(
+        &config.models,
+        Some("flash"),
+        "flash",
+        ApiMode::Responses,
+    )
+    .unwrap();
+    assert!(validate_session_binding(
+        &config.models,
+        Some("pro"),
+        "flash",
+        ApiMode::Responses,
+    )
+    .is_err());
 }
 
 #[test]
 fn dangling_default_model_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
-    write(
-        dir.path(),
-        MODELS_FILE,
-        r#"
-[[models]]
-id = "ds"
-name = "DeepSeek"
-base_url = "https://api.deepseek.com"
-api_key = "sk-real"
-model = "x"
-"#,
-    );
+    write(dir.path(), MODELS_FILE, &sample_model("ds", false));
     write(
         dir.path(),
         "runtime.toml",
@@ -209,11 +258,19 @@ name = "A"
 base_url = "https://a"
 api_key = "k"
 
+[models.modes.completions]
+capabilities = ["text"]
+params = { model = "same" }
+
 [[models]]
 id = "same"
 name = "B"
 base_url = "https://b"
 api_key = "k"
+
+[models.modes.completions]
+capabilities = ["text"]
+params = { model = "same" }
 "#,
     );
     assert!(matches!(
@@ -229,7 +286,7 @@ fn typo_in_field_name_is_reported() {
 
     let err = Config::load_from(dir.path()).unwrap_err();
     let ConfigError::Parse { path, .. } = err else {
-        panic!("拼错字段名应当解析失败");
+        panic!("拼写错误应当解析失败");
     };
     assert!(path.ends_with("core.toml"));
 }
@@ -284,11 +341,19 @@ name = "A"
 base_url = "https://a"
 api_key = "k"
 
+[models.modes.completions]
+capabilities = ["text"]
+params = { model = "first" }
+
 [[models]]
 id = "second"
 name = "B"
 base_url = "https://b"
 api_key = "k"
+
+[models.modes.completions]
+capabilities = ["text"]
+params = { model = "second" }
 "#,
     );
     let config = Config::load_from(dir.path()).unwrap();

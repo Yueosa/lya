@@ -166,16 +166,7 @@ async fn serve(
         prompt = prompt.with_persona(persona.clone());
     }
 
-    let endpoints: Vec<LlmEndpoint> = config
-        .models
-        .models
-        .iter()
-        .map(|entry| {
-            LlmEndpoint::new(&entry.base_url, &entry.api_key)
-                .with_id(&entry.id)
-                .with_params(entry.params.clone())
-        })
-        .collect();
+    let endpoints = llm_endpoints_from_config(&config);
     let default_model = config
         .default_model()
         .expect("check_ready 已确认有模型")
@@ -192,6 +183,7 @@ async fn serve(
         actions: Arc::new(actions),
         prompt,
         max_tool_rounds: config.runtime.agent.max_tool_rounds,
+        max_consecutive_tool_failures: config.runtime.agent.max_consecutive_tool_failures,
         max_parallel_tools: config.runtime.agent.max_parallel_tools,
         default_enabled_tools: config.runtime.tools.enabled.clone(),
     })?);
@@ -235,6 +227,28 @@ async fn serve(
         .map_err(|err| RunError::Serve(err.to_string()))?;
 
     Ok(())
+}
+
+fn llm_endpoints_from_config(config: &Config) -> Vec<LlmEndpoint> {
+    config
+        .models
+        .models
+        .iter()
+        .map(|entry| {
+            let mut ep = LlmEndpoint::new(&entry.base_url, &entry.api_key).with_id(&entry.id);
+            for (key, mode_cfg) in &entry.modes {
+                if let Some(mode) = lya_config::ApiMode::parse(key) {
+                    let llm_mode = match mode {
+                        lya_config::ApiMode::Completions => lya_llm::ApiMode::Completions,
+                        lya_config::ApiMode::Responses => lya_llm::ApiMode::Responses,
+                    };
+                    ep = ep.with_mode_params(llm_mode, mode_cfg.params.clone());
+                    ep = ep.with_mode_capabilities(llm_mode, mode_cfg.capabilities.clone());
+                }
+            }
+            ep
+        })
+        .collect()
 }
 
 fn shell_policy(confirm: lya_config::ShellConfirm) -> lya_tool::tools::shell::ConfirmPolicy {

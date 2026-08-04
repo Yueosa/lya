@@ -25,6 +25,13 @@ pub enum TurnEndReason {
     AwaitingHuman,
     /// 达到 `max_tool_rounds` 上限。
     MaxRounds,
+    /// 工具连续失败太多次，判定为原地打转。
+    ToolFailureLoop {
+        /// 连续失败次数。
+        count: u32,
+        /// 最后一次失败的工具名，方便直接定位。
+        last_tool: String,
+    },
     /// 被调用方取消。
     Cancelled,
     /// 模型既没给正文也没给 tool_calls。
@@ -123,11 +130,46 @@ pub enum AgentEvent {
         review_total: Option<u32>,
     },
 
+    /// Responses 原生联网状态（不是 lya-tool 的 `web_search`）。
+    ProviderSearch {
+        /// provider 侧 call id，仅 UI 用。
+        call_id: String,
+        /// 当前阶段。
+        phase: ProviderSearchPhase,
+        /// 搜索词（completed 时可能有）。
+        query: Option<String>,
+    },
+
     /// 本轮结束。
     TurnEnd {
         /// 结束原因。
         reason: TurnEndReason,
     },
+}
+
+/// Responses 原生联网的阶段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderSearchPhase {
+    /// 准备中。
+    InProgress,
+    /// 正在搜索。
+    Searching,
+    /// 已完成。
+    Completed,
+    /// 失败。
+    Failed,
+}
+
+impl ProviderSearchPhase {
+    /// wire / SSE 字符串。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InProgress => "in_progress",
+            Self::Searching => "searching",
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 /// 调用组里一条 call 的摘要。

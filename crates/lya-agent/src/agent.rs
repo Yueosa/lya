@@ -6,7 +6,11 @@ use std::sync::Arc;
 use futures_core::Stream;
 use futures_util::StreamExt;
 use lya_action::{ActionCtx, ActionOutcome, ActionRegistry, FormAnswer, render_form_answer};
-use lya_llm::{CompletionAssembler, LlmEndpoint, StreamEvent};
+use lya_llm::{
+    ApiMode, CAPABILITY_WEB_SEARCH, ChatStreamRequest, CompletionAssembler, LlmEndpoint,
+    StreamEvent, WebSearchStatus,
+};
+use lya_prompt::RESPONSES_NATIVE_SEARCH;
 use lya_memory::MemoryStore;
 use lya_mode::Mode;
 use lya_prompt::{PromptBuilder, PromptInput};
@@ -19,8 +23,9 @@ use serde_json::{Value, json};
 
 use crate::backend::ChatBackend;
 use crate::context::build_messages;
+use crate::context_responses::build_responses_input;
 use crate::error::AgentError;
-use crate::event::{AgentEvent, BatchCallInfo, CallKind, CancelToken, TurnEndReason};
+use crate::event::{AgentEvent, BatchCallInfo, CallKind, CancelToken, ProviderSearchPhase, TurnEndReason};
 
 /// 构造 [`Agent`] 所需的全部部件。
 pub struct AgentParts<B: ChatBackend> {
@@ -46,6 +51,8 @@ pub struct AgentParts<B: ChatBackend> {
     pub max_tool_rounds: u32,
     /// 同一条 assistant 消息里 tool_calls 数量上限。
     pub max_parallel_tools: u32,
+    /// 连续多少次工具调用全失败就中止本轮；`0` 表示不启用。
+    pub max_consecutive_tool_failures: u32,
     /// 会话没自定义工具列表时用的默认值。
     ///
     /// `None` 表示默认启用全部。
@@ -68,6 +75,7 @@ pub struct Agent<B: ChatBackend> {
     prompt: PromptBuilder,
     max_tool_rounds: u32,
     max_parallel_tools: u32,
+    max_consecutive_tool_failures: u32,
     default_enabled_tools: Option<Vec<String>>,
 }
 
@@ -105,6 +113,7 @@ impl<B: ChatBackend> Agent<B> {
             prompt: parts.prompt,
             max_tool_rounds: parts.max_tool_rounds,
             max_parallel_tools: parts.max_parallel_tools,
+            max_consecutive_tool_failures: parts.max_consecutive_tool_failures,
             default_enabled_tools: parts.default_enabled_tools,
         })
     }
@@ -196,6 +205,10 @@ impl<B: ChatBackend> Agent<B> {
             }
 
             let mut round = 0u32;
+            // 连续失败计数跨轮累计，任一次调用成功就清零。检查放在轮次开头：
+            // 上一轮刚失败完就在这里收，不用再白跑一次 LLM。
+            let mut consecutive_failures = 0u32;
+            let mut last_failed_tool = String::new();
             loop {
                 if cancel.is_cancelled() {
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::Cancelled };
@@ -203,6 +216,17 @@ impl<B: ChatBackend> Agent<B> {
                 }
                 if round >= self.max_tool_rounds {
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::MaxRounds };
+                    return;
+                }
+                if self.max_consecutive_tool_failures > 0
+                    && consecutive_failures >= self.max_consecutive_tool_failures
+                {
+                    yield AgentEvent::TurnEnd {
+                        reason: TurnEndReason::ToolFailureLoop {
+                            count: consecutive_failures,
+                            last_tool: last_failed_tool.clone(),
+                        },
+                    };
                     return;
                 }
                 round += 1;
@@ -226,7 +250,23 @@ impl<B: ChatBackend> Agent<B> {
                 let enabled: Option<Vec<&str>> = enabled
                     .as_ref()
                     .map(|names| names.iter().map(String::as_str).collect());
-                let mode_bundle = meta.work_mode.resolve(&self.tools, enabled.as_deref());
+                let api_mode =
+                    ApiMode::parse(&meta.api_mode).unwrap_or(ApiMode::Completions);
+                let endpoint = match self.endpoint_for(meta.model_id.as_deref()) {
+                    Ok(endpoint) => endpoint,
+                    Err(msg) => {
+                        yield AgentEvent::TurnEnd {
+                            reason: TurnEndReason::Failed(msg),
+                        };
+                        return;
+                    }
+                };
+                let native_web = api_mode == ApiMode::Responses
+                    && endpoint.supports(ApiMode::Responses, CAPABILITY_WEB_SEARCH);
+                let tool_exclude: &[&str] = if native_web { &["web_search"] } else { &[] };
+                let mode_bundle =
+                    meta.work_mode
+                        .resolve(&self.tools, enabled.as_deref(), tool_exclude);
                 let action_bundle = self.actions.bundle(meta.work_mode);
                 let memory_section = bail!(self.memory.index_section());
 
@@ -235,11 +275,26 @@ impl<B: ChatBackend> Agent<B> {
                     .with_tools(mode_bundle.tools.prompt.clone())
                     .with_mode(mode_bundle.mode_prompt.clone())
                     .with_memory(memory_section);
+                if native_web {
+                    input = input.with_extra(RESPONSES_NATIVE_SEARCH);
+                }
                 input.persona = meta.persona.clone();
                 let system = self.prompt.build(&input);
 
                 let path = bail!(self.sessions.path_to_active_leaf(&session_id));
-                let messages = build_messages(&system, &path);
+                let request = match api_mode {
+                    ApiMode::Completions => {
+                        ChatStreamRequest::Completions(build_messages(&system, &path))
+                    }
+                    ApiMode::Responses => {
+                        let (instructions, input) = build_responses_input(&system, &path);
+                        ChatStreamRequest::Responses {
+                            instructions,
+                            input,
+                            native_web_search: native_web,
+                        }
+                    }
+                };
 
                 let mut schemas = mode_bundle.tools.schemas.clone();
                 schemas.extend(action_bundle.schemas.clone());
@@ -253,16 +308,10 @@ impl<B: ChatBackend> Agent<B> {
                 ));
                 yield AgentEvent::MessageCommitted { record: Box::new(draft.clone()) };
 
-                let endpoint = match self.endpoint_for(meta.model_id.as_deref()) {
-                    Ok(endpoint) => endpoint,
-                    Err(msg) => {
-                        let _ = self.sessions.delete_leaf(&session_id, draft.id);
-                        yield AgentEvent::MessageDeleted { id: draft.id };
-                        yield AgentEvent::TurnEnd { reason: TurnEndReason::Failed(msg) };
-                        return;
-                    }
-                };
-                let stream = self.backend.chat_stream(endpoint, messages, schemas).await;
+                let stream = self
+                    .backend
+                    .chat_stream(api_mode, endpoint, request, schemas)
+                    .await;
                 let mut stream = match stream {
                     Ok(stream) => stream,
                     Err(err) => {
@@ -280,6 +329,7 @@ impl<B: ChatBackend> Agent<B> {
                 let mut cancelled = false;
                 let mut failure: Option<String> = None;
                 let mut produced = false;
+                let mut responses_items: Vec<Value> = Vec::new();
 
                 while let Some(item) = stream.next().await {
                     if cancel.is_cancelled() {
@@ -298,6 +348,16 @@ impl<B: ChatBackend> Agent<B> {
                                     yield AgentEvent::Reasoning(text.clone());
                                 }
                                 StreamEvent::ToolCallDelta(_) => produced = true,
+                                StreamEvent::WebSearchStatus(status) => {
+                                    produced = true;
+                                    if let Some(event) = provider_search_event(status) {
+                                        yield event;
+                                    }
+                                }
+                                StreamEvent::WebSearchCallItem(item) => {
+                                    produced = true;
+                                    responses_items.push(item.clone());
+                                }
                                 StreamEvent::Finished { .. } => {}
                             }
                             assembler.apply(&event);
@@ -315,7 +375,7 @@ impl<B: ChatBackend> Agent<B> {
                 if cancelled || failure.is_some() {
                     // 有内容就留下来标成中断，什么都没有就清掉
                     if produced {
-                        let mut payload = assistant_payload(&completion);
+                        let mut payload = assistant_payload(&completion, &responses_items);
                         payload.status = MessageStatus::Interrupted;
                         if let Ok(record) = self.sessions.update_payload(&session_id, draft.id, &payload) {
                             yield AgentEvent::MessageUpdated { record: Box::new(record) };
@@ -333,7 +393,10 @@ impl<B: ChatBackend> Agent<B> {
                     return;
                 }
 
-                if completion.content.trim().is_empty() && completion.tool_calls.is_empty() {
+                if completion.content.trim().is_empty()
+                    && completion.tool_calls.is_empty()
+                    && responses_items.is_empty()
+                {
                     let _ = self.sessions.delete_leaf(&session_id, draft.id);
                     yield AgentEvent::MessageDeleted { id: draft.id };
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::EmptyResponse };
@@ -341,7 +404,7 @@ impl<B: ChatBackend> Agent<B> {
                 }
 
                 let calls = &completion.tool_calls;
-                let mut payload = assistant_payload(&completion);
+                let mut payload = assistant_payload(&completion, &responses_items);
 
                 // 不带 tool_calls 就是本轮说完了
                 if calls.is_empty() {
@@ -419,6 +482,8 @@ impl<B: ChatBackend> Agent<B> {
                             true,
                         ));
                         yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                        consecutive_failures += 1;
+                        last_failed_tool = call.name.clone();
                         yield AgentEvent::CallFinished {
                             call_id: call.id.clone(),
                             name: call.name.clone(),
@@ -476,6 +541,12 @@ impl<B: ChatBackend> Agent<B> {
                                 true,
                             ));
                             yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                            if *success {
+                                consecutive_failures = 0;
+                            } else {
+                                consecutive_failures += 1;
+                                last_failed_tool = call.name.clone();
+                            }
                             yield AgentEvent::CallFinished {
                                 call_id: call.id.clone(),
                                 name: call.name.clone(),
@@ -493,6 +564,12 @@ impl<B: ChatBackend> Agent<B> {
                                 true,
                             ));
                             yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                            if success {
+                                consecutive_failures = 0;
+                            } else {
+                                consecutive_failures += 1;
+                                last_failed_tool = call.name.clone();
+                            }
                             yield AgentEvent::CallFinished {
                                 call_id: call.id.clone(),
                                 name: call.name.clone(),
@@ -516,6 +593,7 @@ impl<B: ChatBackend> Agent<B> {
                                 review_index: Some(review_index),
                                 review_total: Some(review_total),
                             };
+                            consecutive_failures = 0;
                             yield AgentEvent::CallFinished {
                                 call_id: call.id.clone(),
                                 name: call.name.clone(),
@@ -530,6 +608,8 @@ impl<B: ChatBackend> Agent<B> {
                                 true,
                             ));
                             yield AgentEvent::MessageCommitted { record: Box::new(record) };
+                            consecutive_failures += 1;
+                            last_failed_tool = call.name.clone();
                             yield AgentEvent::CallFinished {
                                 call_id: call.id.clone(),
                                 name: call.name.clone(),
@@ -833,7 +913,7 @@ impl<B: ChatBackend> Agent<B> {
             .map(|names| names.iter().map(String::as_str).collect());
         let allowed = meta
             .work_mode
-            .resolve(&self.tools, enabled.as_deref())
+            .resolve(&self.tools, enabled.as_deref(), &[])
             .tools;
 
         let Some(tool) = self.tools.get(tool_name) else {
@@ -1039,8 +1119,36 @@ impl<B: ChatBackend> Agent<B> {
     }
 }
 
+fn provider_search_event(status: &WebSearchStatus) -> Option<AgentEvent> {
+    Some(match status {
+        WebSearchStatus::InProgress { call_id } => AgentEvent::ProviderSearch {
+            call_id: call_id.clone(),
+            phase: ProviderSearchPhase::InProgress,
+            query: None,
+        },
+        WebSearchStatus::Searching { call_id } => AgentEvent::ProviderSearch {
+            call_id: call_id.clone(),
+            phase: ProviderSearchPhase::Searching,
+            query: None,
+        },
+        WebSearchStatus::Completed { call_id, query } => AgentEvent::ProviderSearch {
+            call_id: call_id.clone(),
+            phase: ProviderSearchPhase::Completed,
+            query: query.clone(),
+        },
+        WebSearchStatus::Failed { call_id, message: _ } => AgentEvent::ProviderSearch {
+            call_id: call_id.clone(),
+            phase: ProviderSearchPhase::Failed,
+            query: None,
+        },
+    })
+}
+
 /// 把一次生成结果落成助手消息。
-fn assistant_payload(completion: &lya_llm::ChatCompletion) -> MessagePayload {
+fn assistant_payload(
+    completion: &lya_llm::ChatCompletion,
+    responses_items: &[Value],
+) -> MessagePayload {
     let tool_calls: Vec<OpenAiToolCall> = completion
         .tool_calls
         .iter()
@@ -1076,6 +1184,9 @@ fn assistant_payload(completion: &lya_llm::ChatCompletion) -> MessagePayload {
     }
     if !completion.reasoning.is_empty() {
         payload.lya.reasoning = Some(completion.reasoning.clone());
+    }
+    if !responses_items.is_empty() {
+        payload.lya.responses_items = responses_items.to_vec();
     }
     payload
 }

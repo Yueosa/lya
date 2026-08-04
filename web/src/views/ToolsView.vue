@@ -156,7 +156,7 @@ function globalStatusLabel(name: string): string {
             </div>
 
             <section v-if="selectedLimits.length" class="detail-section">
-              <h4 class="detail-section__title">工具默认值</h4>
+              <h4 class="detail-section__title">内置限制与栈行为</h4>
               <table class="schema-table">
                 <tbody>
                   <tr v-for="row in selectedLimits" :key="row.label">
@@ -199,10 +199,3 @@ function globalStatusLabel(name: string): string {
     </div>
   </div>
 </template>
-
-<style scoped>
-.tools-hint {
-  margin: 8px 10px 0;
-  line-height: var(--leading);
-}
-</style>

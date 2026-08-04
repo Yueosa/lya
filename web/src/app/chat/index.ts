@@ -10,6 +10,7 @@ export {
   currentId,
   defaultModel,
   defaultWorkMode,
+  defaultApiMode,
   focusedHitlId,
   hydrating,
   loading,
@@ -55,6 +56,7 @@ export {
   toggleTool,
   setMode,
   setModel,
+  setApiMode,
   readOnly,
 } from './settings'
 export { setArchived, removeSession, rename, setPersona } from './lifecycle'

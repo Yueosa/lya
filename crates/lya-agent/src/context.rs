@@ -92,7 +92,7 @@ pub fn build_messages(system_prompt: &str, path: &[MessageRecord]) -> Vec<ChatMe
 }
 
 /// 路径里已经拿到结果的 `tool_call_id` 集合。
-fn answered_call_ids(path: &[MessageRecord]) -> Vec<String> {
+pub(crate) fn answered_call_ids(path: &[MessageRecord]) -> Vec<String> {
     path.iter()
         .filter(|record| record.payload.role == MessageRole::Tool)
         .filter_map(|record| record.payload.openai.as_ref())
@@ -103,7 +103,7 @@ fn answered_call_ids(path: &[MessageRecord]) -> Vec<String> {
 /// 拼出 `[2026-04-26 14:23 +08]` 形式的时间前缀，必要时追加节奏提示。
 ///
 /// 两个提示都只依赖相邻两条消息的创建时间，因此渲染结果是确定的。
-fn time_prefix(at: DateTime<Utc>, previous: Option<DateTime<Utc>>) -> String {
+pub(crate) fn time_prefix(at: DateTime<Utc>, previous: Option<DateTime<Utc>>) -> String {
     let local = at.with_timezone(&Local);
     let mut prefix = format!(
         "[{} {}]",

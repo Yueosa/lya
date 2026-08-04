@@ -64,6 +64,12 @@ impl PromptInput {
         self
     }
 
+    /// 设置额外说明段（如 Responses 原生联网提示）。
+    pub fn with_extra(mut self, section: impl Into<String>) -> Self {
+        self.extra_section = Some(section.into());
+        self
+    }
+
     /// 设置会话人设覆盖。
     pub fn with_persona(mut self, persona: impl Into<String>) -> Self {
         self.persona = Some(persona.into());

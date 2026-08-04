@@ -8,8 +8,13 @@
 max_tool_rounds = 32
 # 同一条 assistant 消息里最多几个 tool_calls；超出则整组失败回灌给模型
 max_parallel_tools = 3
+# 连续多少次工具调用全失败就中止本轮（任一次成功即清零）。
+# 管的是「原地打转」，和 max_tool_rounds 的「跑得太久」不是一回事。0 = 不启用
+max_consecutive_tool_failures = 16
 # 新会话的默认工作模式：ask 只读 / edit 可写 / agent 可执行
 default_work_mode = "agent"
+# 新会话的默认 API 栈：completions / responses
+default_api_mode = "completions"
 # 默认使用哪个模型，填 models.toml 里的 id
 default_model = "deepseek-v4-flash"
 

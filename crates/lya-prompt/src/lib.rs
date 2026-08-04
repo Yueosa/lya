@@ -35,7 +35,7 @@ pub mod media;
 
 pub use builder::PromptBuilder;
 pub use identity::{
-    DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
+    DEFAULT_PERSONA, RESPONSES_NATIVE_SEARCH, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
 pub use media::CHAT_MEDIA_HINT;
 pub use input::PromptInput;

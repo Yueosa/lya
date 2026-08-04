@@ -43,6 +43,12 @@ export interface ToolCallView {
   arguments?: unknown
   /** 还没拿到结果时为 undefined，界面显示「执行中」。 */
   result?: { ok: boolean; content: string }
+  /**
+   * 参数暂时取不到（本轮缓冲里只有 call_id 和名字）。
+   *
+   * 和「模型真的没传参数」是两回事，后者要显眼地报出来。
+   */
+  argsUnknown?: boolean
 }
 
 /** 消息内部的片段。 */
@@ -50,6 +56,14 @@ export type Block =
   | { type: 'text'; text: string }
   | { type: 'reasoning'; text: string }
   | { type: 'tool'; call: ToolCallView }
+  | {
+      type: 'provider_search'
+      callId: string
+      phase: 'in_progress' | 'searching' | 'completed' | 'failed'
+      query?: string
+      /** DeepSeek `action.queries`；有多条时 UI 一并展示。 */
+      queries?: string[]
+    }
   | { type: 'hitl'; hitl: HitlBlock; answer?: unknown }
 
 /** 一条消息，对应树上一个节点。 */
@@ -235,6 +249,11 @@ function toBlocks(
     blocks.push({ type: 'reasoning', text: payload.lya.reasoning })
   }
 
+  for (const item of payload.lya.responses_items ?? []) {
+    const block = responsesItemToBlock(item)
+    if (block) blocks.push(block)
+  }
+
   const content = payload.openai?.content
   if (content) blocks.push({ type: 'text', text: content })
 
@@ -250,6 +269,65 @@ function toBlocks(
     blocks.push(block)
   }
   return blocks
+}
+
+function responsesItemToBlock(item: unknown): Block | null {
+  if (!item || typeof item !== 'object') return null
+  const rec = item as Record<string, unknown>
+  if (rec.type !== 'web_search_call') return null
+  const callId =
+    typeof rec.id === 'string'
+      ? rec.id
+      : typeof rec.call_id === 'string'
+        ? rec.call_id
+        : 'native'
+  const status = typeof rec.status === 'string' ? rec.status : 'completed'
+  const action = rec.action
+  let queries: string[] | undefined
+  if (action && typeof action === 'object') {
+    const act = action as { query?: unknown; queries?: unknown }
+    if (Array.isArray(act.queries)) {
+      const list = act.queries.filter((q): q is string => typeof q === 'string' && q.length > 0)
+      if (list.length > 0) queries = list
+    }
+    if (!queries?.length && typeof act.query === 'string' && act.query) {
+      queries = [act.query]
+    }
+  }
+  return providerSearchBlock(callId, webSearchPhase(status), queries)
+}
+
+function providerSearchBlock(
+  callId: string,
+  phase: 'in_progress' | 'searching' | 'completed' | 'failed',
+  queries?: string[],
+): Extract<Block, { type: 'provider_search' }> {
+  const block: Extract<Block, { type: 'provider_search' }> = {
+    type: 'provider_search',
+    callId,
+    phase,
+  }
+  if (queries?.length) {
+    block.queries = queries
+    const first = queries[0]
+    if (first) block.query = first
+  }
+  return block
+}
+
+function webSearchPhase(
+  status: string,
+): 'in_progress' | 'searching' | 'completed' | 'failed' {
+  switch (status) {
+    case 'in_progress':
+      return 'in_progress'
+    case 'searching':
+      return 'searching'
+    case 'failed':
+      return 'failed'
+    default:
+      return 'completed'
+  }
 }
 
 function toCallView(
@@ -277,6 +355,15 @@ function toCallView(
 function runningBlocks(running: TurnBuffer): Block[] {
   const blocks: Block[] = []
   if (running.reasoning) blocks.push({ type: 'reasoning', text: running.reasoning })
+  for (const search of running.provider_searches ?? []) {
+    blocks.push(
+      providerSearchBlock(
+        search.call_id,
+        search.phase,
+        search.query ? [search.query] : undefined,
+      ),
+    )
+  }
   if (running.content) blocks.push({ type: 'text', text: running.content })
   for (const call of running.calls) {
     blocks.push({ type: 'tool', call: runningCall(call) })
@@ -313,7 +400,12 @@ function orphanRunning(
 }
 
 function runningCall(call: CallState): ToolCallView {
-  const view: ToolCallView = { callId: call.call_id, name: call.name, rawArguments: '' }
+  const view: ToolCallView = {
+    callId: call.call_id,
+    name: call.name,
+    rawArguments: '',
+    argsUnknown: true,
+  }
   // ok 为 null 表示还在跑，这时不给 result，界面显示「执行中」
   if (call.ok !== null) view.result = { ok: call.ok, content: '' }
   return view

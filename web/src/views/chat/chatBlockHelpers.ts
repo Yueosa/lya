@@ -1,6 +1,6 @@
 /** 聊天时间线块相关的纯函数。 */
 
-import type { Block, Message } from '../../model/timeline'
+import type { Block, Message, ToolCallView } from '../../model/timeline'
 import type { MessageRecord, ToolBatchMeta } from '../../api/wire'
 import { parseFormCall } from '../../utils/parseFormCall'
 
@@ -10,8 +10,35 @@ export function lineCount(text: string): number {
 }
 
 export function toolLineCount(block: Block): number {
-  const result = block.type === 'tool' ? block.call.result?.content : undefined
-  return lineCount(result ?? '')
+  if (block.type !== 'tool') return 0
+  const args = toolArgsText(block.call)
+  return lineCount(block.call.result?.content ?? '') + (args ? lineCount(args) + 1 : 0)
+}
+
+/**
+ * 模型实际发出的参数，供界面原样展示。
+ *
+ * `null` = 现在还看不到（流式缓冲里没有参数），不渲染这一段。
+ * 空字符串参数会明确写出来——不然「模型漏传参数」在界面上和正常调用长得一样。
+ */
+export function toolArgsText(call: ToolCallView): string | null {
+  if (call.argsUnknown) return null
+  const raw = call.rawArguments.trim()
+  if (!raw) return '(模型未传参数)'
+  if (call.arguments !== undefined) {
+    try {
+      return JSON.stringify(call.arguments, null, 2)
+    } catch {
+      // 拿不动就退回原始串，总比整块渲染不出来强
+    }
+  }
+  return raw
+}
+
+/** 参数缺失或解析不了：这次调用基本注定失败，标出来。 */
+export function toolArgsBroken(call: ToolCallView): boolean {
+  if (call.argsUnknown) return false
+  return call.rawArguments.trim() === '' || call.arguments === undefined
 }
 
 export function formCall(block: Extract<Block, { type: 'tool' }>) {
@@ -30,12 +57,19 @@ export function toolLabel(block: Extract<Block, { type: 'tool' }>): string {
   return block.call.name
 }
 
-export function reasonLabel(reason: { kind: string; message?: string }): string {
+export function reasonLabel(reason: {
+  kind: string
+  message?: string
+  count?: number
+  last_tool?: string
+}): string {
   switch (reason.kind) {
     case 'failed':
       return `出错了：${reason.message ?? ''}`
     case 'max_rounds':
       return '工具轮数到上限'
+    case 'tool_failure_loop':
+      return `${reason.last_tool ?? '工具'} 连续失败 ${reason.count ?? 0} 次，已中止`
     case 'cancelled':
       return '已停止'
     case 'empty_response':
@@ -46,7 +80,8 @@ export function reasonLabel(reason: { kind: string; message?: string }): string 
 }
 
 export function errorRetryable(reason: { kind: string }): boolean {
-  return reason.kind !== 'max_rounds'
+  // 这两种重试大概率还是同样的结果，先让人去改配置或改提法
+  return reason.kind !== 'max_rounds' && reason.kind !== 'tool_failure_loop'
 }
 
 export function visibleBlocks(blocks: Block[], prefs: {
@@ -110,4 +145,29 @@ export function shouldSkipToolBlock(message: Message, blockIndex: number, blocks
   if (!message.toolBatch) return false
   if (blocks[blockIndex]?.type !== 'tool') return false
   return !isFirstToolBlockInBatch(message, blockIndex, blocks)
+}
+
+export function providerSearchLabel(
+  block: Extract<Block, { type: 'provider_search' }>,
+): string {
+  const q = formatSearchQueries(block)
+  switch (block.phase) {
+    case 'in_progress':
+      return '正在准备搜索…'
+    case 'searching':
+      return q ? `正在搜索：${q}` : '正在搜索…'
+    case 'completed':
+      return q ? `搜索完成：${q}` : '搜索完成'
+    case 'failed':
+      return q ? `搜索失败：${q}` : '搜索失败'
+  }
+}
+
+/** 原生搜索块的可读关键词（支持 `queries` 数组与旧 `query` 字段）。 */
+export function formatSearchQueries(
+  block: Pick<Extract<Block, { type: 'provider_search' }>, 'query' | 'queries'>,
+): string | null {
+  if (block.queries?.length) return block.queries.join(' · ')
+  if (block.query) return block.query
+  return null
 }

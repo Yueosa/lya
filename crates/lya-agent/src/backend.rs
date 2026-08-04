@@ -8,7 +8,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use lya_llm::{ChatEventStream, ChatMessage, LlmClient, LlmEndpoint, LlmError};
+use lya_llm::{
+    ApiMode, ChatEventStream, ChatStreamRequest, LlmClient, LlmEndpoint, LlmError,
+};
 use serde_json::Value;
 
 /// 发起一次流式 chat 的能力。
@@ -18,8 +20,9 @@ pub trait ChatBackend: Send + Sync {
     /// 参数取所有权而不是借用，省掉一层生命周期，反正每轮都要重新装配。
     fn chat_stream<'a>(
         &'a self,
+        mode: ApiMode,
         endpoint: &'a LlmEndpoint,
-        messages: Vec<ChatMessage>,
+        request: ChatStreamRequest,
         tools: Vec<Value>,
     ) -> Pin<Box<dyn Future<Output = Result<ChatEventStream, LlmError>> + Send + 'a>>;
 }
@@ -28,21 +31,25 @@ pub trait ChatBackend: Send + Sync {
 impl<T: ChatBackend + ?Sized> ChatBackend for Arc<T> {
     fn chat_stream<'a>(
         &'a self,
+        mode: ApiMode,
         endpoint: &'a LlmEndpoint,
-        messages: Vec<ChatMessage>,
+        request: ChatStreamRequest,
         tools: Vec<Value>,
     ) -> Pin<Box<dyn Future<Output = Result<ChatEventStream, LlmError>> + Send + 'a>> {
-        (**self).chat_stream(endpoint, messages, tools)
+        (**self).chat_stream(mode, endpoint, request, tools)
     }
 }
 
 impl ChatBackend for LlmClient {
     fn chat_stream<'a>(
         &'a self,
+        mode: ApiMode,
         endpoint: &'a LlmEndpoint,
-        messages: Vec<ChatMessage>,
+        request: ChatStreamRequest,
         tools: Vec<Value>,
     ) -> Pin<Box<dyn Future<Output = Result<ChatEventStream, LlmError>> + Send + 'a>> {
-        Box::pin(async move { LlmClient::chat_stream(self, endpoint, &messages, &tools).await })
+        Box::pin(async move {
+            LlmClient::chat_stream(self, mode, endpoint, request, &tools).await
+        })
     }
 }

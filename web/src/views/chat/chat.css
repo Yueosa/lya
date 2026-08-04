@@ -106,6 +106,43 @@
   padding: 0 20px;
 }
 
+.chat__provider-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.chat__provider-search-icon {
+  flex-shrink: 0;
+}
+
+/* 工具块里的「参数 / 结果」分段 */
+.chat__tool-args + .chat__tool-args {
+  margin-top: 8px;
+}
+
+.chat__tool-args-head {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-faint);
+  font-size: var(--text-xs);
+}
+
+.chat__tool-args-head--bad {
+  color: var(--danger);
+}
+
+.chat__tool-args-body {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .chat__row {
   display: flex;
   align-items: flex-start;

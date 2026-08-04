@@ -6,7 +6,7 @@ import { client, refreshRuntimeDefaults } from '../app/useChat'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
 import RawToml from '../ui/RawToml.vue'
-import StoragePie from '../ui/StoragePie.vue'
+import StorageBreakdown from '../ui/StorageBreakdown.vue'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
 import {
@@ -42,7 +42,9 @@ const storageLoading = ref(false)
 const form = ref({
   maxToolRounds: 32,
   maxParallelTools: 3,
+  maxConsecutiveToolFailures: 16,
   defaultWorkMode: 'agent',
+  defaultApiMode: 'completions',
   maxIndexEntries: 100,
   maxIndexChars: 4000,
   indexSummaryChars: 120,
@@ -99,7 +101,10 @@ function readForm(runtime: Record<string, unknown>): void {
   form.value = {
     maxToolRounds: Number(agent['max_tool_rounds'] ?? 32),
     maxParallelTools: Number(agent['max_parallel_tools'] ?? 3),
+    maxConsecutiveToolFailures: Number(agent['max_consecutive_tool_failures'] ?? 16),
     defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
+    defaultApiMode:
+      agent['default_api_mode'] === 'responses' ? 'responses' : 'completions',
     maxIndexEntries: Number(memory['max_index_entries'] ?? 100),
     maxIndexChars: Number(memory['max_index_chars'] ?? 4000),
     indexSummaryChars: Number(memory['index_summary_chars'] ?? 120),
@@ -150,7 +155,9 @@ async function saveRuntime(): Promise<void> {
       agent: {
         max_tool_rounds: form.value.maxToolRounds,
         max_parallel_tools: form.value.maxParallelTools,
+        max_consecutive_tool_failures: form.value.maxConsecutiveToolFailures,
         default_work_mode: form.value.defaultWorkMode,
+        default_api_mode: form.value.defaultApiMode,
       },
       tools: buildToolsEnabledPayload(globalMode.value, globalEnabled.value),
       memory: {
@@ -233,6 +240,11 @@ const workModeOptions: PickerOption[] = [
   { value: 'agent', label: '代理' },
 ]
 
+const apiModeOptions: PickerOption[] = [
+  { value: 'completions', label: 'Completions' },
+  { value: 'responses', label: 'Responses' },
+]
+
 const shellConfirmOptions: PickerOption[] = [
   { value: 'always', label: '每条都问' },
   { value: 'unknown', label: '已知只读的直接放行，其余都问' },
@@ -291,6 +303,10 @@ watch(tab, (id) => {
               <Picker v-model="form.defaultWorkMode" :options="workModeOptions" />
             </label>
             <label class="field">
+              <span class="field__label">新会话默认 API 栈</span>
+              <Picker v-model="form.defaultApiMode" :options="apiModeOptions" />
+            </label>
+            <label class="field">
               <span class="field__label">单轮最多调几次工具</span>
               <input v-model.number="form.maxToolRounds" class="input" type="number" min="1" max="200" />
             </label>
@@ -335,6 +351,16 @@ watch(tab, (id) => {
             <label class="field">
               <span class="field__label">同条消息并行 tool 上限</span>
               <input v-model.number="form.maxParallelTools" class="input" type="number" min="1" max="10" />
+            </label>
+            <label class="field">
+              <span class="field__label">连续失败几次就中止（0 = 不启用）</span>
+              <input
+                v-model.number="form.maxConsecutiveToolFailures"
+                class="input"
+                type="number"
+                min="0"
+                max="100"
+              />
             </label>
             <label class="field">
               <span class="field__label">bash 命令确认</span>
@@ -422,7 +448,7 @@ watch(tab, (id) => {
           <p v-else-if="storageError" class="page__error">{{ storageError }}</p>
           <template v-else-if="storage">
             <p class="page__hint">数据目录：<code>{{ storage.root }}</code></p>
-            <StoragePie :categories="storage.categories" :total-bytes="storage.total_bytes" />
+            <StorageBreakdown :report="storage" />
             <div class="row row--end">
               <button class="btn btn--sm" @click="loadStorage">刷新</button>
             </div>

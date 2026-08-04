@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { Mode } from '../../api/wire'
+import type { ApiMode, Mode } from '../../api/wire'
 import {
   client,
   defaultModel,
@@ -9,9 +9,11 @@ import {
   meta,
   models,
   readOnly,
+  setApiMode,
   setMode,
   setModel,
   setPersona,
+  state,
 } from '../../app/useChat'
 import Icon from '../../ui/Icon.vue'
 import type { IconKey } from '../../ui/icons'
@@ -51,13 +53,24 @@ watch(
   { immediate: true },
 )
 
+const API_MODES: { id: ApiMode; label: string }[] = [
+  { id: 'completions', label: 'Completions' },
+  { id: 'responses', label: 'Responses' },
+]
+
 const mode = computed(() => meta.value?.work_mode ?? 'agent')
+const apiMode = computed(() => meta.value?.api_mode ?? 'completions')
+const canEditApiMode = computed(
+  () => !readOnly.value && state.value.messages.length === 0,
+)
 
 const modelOptions = computed((): PickerOption[] => {
+  const stack = apiMode.value
   const opts: PickerOption[] = [
     { value: '', label: `默认（${defaultModel.value?.name ?? '配置默认'}）` },
   ]
   for (const model of models.value) {
+    if (!model.modes[stack]) continue
     opts.push({
       value: model.id,
       label: model.api_key_placeholder ? `${model.name}（未配密钥）` : model.name,
@@ -127,6 +140,28 @@ async function savePersona(): Promise<void> {
             <span>{{ item.label }}</span>
           </button>
         </div>
+      </section>
+
+      <section class="session-tab__section">
+        <h3 class="session-tab__title">API 栈</h3>
+        <div v-if="canEditApiMode" class="seg" role="tablist">
+          <button
+            v-for="item in API_MODES"
+            :key="item.id"
+            class="seg__btn"
+            :class="{ 'seg__btn--on': apiMode === item.id }"
+            @click="setApiMode(item.id)"
+          >
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+        <p v-if="canEditApiMode" class="session-tab__meta">发出第一条消息后锁定。</p>
+        <template v-else>
+          <p class="session-tab__lead">
+            {{ API_MODES.find((item) => item.id === apiMode)?.label ?? apiMode }}
+          </p>
+          <p class="session-tab__meta">已有消息后锁定；要换栈请新建会话。</p>
+        </template>
       </section>
 
       <section class="session-tab__section">

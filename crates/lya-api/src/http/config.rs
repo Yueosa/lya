@@ -7,6 +7,7 @@
 //! 每次写入都广播一条 `global` 事件：多端场景下，手机改了默认模型，网页端的设置页
 //! 得跟着变。这也是 LyaSSE 里 `global` 作用域的第一个真实产出方。
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use axum::Json;
@@ -37,6 +38,13 @@ pub struct ConfigView {
     pub core_readonly: bool,
 }
 
+/// 某个 API 栈在界面上的摘要。
+#[derive(Debug, Serialize)]
+pub struct MaskedModeView {
+    /// 此栈下的能力标签。
+    pub capabilities: Vec<String>,
+}
+
 /// 打码后的模型条目。
 ///
 /// 界面需要知道「配没配密钥」，但没必要把密钥本身发进浏览器。
@@ -52,12 +60,10 @@ pub struct MaskedModel {
     pub api_key_masked: String,
     /// 密钥是否还是模板占位符。
     pub api_key_placeholder: bool,
-    /// 能力标签。
-    pub capabilities: Vec<String>,
     /// 上下文窗口（token）；lya 元数据，不透传 API。
     pub context_window: Option<u64>,
-    /// 透传进请求体的其余参数。
-    pub params: serde_json::Map<String, Value>,
+    /// 按 API 栈划分的能力；前端据此过滤可选模型。
+    pub modes: BTreeMap<String, MaskedModeView>,
 }
 
 /// 前端启动时要拿的一次性信息。
@@ -297,14 +303,25 @@ fn mask(entry: &ModelEntry) -> MaskedModel {
             .collect();
         format!("{head}…{tail}")
     };
+    let modes = entry
+        .modes
+        .iter()
+        .map(|(name, cfg)| {
+            (
+                name.clone(),
+                MaskedModeView {
+                    capabilities: cfg.capabilities.clone(),
+                },
+            )
+        })
+        .collect();
     MaskedModel {
         id: entry.id.clone(),
         name: entry.name.clone(),
         base_url: entry.base_url.clone(),
         api_key_masked: masked,
         api_key_placeholder: entry.api_key_is_placeholder(),
-        capabilities: entry.effective_capabilities(),
         context_window: entry.context_window,
-        params: entry.params.clone(),
+        modes,
     }
 }

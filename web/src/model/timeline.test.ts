@@ -358,6 +358,55 @@ describe('buildTimeline', () => {
     expect(items.some((item) => item.kind === 'time-gap')).toBe(true)
   })
 
+  it('persisted responses_items show provider search after reload', () => {
+    reset()
+    const draft = record(
+      assistant('今天晴', {
+        lya: {
+          responses_items: [
+            {
+              type: 'web_search_call',
+              id: 'ws1',
+              status: 'completed',
+              action: { type: 'search', query: '天气' },
+            },
+          ],
+        },
+      }),
+    )
+    const items = buildTimeline({ messages: [draft] })
+    const message = messageAt(items, 0)
+    const block = message?.blocks.find((b) => b.type === 'provider_search')
+    expect(block?.type).toBe('provider_search')
+    if (block?.type === 'provider_search') {
+      expect(block.callId).toBe('ws1')
+      expect(block.query).toBe('天气')
+      expect(block.phase).toBe('completed')
+    }
+  })
+
+  it('running buffer shows provider search blocks', () => {
+    reset()
+    const draft = record(assistant(''))
+    const running: TurnBuffer = {
+      round: 1,
+      message_id: draft.id,
+      content: '',
+      reasoning: '',
+      calls: [],
+      provider_searches: [
+        { call_id: 'ws1', phase: 'searching', query: '天气' },
+      ],
+    }
+    const items = buildTimeline({ messages: [draft], running })
+    const message = messageAt(items, 0)
+    const block = message?.blocks.find((b) => b.type === 'provider_search')
+    expect(block?.type).toBe('provider_search')
+    if (block?.type === 'provider_search') {
+      expect(block.query).toBe('天气')
+    }
+  })
+
   it('失败要出错误项，否则界面转个圈就什么都没发生', () => {
     reset()
     const items = buildTimeline({

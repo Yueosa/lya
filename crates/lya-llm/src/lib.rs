@@ -1,6 +1,6 @@
 //! # lya-llm
 //!
-//! OpenAI 兼容的 `chat/completions` 客户端。
+//! OpenAI 兼容的 LLM 客户端：Chat Completions 与 Responses API 双栈。
 //!
 //! ## 设计目标
 //!
@@ -21,10 +21,12 @@
 //!
 //! ## 模块结构
 //!
-//! - [`endpoint`] — 模型端点（URL / Key / 额外 params）
-//! - [`message`] — 请求/响应侧的消息与 tool_call wire 类型
+//! - [`endpoint`] — 模型端点（URL / Key / 按栈 params）
+//! - [`message`] — Completions 请求/响应侧 wire 类型
+//! - [`responses`] — Responses API 请求体与 SSE 解析
+//! - [`request`] — [`ChatStreamRequest`] 统一入口
 //! - [`event`] — 流式事件与完成态拼装
-//! - [`sse`] — SSE `data:` 行解析
+//! - [`sse`] — Completions SSE `data:` 行解析
 //! - [`client`] — [`LlmClient`]
 //! - [`error`] — [`LlmError`]
 
@@ -35,10 +37,16 @@ pub mod endpoint;
 pub mod error;
 pub mod event;
 pub mod message;
+pub mod request;
+pub mod responses;
 pub mod sse;
 
 pub use client::{ChatEventStream, LlmClient};
-pub use endpoint::LlmEndpoint;
+pub use endpoint::{ApiMode, CAPABILITY_WEB_SEARCH, LlmEndpoint};
 pub use error::LlmError;
-pub use event::{ChatCompletion, CompletionAssembler, StreamEvent, ToolCallDelta};
+pub use event::{
+    ChatCompletion, CompletionAssembler, StreamEvent, ToolCallDelta, WebSearchStatus,
+};
 pub use message::{build_chat_body, ChatMessage, Role, ToolCall};
+pub use request::ChatStreamRequest;
+pub use responses::build_responses_body;

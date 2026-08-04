@@ -72,7 +72,8 @@ function when(session: SessionMeta): string {
 }
 
 function subtitle(session: SessionMeta): string {
-  const bits = [session.work_mode, modelLabel(session), when(session)]
+  const stack = session.api_mode === 'responses' ? 'Responses' : 'Completions'
+  const bits = [stack, session.work_mode, modelLabel(session), when(session)]
   if (session.status === 'archived') bits.push('已归档')
   return bits.join(' · ')
 }
@@ -312,10 +313,9 @@ async function deleteSelected(): Promise<void> {
 }
 
 .sessions__actions {
-  flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
 .sessions__actions-row {

@@ -10,3 +10,6 @@ description = "lya 数据目录占用统计（只读）"
 lya-config = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

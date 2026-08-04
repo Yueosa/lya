@@ -19,7 +19,7 @@ export interface Prefs {
   /** 隐藏系统通知（含模式变更）。 */
   hideNotices: boolean
   followStream: boolean
-  /** 流式结束后自动收起思考/工具块。 */
+  /** 思考块流式结束后自动收起；工具块默认收起，不受此项影响。 */
   autoCollapseAside: boolean
   /** 超过此行数的侧栏块默认折叠（流式中仍展开）。 */
   asideFoldLineThreshold: number

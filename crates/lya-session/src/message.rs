@@ -238,6 +238,9 @@ pub struct LyaExtras {
     /// 其它元数据。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
+    /// Responses API 原生 output items（如 `web_search_call`），供回灌与 UI 回放。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub responses_items: Vec<Value>,
 }
 
 /// 持久化消息 JSON 根对象。

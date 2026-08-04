@@ -1,17 +1,61 @@
 //! 模型清单（`models.toml`）。
 //!
-//! 这是**资源目录**，不是配置层级：它列出「有哪些模型可用」，而「当前用哪个」
-//! 是 `runtime.toml` 的 `default_model` 或会话自己的选择。
+//! 每条模型按 **API 栈**（`completions` / `responses`）分别声明能力与透传参数。
+//! 旧版顶层 `capabilities` 与扁平透传字段已删除——格式不对就加载失败。
+
+use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::error::ConfigError;
 
-/// 文本生成，缺省能力。
+/// 文本生成。
 pub const CAPABILITY_TEXT: &str = "text";
 /// 原生看图。
 pub const CAPABILITY_VISION: &str = "vision";
+/// Responses 原生联网（provider 侧 `web_search`）。
+pub const CAPABILITY_WEB_SEARCH: &str = "web_search";
+
+/// LLM 调用栈。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiMode {
+    /// OpenAI Chat Completions（`/chat/completions`）。
+    Completions,
+    /// OpenAI Responses API（`/responses`）。
+    Responses,
+}
+
+impl ApiMode {
+    /// 配置 / 数据库里的字符串键。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Completions => "completions",
+            Self::Responses => "responses",
+        }
+    }
+
+    /// 解析；非法值返回 `None`。
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "completions" => Some(Self::Completions),
+            "responses" => Some(Self::Responses),
+            _ => None,
+        }
+    }
+}
+
+/// 某个 API 栈下的配置。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModeConfig {
+    /// 此栈下模型具备的能力。
+    pub capabilities: Vec<String>,
+    /// 透传进该 API 请求体的字段（应含 `model`）。
+    #[serde(default)]
+    pub params: Map<String, Value>,
+}
 
 /// `models.toml` 的内容。
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
@@ -37,11 +81,19 @@ impl ModelCatalog {
         self.models.iter().map(|entry| entry.id.as_str()).collect()
     }
 
-    /// 找一个具备某项能力的模型。
-    ///
-    /// 视觉工具靠它挑「谁能看图」，而不必让用户再配一遍。
-    pub fn first_with(&self, capability: &str) -> Option<&ModelEntry> {
-        self.models.iter().find(|entry| entry.can(capability))
+    /// 在指定栈下具备某项能力的第一个模型。
+    pub fn first_with(&self, mode: ApiMode, capability: &str) -> Option<&ModelEntry> {
+        self.models
+            .iter()
+            .find(|entry| entry.can(mode, capability))
+    }
+
+    /// 列出在指定栈下可用的模型。
+    pub fn for_api_mode(&self, mode: ApiMode) -> Vec<&ModelEntry> {
+        self.models
+            .iter()
+            .filter(|entry| entry.supports(mode))
+            .collect()
     }
 
     /// 结构性校验：字段非空、id 不重复。
@@ -59,11 +111,8 @@ impl ModelCatalog {
 }
 
 /// 一个模型条目。
-///
-/// 固定字段会校验，**其余字段原样透传进请求体**——模型特有的参数
-/// （`reasoning_effort`、`thinking` 之类）直接写在同一张表里就行，加新参数
-/// 不需要改代码。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelEntry {
     /// 内部标识，被 `default_model` 与会话引用。
     pub id: String,
@@ -73,27 +122,14 @@ pub struct ModelEntry {
     pub base_url: String,
     /// API 密钥。
     pub api_key: String,
-    /// 这个模型会干什么，如 `text` / `vision`。
-    ///
-    /// 用自由字符串而不是固定枚举：供应商冒出新能力时（视频、语音、embedding）
-    /// 加个标签就行，不用改代码。缺省视作 `["text"]`。
-    ///
-    /// 它让「让文本模型看图」这类错配能在发请求之前就被挡下来，也让界面能标出
-    /// 每个模型的本事。
-    #[serde(default)]
-    pub capabilities: Vec<String>,
-    /// 模型上下文窗口（token 量级），供 lya 上下文管理器使用，**不会**透传进 API。
-    ///
-    /// 与 `max_tokens`（单次输出上限，透传字段）不同：这是 lya 侧的输入预算元数据。
+    /// 模型上下文窗口（token 量级）；lya 元数据，**不**透传 API。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,
-    /// 透传字段，直接作为请求体的一部分（应包含 `model`）。
-    #[serde(flatten)]
-    pub params: Map<String, Value>,
+    /// 按 API 栈划分的配置；至少一项。
+    pub modes: BTreeMap<String, ModeConfig>,
 }
 
 impl ModelEntry {
-    /// 结构性校验：固定字段都不能为空。
     fn validate(&self) -> Result<(), ConfigError> {
         for (field, value) in [
             ("id", &self.id),
@@ -108,32 +144,105 @@ impl ModelEntry {
                 )));
             }
         }
+        if self.modes.is_empty() {
+            return Err(ConfigError::Invalid(format!(
+                "模型 {} 至少声明一个 [models.modes.*] 段",
+                self.id
+            )));
+        }
+        for (key, mode) in &self.modes {
+            let Some(api_mode) = ApiMode::parse(key) else {
+                return Err(ConfigError::Invalid(format!(
+                    "模型 {} 的 modes 键 `{key}` 无效，只允许 completions / responses",
+                    self.id
+                )));
+            };
+            mode.validate(&self.id, api_mode)?;
+        }
         Ok(())
     }
 
-    /// 是否具备某项能力；没写 `capabilities` 时按纯文本模型算。
-    pub fn can(&self, capability: &str) -> bool {
-        if self.capabilities.is_empty() {
-            return capability == CAPABILITY_TEXT;
-        }
-        self.capabilities.iter().any(|item| item == capability)
+    /// 是否声明了某个 API 栈。
+    pub fn supports(&self, mode: ApiMode) -> bool {
+        self.modes.contains_key(mode.as_str())
     }
 
-    /// 生效的能力清单（补上缺省值）。
-    pub fn effective_capabilities(&self) -> Vec<String> {
-        if self.capabilities.is_empty() {
-            vec![CAPABILITY_TEXT.to_string()]
-        } else {
-            self.capabilities.clone()
-        }
+    /// 某栈下的配置。
+    pub fn mode(&self, mode: ApiMode) -> Option<&ModeConfig> {
+        self.modes.get(mode.as_str())
+    }
+
+    /// 某栈下是否具备某项能力。
+    pub fn can(&self, mode: ApiMode, capability: &str) -> bool {
+        self.mode(mode)
+            .is_some_and(|cfg| cfg.capabilities.iter().any(|item| item == capability))
+    }
+
+    /// 某栈下的透传 params。
+    pub fn params_for(&self, mode: ApiMode) -> Map<String, Value> {
+        self.mode(mode)
+            .map(|cfg| cfg.params.clone())
+            .unwrap_or_default()
+    }
+
+    /// 某栈下的能力清单。
+    pub fn capabilities_for(&self, mode: ApiMode) -> Vec<String> {
+        self.mode(mode)
+            .map(|cfg| cfg.capabilities.clone())
+            .unwrap_or_default()
     }
 
     /// `api_key` 是否还是模板里的占位符。
-    ///
-    /// 模板生成的是 `<在这里填入…>` 这种尖括号包裹的提示文本，用户没改就
-    /// 直接发请求只会拿到一个莫名其妙的 401，不如启动时就说清楚。
     pub fn api_key_is_placeholder(&self) -> bool {
         let key = self.api_key.trim();
         key.starts_with('<') && key.ends_with('>')
     }
+}
+
+impl ModeConfig {
+    fn validate(&self, model_id: &str, mode: ApiMode) -> Result<(), ConfigError> {
+        if self.capabilities.is_empty() {
+            return Err(ConfigError::Invalid(format!(
+                "模型 {model_id} 的 modes.{} 缺少 capabilities",
+                mode.as_str()
+            )));
+        }
+        if !self.capabilities.iter().any(|c| c == CAPABILITY_TEXT) {
+            return Err(ConfigError::Invalid(format!(
+                "模型 {model_id} 的 modes.{} 须包含 text 能力",
+                mode.as_str()
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// 校验会话所选模型与 API 栈是否匹配。
+pub fn validate_session_binding(
+    catalog: &ModelCatalog,
+    model_id: Option<&str>,
+    default_model_id: &str,
+    api_mode: ApiMode,
+) -> Result<String, ConfigError> {
+    let resolved = model_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(default_model_id);
+    let entry = catalog.get(resolved).ok_or_else(|| {
+        ConfigError::Invalid(format!("未知模型 id：{resolved}"))
+    })?;
+    if !entry.supports(api_mode) {
+        let hint = match api_mode {
+            ApiMode::Responses => {
+                "该模型未在 models.toml 配置 modes.responses（例如 Pro 仅 Completions）"
+            }
+            ApiMode::Completions => "该模型未在 models.toml 配置 modes.completions",
+        };
+        return Err(ConfigError::Invalid(format!(
+            "模型「{}」不支持 {} 栈：{hint}。请换支持该栈的模型，或新建使用其他 API 栈的会话",
+            entry.name,
+            api_mode.as_str(),
+        )));
+    }
+    Ok(resolved.to_string())
 }

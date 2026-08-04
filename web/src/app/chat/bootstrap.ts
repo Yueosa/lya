@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import type { ImageContext } from '../../model/markdown'
 import { toast } from '../../ui/useToast'
 import { client } from './client'
-import { currentId, defaultModel, defaultWorkMode, imageBootstrap } from './state'
+import { currentId, defaultModel, defaultWorkMode, defaultApiMode, imageBootstrap } from './state'
 
 /** Markdown 渲染用的图片上下文（含当前会话 id）。 */
 export const imageContext = computed<ImageContext | null>(() => {
@@ -31,7 +31,7 @@ export async function bootstrap(): Promise<void> {
   }
 }
 
-/** 从 runtime.toml 刷新默认工作模式。 */
+/** 从 runtime.toml 刷新默认工作模式与 API 栈。 */
 export async function refreshRuntimeDefaults(): Promise<void> {
   try {
     const cfg = await client.config()
@@ -39,6 +39,10 @@ export async function refreshRuntimeDefaults(): Promise<void> {
     const mode = agent['default_work_mode']
     if (mode === 'ask' || mode === 'edit' || mode === 'agent') {
       defaultWorkMode.value = mode
+    }
+    const apiMode = agent['default_api_mode']
+    if (apiMode === 'completions' || apiMode === 'responses') {
+      defaultApiMode.value = apiMode
     }
   } catch {
     // 读不到就保持上次值

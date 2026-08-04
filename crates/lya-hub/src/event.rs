@@ -128,6 +128,18 @@ pub fn from_agent(session_id: &str, seq: u64, event: &AgentEvent) -> Option<Enve
                 "review_total": review_total,
             }),
         ),
+        AgentEvent::ProviderSearch {
+            call_id,
+            phase,
+            query,
+        } => (
+            "provider_search",
+            json!({
+                "call_id": call_id,
+                "phase": phase.as_str(),
+                "query": query,
+            }),
+        ),
         AgentEvent::TurnEnd { reason } => ("turn_end", json!({ "reason": turn_reason(reason) })),
     };
     Some(Envelope::session(session_id, kind, seq, payload))
@@ -174,6 +186,14 @@ pub fn notify_global(
                 }),
             )),
             TurnEndReason::MaxRounds => Some(("notify_max_rounds", base)),
+            TurnEndReason::ToolFailureLoop { count, last_tool } => Some((
+                "notify_failed",
+                json!({
+                    "session_id": session_id,
+                    "session_title": session_title,
+                    "message": format!("`{last_tool}` 连续失败 {count} 次，已中止本轮"),
+                }),
+            )),
             TurnEndReason::AwaitingHuman
             | TurnEndReason::Cancelled
             | TurnEndReason::EmptyResponse => None,
@@ -196,6 +216,11 @@ fn turn_reason(reason: &TurnEndReason) -> Value {
         TurnEndReason::Completed => json!({ "kind": "completed" }),
         TurnEndReason::AwaitingHuman => json!({ "kind": "awaiting_human" }),
         TurnEndReason::MaxRounds => json!({ "kind": "max_rounds" }),
+        TurnEndReason::ToolFailureLoop { count, last_tool } => json!({
+            "kind": "tool_failure_loop",
+            "count": count,
+            "last_tool": last_tool,
+        }),
         TurnEndReason::Cancelled => json!({ "kind": "cancelled" }),
         TurnEndReason::EmptyResponse => json!({ "kind": "empty_response" }),
         TurnEndReason::Failed(message) => json!({ "kind": "failed", "message": message }),
@@ -299,6 +324,25 @@ mod tests {
             },
         )
         .is_none());
+    }
+
+    #[test]
+    fn provider_search_event_maps_to_sse() {
+        use lya_agent::{AgentEvent, ProviderSearchPhase};
+        let envelope = from_agent(
+            "abc",
+            6,
+            &AgentEvent::ProviderSearch {
+                call_id: "ws1".into(),
+                phase: ProviderSearchPhase::Searching,
+                query: Some("天气".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(envelope.kind, "provider_search");
+        assert_eq!(envelope.payload["call_id"], "ws1");
+        assert_eq!(envelope.payload["phase"], "searching");
+        assert_eq!(envelope.payload["query"], "天气");
     }
 
     #[test]

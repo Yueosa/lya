@@ -10,6 +10,7 @@
  */
 
 import type {
+  ApiMode,
   Envelope,
   LyaEvent,
   MessageRecord,
@@ -18,6 +19,7 @@ import type {
   SessionTree,
   Snapshot,
   ToolBatchCall,
+  ProviderSearchState,
   TurnEndReason,
 } from './wire'
 
@@ -45,6 +47,8 @@ export interface CreateSession {
   title?: string
   work_mode?: Mode
   model_id?: string | null
+  /** 未传则 completions。 */
+  api_mode?: ApiMode
 }
 
 /** 会话可改字段；不给的字段保持不变。 */
@@ -57,6 +61,8 @@ export interface PatchSession {
   enabled_tools?: string[] | null
   /** 显式给 null 表示回退到全局人设。 */
   persona?: string | null
+  /** 空会话可改；有消息后锁定。 */
+  api_mode?: ApiMode
   /** 归档或取回。归档后只能回看，后端会拒绝一切写入。 */
   status?: 'active' | 'archived'
 }
@@ -88,6 +94,11 @@ export type HitlReply =
   | { kind: 'confirm'; approved: boolean; note?: string }
   | { kind: 'mode_change'; approved: boolean }
 
+/** 某个 API 栈下的能力摘要。 */
+export interface ModelModeInfo {
+  capabilities: string[]
+}
+
 /** 一个模型（密钥已脱敏）。 */
 export interface ModelInfo {
   id: string
@@ -96,11 +107,10 @@ export interface ModelInfo {
   api_key_masked: string
   /** 还是模板里的占位符，说明这个模型不能用。 */
   api_key_placeholder: boolean
-  capabilities: string[]
   /** 输入上下文上限（token）；lya 元数据，不透传 API。 */
   context_window?: number | null
-  /** models.toml 里透传的请求体字段（含 model 名等）。 */
-  params?: Record<string, unknown>
+  /** 按 API 栈划分；前端按会话 api_mode 过滤可选模型。 */
+  modes: Partial<Record<ApiMode, ModelModeInfo>>
 }
 
 /** 一个工具。`enabled` 只在按会话查询时才有。 */
@@ -141,18 +151,36 @@ export interface ConfigView {
   core_readonly: boolean
 }
 
-/** 一项磁盘占用分类。 */
-export interface CategoryUsage {
+/** Local 缓存占用（含硬链接去重）。 */
+export interface LocalCacheStats {
+  logical_bytes: number
+  physical_bytes: number
+  shared_bytes: number
+  file_count: number
+  linked_file_count: number
+}
+
+/** Web 缓存占用。 */
+export interface WebCacheStats {
+  bytes: number
+  file_count: number
+}
+
+/** 树形占用节点。 */
+export interface UsageSection {
   id: string
   label: string
   bytes: number
+  children?: UsageSection[]
+  local?: LocalCacheStats
+  web?: WebCacheStats
 }
 
 /** `GET /api/storage/stats` 响应。 */
 export interface UsageReport {
   root: string
   total_bytes: number
-  categories: CategoryUsage[]
+  sections: UsageSection[]
 }
 
 /** 探测一个模型能不能连通。 */
@@ -491,6 +519,7 @@ const EVENT_TYPES = [
   'call_finished',
   'tool_batch_started',
   'await_human',
+  'provider_search',
   'turn_end',
 ] as const satisfies readonly LyaEvent['type'][]
 
@@ -545,6 +574,15 @@ export function toEvent(envelope: Envelope): LyaEvent | null {
       if (p['batch_id'] != null) event.batch_id = p['batch_id'] as string
       if (p['review_index'] != null) event.review_index = p['review_index'] as number
       if (p['review_total'] != null) event.review_total = p['review_total'] as number
+      return event
+    }
+    case 'provider_search': {
+      const event: Extract<LyaEvent, { type: 'provider_search' }> = {
+        type: 'provider_search',
+        call_id: p['call_id'] as string,
+        phase: p['phase'] as ProviderSearchState['phase'],
+      }
+      if (p['query'] != null) event.query = p['query'] as string
       return event
     }
     case 'turn_end':

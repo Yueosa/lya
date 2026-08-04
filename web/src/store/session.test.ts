@@ -70,6 +70,7 @@ describe('applySnapshot', () => {
         work_mode: 'agent',
         persona: null,
         model_id: null,
+        api_mode: 'completions',
         enabled_tools: null,
         created_at: '2026-08-01T12:00:00Z',
         updated_at: '2026-08-01T12:00:00Z',
@@ -257,6 +258,17 @@ describe('applyEvent', () => {
       { type: 'round_started', round: 1 },
     ])
     expect(state.endReason).toBeNull()
+  })
+
+  it('provider_search updates running buffer', () => {
+    const state = applyEvents(emptyState(), [
+      { type: 'round_started', round: 1 },
+      { type: 'provider_search', call_id: 'ws1', phase: 'searching', query: 'Rust' },
+      { type: 'provider_search', call_id: 'ws1', phase: 'completed', query: 'Rust' },
+    ])
+    expect(state.running?.provider_searches).toEqual([
+      { call_id: 'ws1', phase: 'completed', query: 'Rust' },
+    ])
   })
 
   it('不改动传进来的状态', () => {

@@ -58,21 +58,27 @@ impl Mode {
     ///
     /// - `names = None`：从注册中心全部工具中按权限筛选
     /// - `names = Some(...)`：先限制为 session 启用列表，再按权限筛选
-    pub fn tools(self, registry: &ToolRegistry, names: Option<&[&str]>) -> ToolBundle {
-        registry.bundle(names, self.permission())
+    pub fn tools(
+        self,
+        registry: &ToolRegistry,
+        names: Option<&[&str]>,
+        exclude: &[&str],
+    ) -> ToolBundle {
+        registry.bundle(names, self.permission(), exclude)
     }
 
     /// 一次性解析当前模式所需的提示词与工具材料。
-    ///
-    /// 返回值不直接依赖 `lya-prompt`：上层应把 `mode_prompt` 放入
-    /// `PromptInput::mode_section`，把 `tools.prompt` 放入
-    /// `PromptInput::tool_section`，把 `tools.schemas` 交给 `lya-llm`。
-    pub fn resolve(self, registry: &ToolRegistry, names: Option<&[&str]>) -> ModeBundle {
+    pub fn resolve(
+        self,
+        registry: &ToolRegistry,
+        names: Option<&[&str]>,
+        exclude: &[&str],
+    ) -> ModeBundle {
         ModeBundle {
             mode: self,
             permission: self.permission(),
             mode_prompt: self.prompt_section().to_string(),
-            tools: self.tools(registry, names),
+            tools: self.tools(registry, names, exclude),
         }
     }
 }
@@ -213,15 +219,15 @@ mod tests {
     fn filters_tools_by_mode() {
         let registry = registry();
         assert_eq!(
-            schema_names(&Mode::Ask.resolve(&registry, None).tools),
+            schema_names(&Mode::Ask.resolve(&registry, None, &[]).tools),
             vec!["reader"]
         );
         assert_eq!(
-            schema_names(&Mode::Edit.resolve(&registry, None).tools),
+            schema_names(&Mode::Edit.resolve(&registry, None, &[]).tools),
             vec!["reader", "writer"]
         );
         assert_eq!(
-            schema_names(&Mode::Agent.resolve(&registry, None).tools),
+            schema_names(&Mode::Agent.resolve(&registry, None, &[]).tools),
             vec!["reader", "runner", "writer"]
         );
     }
@@ -230,7 +236,7 @@ mod tests {
     fn intersects_session_names_and_permission() {
         let registry = registry();
         let enabled = ["reader", "runner"];
-        let edit = Mode::Edit.resolve(&registry, Some(&enabled));
+        let edit = Mode::Edit.resolve(&registry, Some(&enabled), &[]);
         assert_eq!(schema_names(&edit.tools), vec!["reader"]);
     }
 

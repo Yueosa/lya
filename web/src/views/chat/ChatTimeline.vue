@@ -35,11 +35,14 @@ import {
   lineCount,
   reasonLabel,
   shouldSkipToolBlock,
+  toolArgsBroken,
+  toolArgsText,
   toolBatchLabel,
   toolBlocksInMessage,
   toolLabel,
   toolLineCount,
   visibleBlocks,
+  providerSearchLabel,
 } from './chatBlockHelpers'
 import { state } from '../../app/chat/state'
 
@@ -187,6 +190,7 @@ function onEditKey(event: KeyboardEvent): void {
           <CollapsibleBlock
             icon="reasoning"
             label="思考"
+            streaming
             :busy="item.message.status === 'streaming'"
             :auto-collapse="prefs.autoCollapseAside"
             :fold-threshold="prefs.asideFoldLineThreshold"
@@ -194,6 +198,16 @@ function onEditKey(event: KeyboardEvent): void {
           >
             {{ block.text }}
           </CollapsibleBlock>
+        </div>
+
+        <div
+          v-else-if="block.type === 'provider_search'"
+          class="chat__aside chat__provider-search"
+          :class="asideMotionClass()"
+          :style="motionStyle(timelineBase + index)"
+        >
+          <span class="chat__provider-search-icon">🔍</span>
+          <span>{{ providerSearchLabel(block) }}</span>
         </div>
 
         <div
@@ -219,7 +233,7 @@ function onEditKey(event: KeyboardEvent): void {
                 :label="toolLabel(tb)"
                 :busy="!tb.call.result"
                 :failed="tb.call.result?.ok === false"
-                :auto-collapse="true"
+                :auto-collapse="prefs.autoCollapseAside"
                 :fold-threshold="prefs.asideFoldLineThreshold"
                 :content-lines="toolLineCount(tb)"
               >
@@ -228,7 +242,19 @@ function onEditKey(event: KeyboardEvent): void {
                   :form="formCall(tb)!"
                   :pending="!tb.call.result"
                 />
-                <template v-else>{{ tb.call.result?.content ?? '执行中…' }}</template>
+                <template v-else>
+                  <div v-if="toolArgsText(tb.call)" class="chat__tool-args">
+                    <span class="chat__tool-args-head" :class="{ 'chat__tool-args-head--bad': toolArgsBroken(tb.call) }">
+                      参数
+                    </span>
+                    <pre class="chat__tool-args-body">{{ toolArgsText(tb.call) }}</pre>
+                  </div>
+                  <div v-if="tb.call.result" class="chat__tool-args">
+                    <span class="chat__tool-args-head">结果</span>
+                    <pre class="chat__tool-args-body">{{ tb.call.result.content }}</pre>
+                  </div>
+                  <template v-else>执行中…</template>
+                </template>
               </CollapsibleBlock>
             </div>
           </CollapsibleBlock>
@@ -247,7 +273,19 @@ function onEditKey(event: KeyboardEvent): void {
               :form="formCall(block)!"
               :pending="!block.call.result"
             />
-            <template v-else>{{ block.call.result?.content ?? '执行中…' }}</template>
+            <template v-else>
+              <div v-if="toolArgsText(block.call)" class="chat__tool-args">
+                <span class="chat__tool-args-head" :class="{ 'chat__tool-args-head--bad': toolArgsBroken(block.call) }">
+                  参数
+                </span>
+                <pre class="chat__tool-args-body">{{ toolArgsText(block.call) }}</pre>
+              </div>
+              <div v-if="block.call.result" class="chat__tool-args">
+                <span class="chat__tool-args-head">结果</span>
+                <pre class="chat__tool-args-body">{{ block.call.result.content }}</pre>
+              </div>
+              <template v-else>执行中…</template>
+            </template>
           </CollapsibleBlock>
         </div>
 

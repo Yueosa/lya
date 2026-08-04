@@ -19,11 +19,16 @@ const LIMITS: Record<string, ToolLimitRow[]> = {
     { label: '默认条目 / 上限', value: '100 / 1,000' },
     { label: '扫描深度上限', value: '8' },
   ],
-  web_search: [{ label: '默认结果 / 上限', value: '8 / 20' }],
+  web_search: [
+    { label: '默认结果 / 上限', value: '8 / 20' },
+    { label: 'Completions 会话', value: 'DuckDuckGo 搜索' },
+    { label: 'Responses 会话', value: '不可用（改由模型原生搜索）' },
+  ],
   web_fetch: [
     { label: '默认字符 / 上限', value: '6,000 / 20,000' },
     { label: '下载体积上限', value: '4 MB' },
     { label: '内网 URL', value: '需 HITL 确认' },
+    { label: 'API 栈', value: 'Completions / Responses 均可用' },
   ],
   bash: [
     { label: '默认超时 / 上限', value: '30s / 600s' },

@@ -10,6 +10,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use futures_util::stream::Stream;
 use lya_action::FormAnswer;
+use lya_config::{ApiMode, Config, validate_session_binding};
 use lya_session::{CreateSession, SessionMeta, SessionStatus};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -37,6 +38,9 @@ pub struct CreateBody {
     /// 模型 id；不给则用配置默认。
     #[serde(default)]
     pub model_id: Option<String>,
+    /// API 栈；不给则用 `runtime.agent.default_api_mode`。
+    #[serde(default)]
+    pub api_mode: Option<ApiMode>,
 }
 
 /// 新建会话。
@@ -44,10 +48,27 @@ pub async fn create(
     State(hub): Hub,
     Json(body): Json<CreateBody>,
 ) -> Result<(StatusCode, Json<SessionMeta>), ApiError> {
+    let config = load_config()?;
+    let default_id = config
+        .default_model()
+        .map(|entry| entry.id.as_str())
+        .unwrap_or("");
+    let api_mode = body
+        .api_mode
+        .unwrap_or(config.runtime.agent.default_api_mode);
+    validate_session_binding(
+        &config.models,
+        body.model_id.as_deref(),
+        default_id,
+        api_mode,
+    )
+    .map_err(invalid_config)?;
+
     let meta = hub.agent().sessions().create_session(CreateSession {
         title: body.title,
         work_mode: body.work_mode.unwrap_or_default(),
         model_id: body.model_id,
+        api_mode: Some(api_mode.as_str().into()),
         ..Default::default()
     })?;
     Ok((StatusCode::CREATED, Json(meta)))
@@ -76,6 +97,9 @@ pub struct PatchBody {
     /// 会话专属人设；显式给 `null` 表示回退到全局默认。
     #[serde(default, deserialize_with = "double_option")]
     pub persona: Option<Option<String>>,
+    /// API 栈；仅空会话可改，有消息后锁定。
+    #[serde(default)]
+    pub api_mode: Option<ApiMode>,
 }
 
 /// 区分「没给这个字段」和「给了 null」。
@@ -96,15 +120,47 @@ pub async fn patch(
     let agent = hub.agent();
     let sessions = agent.sessions();
 
+    // 栈和模型一起校验：换栈往往要顺带换模型，分开校验会卡在「旧模型 + 新栈」
+    // 这个根本不会落库的中间态上。
+    if body.api_mode.is_some() || body.model_id.is_some() {
+        if body.api_mode.is_some() && !sessions.session_is_empty(&id)? {
+            return Err(ApiError::bad_request(
+                "已有消息的会话不能改 API 栈；要换栈请新建会话",
+            ));
+        }
+        let session = sessions
+            .get_session(&id)?
+            .ok_or_else(|| HubError::NotFound(id.clone()))?;
+        let api_mode = body
+            .api_mode
+            .unwrap_or_else(|| ApiMode::parse(&session.api_mode).unwrap_or(ApiMode::Completions));
+        let model_id = match &body.model_id {
+            Some(explicit) => explicit.clone(),
+            None => session.model_id.clone(),
+        };
+
+        let config = load_config()?;
+        let default_id = config
+            .default_model()
+            .map(|entry| entry.id.as_str())
+            .unwrap_or("");
+        validate_session_binding(&config.models, model_id.as_deref(), default_id, api_mode)
+            .map_err(invalid_config)?;
+
+        if let Some(mode) = body.api_mode {
+            sessions.set_api_mode(&id, mode.as_str())?;
+        }
+        if body.model_id.is_some() {
+            sessions.set_model(&id, model_id.as_deref())?;
+        }
+    }
+
     if let Some(title) = body.title {
         sessions.set_title(&id, title)?;
     }
     if let Some(mode) = body.work_mode {
         // 走 agent 而不是仓储：它会在树上留一条模式变更说明
         agent.switch_mode(&id, mode)?;
-    }
-    if let Some(model_id) = body.model_id {
-        sessions.set_model(&id, model_id.as_deref())?;
     }
     if let Some(tools) = body.enabled_tools {
         sessions.set_enabled_tools(&id, tools.as_deref())?;
@@ -456,5 +512,16 @@ impl IntoResponse for ApiError {
             }),
         )
             .into_response()
+    }
+}
+
+fn load_config() -> Result<Config, ApiError> {
+    Config::load().map_err(invalid_config)
+}
+
+fn invalid_config(err: lya_config::ConfigError) -> ApiError {
+    ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: err.to_string(),
     }
 }

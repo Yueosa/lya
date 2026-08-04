@@ -43,6 +43,14 @@ pub const TIME_ANCHOR: &str = "\
 assistant 回复不要带这种前缀；根据对话里出现的时间前缀自行理解当前节奏即可。
 ";
 
+/// Responses 会话的原生联网说明。
+///
+/// 仅在 `api_mode == responses` 且模型声明 `web_search` 能力时注入。
+pub const RESPONSES_NATIVE_SEARCH: &str = "\
+=== [Responses] 原生联网 ===
+当前会话使用 Responses API 的内置联网。需要查资料时由模型自动搜索，**不要**调用 web_search 工具。
+若已知 URL 并需要阅读正文，仍可使用 web_fetch。";
+
 /// 默认人设（可被全局配置或会话 persona 覆盖）。
 ///
 /// 仅语气与风格；行为规则以系统/自我/工具/模式为准。

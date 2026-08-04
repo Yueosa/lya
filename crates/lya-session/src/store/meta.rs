@@ -14,6 +14,10 @@ impl SessionStore {
 
     /// 创建会话，返回新会话的元数据快照。
     pub fn create_session(&self, req: CreateSession) -> Result<SessionMeta, SessionError> {
+        let api_mode = req
+            .api_mode
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| "completions".into());
         let meta = SessionMeta {
             id: Uuid::new_v4().to_string(),
             title: req.title,
@@ -22,6 +26,7 @@ impl SessionStore {
             work_mode: req.work_mode,
             persona: req.persona,
             model_id: req.model_id,
+            api_mode,
             enabled_tools: req.enabled_tools,
             created_at: Utc::now(),
             updated_at: Utc::now(),
@@ -36,8 +41,8 @@ impl SessionStore {
             conn.execute(
                 "INSERT INTO sessions (
                      id, title, status, active_leaf_id, work_mode, persona, model_id,
-                     enabled_tools_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9)",
+                     api_mode, enabled_tools_json, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![
                     meta.id,
                     meta.title,
@@ -45,6 +50,7 @@ impl SessionStore {
                     meta.work_mode.as_str(),
                     meta.persona,
                     meta.model_id,
+                    meta.api_mode,
                     tools_json,
                     meta.created_at.to_rfc3339(),
                     meta.updated_at.to_rfc3339(),
@@ -70,7 +76,7 @@ impl SessionStore {
         self.db.read(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
-                        enabled_tools_json, created_at, updated_at
+                        api_mode, enabled_tools_json, created_at, updated_at
                  FROM sessions
                  WHERE status = ?1
                  ORDER BY updated_at DESC",
@@ -168,6 +174,30 @@ impl SessionStore {
             conn.execute(
                 "UPDATE sessions SET title = ?1, updated_at = ?2 WHERE id = ?3",
                 params![title, now, session_id],
+            )?;
+            Ok(())
+        })
+    }
+
+    /// 会话是否还没有任何消息（此时允许改 API 栈）。
+    pub fn session_is_empty(&self, session_id: &str) -> Result<bool, SessionError> {
+        self.db.read(|conn| {
+            ensure_session(conn, session_id)?;
+            let count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE session_id = ?1",
+                [session_id],
+                |row| row.get(0),
+            )?;
+            Ok(count == 0)
+        })
+    }
+
+    /// 设置 API 栈（仅空会话；校验在 HTTP 层）。
+    pub fn set_api_mode(&self, session_id: &str, api_mode: &str) -> Result<(), SessionError> {
+        self.set_field(session_id, |conn, now| {
+            conn.execute(
+                "UPDATE sessions SET api_mode = ?1, updated_at = ?2 WHERE id = ?3",
+                params![api_mode, now, session_id],
             )?;
             Ok(())
         })

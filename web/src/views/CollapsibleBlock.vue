@@ -1,8 +1,8 @@
 <!--
-  思考与工具调用的折叠卡片。
+  侧栏折叠卡片。
 
-  流式过程中展开（让人看见它在干什么），一结束就收起（回看时这些是噪音）。
-  用户手动动过之后就听用户的，不再自动收——自动行为覆盖手动操作是很招人烦的。
+  - streaming：流式块（思考）。busy 时展开，结束后自动收。
+  - 非 streaming：瞬时块（工具）。默认收起，busy 只显示呼吸点，不自动展开。
 -->
 
 <script setup lang="ts">
@@ -15,11 +15,13 @@ const props = withDefaults(
   defineProps<{
     icon?: IconKey
     label: string
-    /** 还在进行中。 */
+    /** 还在进行中（流式块=本条在输出；工具块=还在跑）。 */
     busy?: boolean
+    /** true = 流式侧栏块（思考）；false = 瞬时块（工具，默认收起）。 */
+    streaming?: boolean
     /** 出错了，标题显示为危险色。 */
     failed?: boolean
-    /** 流式结束后是否自动收起。 */
+    /** 流式结束后是否自动收起（仅 streaming 有效）。 */
     autoCollapse?: boolean
     /** 内容行数；超过阈值且非 busy 时默认折叠。 */
     contentLines?: number
@@ -27,6 +29,8 @@ const props = withDefaults(
     foldThreshold?: number
   }>(),
   {
+    busy: false,
+    streaming: false,
     autoCollapse: true,
     contentLines: 0,
     foldThreshold: 0,
@@ -34,19 +38,19 @@ const props = withDefaults(
 )
 
 function shouldStartCollapsed(): boolean {
-  if (props.busy) return false
+  if (props.streaming && props.busy) return false
   if (props.autoCollapse) return true
   return props.contentLines > props.foldThreshold
 }
 
-const open = ref(props.busy ? true : !shouldStartCollapsed())
+const open = ref(!shouldStartCollapsed())
 /** 用户是不是自己点过。 */
 const touched = ref(false)
 
 watch(
-  () => [props.contentLines, props.foldThreshold, props.busy, props.autoCollapse] as const,
+  () => [props.contentLines, props.foldThreshold, props.busy, props.autoCollapse, props.streaming] as const,
   () => {
-    if (touched.value || props.busy) return
+    if (!props.streaming || touched.value || props.busy) return
     if (props.autoCollapse || props.contentLines > props.foldThreshold) open.value = false
   },
 )
@@ -54,7 +58,7 @@ watch(
 watch(
   () => props.busy,
   (busy, was) => {
-    if (touched.value) return
+    if (!props.streaming || touched.value) return
     if (props.autoCollapse && was && !busy) open.value = false
     if (busy) open.value = true
   },

@@ -57,7 +57,7 @@ mod tests {
             Default::default(),
         )
         .unwrap();
-        registry.bundle(None, permission).names
+        registry.bundle(None, permission, &[]).names
     }
 
     /// 钉住「哪个模式看得见哪些工具」。

@@ -36,8 +36,10 @@ pub mod write;
 pub use core::{CoreConfig, DbConfig, HttpSettings, LogConfig, LogLevel, ServerConfig};
 pub use error::ConfigError;
 pub use write::{edit_file, merge_table, redact_models_toml, write_persona, write_runtime};
-pub use models::{ModelCatalog, ModelEntry};
-pub use models::{CAPABILITY_TEXT, CAPABILITY_VISION};
+pub use models::{
+    ApiMode, ModelCatalog, ModelEntry, ModeConfig, CAPABILITY_TEXT, CAPABILITY_VISION,
+    CAPABILITY_WEB_SEARCH, validate_session_binding,
+};
 pub use runtime::{
     AgentSettings, AudioMediaSettings, ImageMediaSettings, MediaSettings, MemorySettings,
     RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings, VideoMediaSettings,

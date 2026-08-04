@@ -11,7 +11,10 @@ use futures_util::StreamExt;
 use lya_action::{ActionRegistry, FormAnswer, FormAnswerItem, register_builtins};
 use lya_agent::{Agent, AgentEvent, AgentParts, CancelToken, ChatBackend, TurnEndReason};
 use lya_db::Db;
-use lya_llm::{ChatEventStream, ChatMessage, LlmEndpoint, LlmError, StreamEvent, ToolCallDelta};
+use lya_llm::{
+    ApiMode, ChatEventStream, ChatMessage, ChatStreamRequest, LlmEndpoint, LlmError, StreamEvent,
+    ToolCallDelta, WebSearchStatus,
+};
 use lya_memory::MemoryStore;
 use lya_mode::Mode;
 use lya_prompt::PromptBuilder;
@@ -43,6 +46,12 @@ enum Turn {
     },
     /// 请求直接失败。
     Fail(String),
+    /// 原生联网搜索后给正文（Responses 栈）。
+    NativeSearch {
+        call_id: String,
+        query: String,
+        text: String,
+    },
 }
 
 #[derive(Default)]
@@ -52,6 +61,12 @@ struct ScriptedBackend {
     seen: Mutex<Vec<Vec<ChatMessage>>>,
     /// 每轮收到的 tools schema 名字。
     seen_tools: Mutex<Vec<Vec<String>>>,
+    /// 每轮使用的 API 栈。
+    seen_mode: Mutex<Vec<ApiMode>>,
+    /// Responses 栈的 instructions。
+    seen_instructions: Mutex<Vec<String>>,
+    /// Responses 栈的 input items。
+    seen_input: Mutex<Vec<Vec<Value>>>,
 }
 
 impl ScriptedBackend {
@@ -83,16 +98,39 @@ impl ScriptedBackend {
             .cloned()
             .unwrap_or_default()
     }
+
+    fn last_mode(&self) -> Option<ApiMode> {
+        self.seen_mode.lock().unwrap().last().copied()
+    }
+
+    fn last_instructions(&self) -> Option<String> {
+        self.seen_instructions.lock().unwrap().last().cloned()
+    }
+
+    fn last_input(&self) -> Option<Vec<Value>> {
+        self.seen_input.lock().unwrap().last().cloned()
+    }
 }
 
 impl ChatBackend for ScriptedBackend {
     fn chat_stream<'a>(
         &'a self,
+        mode: ApiMode,
         _endpoint: &'a LlmEndpoint,
-        messages: Vec<ChatMessage>,
+        request: ChatStreamRequest,
         tools: Vec<Value>,
     ) -> Pin<Box<dyn Future<Output = Result<ChatEventStream, LlmError>> + Send + 'a>> {
-        self.seen.lock().unwrap().push(messages);
+        self.seen_mode.lock().unwrap().push(mode);
+        match request {
+            ChatStreamRequest::Completions(messages) => {
+                self.seen.lock().unwrap().push(messages);
+            }
+            ChatStreamRequest::Responses { instructions, input, native_web_search: _ } => {
+                self.seen_instructions.lock().unwrap().push(instructions);
+                self.seen_input.lock().unwrap().push(input);
+                self.seen.lock().unwrap().push(Vec::new());
+            }
+        }
         self.seen_tools.lock().unwrap().push(
             tools
                 .iter()
@@ -150,6 +188,25 @@ impl ChatBackend for ScriptedBackend {
                     });
                     events
                 }
+                Turn::NativeSearch {
+                    call_id,
+                    query,
+                    text,
+                } => vec![
+                    StreamEvent::WebSearchStatus(WebSearchStatus::Searching {
+                        call_id: call_id.clone(),
+                    }),
+                    StreamEvent::WebSearchCallItem(json!({
+                        "type": "web_search_call",
+                        "id": call_id,
+                        "status": "completed",
+                        "action": { "type": "search", "queries": [query] }
+                    })),
+                    StreamEvent::TextDelta(text),
+                    StreamEvent::Finished {
+                        reason: Some("stop".into()),
+                    },
+                ],
             };
             let stream = async_stream::stream! {
                 for event in events {
@@ -178,6 +235,85 @@ impl EchoTool {
                 "required": ["text"]
             }),
         }
+    }
+}
+
+struct WebSearchTool {
+    meta: ToolMeta,
+    params: Value,
+}
+
+impl WebSearchTool {
+    fn new() -> Self {
+        Self {
+            meta: ToolMeta::new(
+                "web_search",
+                "搜索",
+                "DuckDuckGo 搜索",
+                Permission::READ,
+            ),
+            params: json!({
+                "type": "object",
+                "properties": { "query": { "type": "string" } },
+                "required": ["query"]
+            }),
+        }
+    }
+}
+
+impl Tool for WebSearchTool {
+    fn meta(&self) -> &ToolMeta {
+        &self.meta
+    }
+    fn parameters(&self) -> &Value {
+        &self.params
+    }
+    fn prompt_hint(&self) -> &str {
+        "测试用"
+    }
+    fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
+        Box::pin(async { ToolResult::ok("[]") })
+    }
+}
+
+struct WebFetchTool {
+    meta: ToolMeta,
+    params: Value,
+}
+
+impl WebFetchTool {
+    fn new() -> Self {
+        Self {
+            meta: ToolMeta::new(
+                "web_fetch",
+                "抓取",
+                "读网页正文",
+                Permission::READ,
+            ),
+            params: json!({
+                "type": "object",
+                "properties": { "url": { "type": "string" } },
+                "required": ["url"]
+            }),
+        }
+    }
+}
+
+impl Tool for WebFetchTool {
+    fn meta(&self) -> &ToolMeta {
+        &self.meta
+    }
+    fn parameters(&self) -> &Value {
+        &self.params
+    }
+    fn prompt_hint(&self) -> &str {
+        "测试用"
+    }
+    fn call(&self, _ctx: ToolCtx, args: Value) -> ToolCallFuture<'_> {
+        Box::pin(async move {
+            let url = args.get("url").and_then(Value::as_str).unwrap_or("");
+            ToolResult::ok(format!("正文: {url}"))
+        })
     }
 }
 
@@ -212,6 +348,25 @@ struct Fixture {
 }
 
 fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
+    fixture_with_session(turns, mode, max_rounds, None)
+}
+
+fn fixture_with_session(
+    turns: Vec<Turn>,
+    mode: Mode,
+    max_rounds: u32,
+    api_mode: Option<&str>,
+) -> Fixture {
+    fixture_full(turns, mode, max_rounds, api_mode, 0)
+}
+
+fn fixture_full(
+    turns: Vec<Turn>,
+    mode: Mode,
+    max_rounds: u32,
+    api_mode: Option<&str>,
+    max_consecutive_tool_failures: u32,
+) -> Fixture {
     let dir = tempfile::tempdir().unwrap();
     let db = Db::open(dir.path().join("lya.db"))
         .unwrap()
@@ -241,6 +396,7 @@ fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
         prompt: PromptBuilder::new(),
         max_tool_rounds: max_rounds,
         max_parallel_tools: 3,
+        max_consecutive_tool_failures,
         default_enabled_tools: None,
     })
     .unwrap();
@@ -248,6 +404,7 @@ fn fixture_with(turns: Vec<Turn>, mode: Mode, max_rounds: u32) -> Fixture {
     let session_id = sessions
         .create_session(CreateSession {
             work_mode: mode,
+            api_mode: api_mode.map(str::to_string),
             ..Default::default()
         })
         .unwrap()
@@ -425,6 +582,55 @@ async fn round_limit_stops_the_loop() {
 
     assert_eq!(end_reason(&events), TurnEndReason::MaxRounds);
     assert_eq!(fx.backend.rounds(), 3);
+}
+
+/// 参数常年传不对时不该一路烧到 max_tool_rounds 才停。
+#[tokio::test]
+async fn consecutive_tool_failures_stop_the_loop() {
+    let turns = (0..10)
+        .map(|i| Turn::Call {
+            text: String::new(),
+            call_id: format!("c{i}"),
+            name: "echo".into(),
+            // 参数不是合法 JSON，每轮都会失败
+            arguments: "".into(),
+        })
+        .collect();
+    let fx = fixture_full(turns, Mode::Agent, 32, None, 3);
+    fx.say("一直传错参数");
+    let events = fx.run().await;
+
+    match end_reason(&events) {
+        TurnEndReason::ToolFailureLoop { count, last_tool } => {
+            assert_eq!(count, 3);
+            assert_eq!(last_tool, "echo");
+        }
+        other => panic!("应当熔断，实际 {other:?}"),
+    }
+    assert_eq!(fx.backend.rounds(), 3, "熔断后不该再多打一次 LLM");
+}
+
+/// 中间成功一次就清零，别把「偶尔出错」误判成打转。
+#[tokio::test]
+async fn a_success_resets_the_failure_streak() {
+    let bad = |i: usize| Turn::Call {
+        text: String::new(),
+        call_id: format!("bad{i}"),
+        name: "echo".into(),
+        arguments: "".into(),
+    };
+    let good = Turn::Call {
+        text: String::new(),
+        call_id: "ok".into(),
+        name: "echo".into(),
+        arguments: r#"{"text":"x"}"#.into(),
+    };
+    let turns = vec![bad(0), bad(1), good, bad(2), bad(3), Turn::Text("好了".into())];
+    let fx = fixture_full(turns, Mode::Agent, 32, None, 3);
+    fx.say("偶尔出错");
+    let events = fx.run().await;
+
+    assert_eq!(end_reason(&events), TurnEndReason::Completed);
 }
 
 #[tokio::test]
@@ -780,6 +986,7 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        max_consecutive_tool_failures: 0,
         max_parallel_tools: 3,
         default_enabled_tools: None,
     })
@@ -994,6 +1201,7 @@ fn fixture_with_guarded(turns: Vec<Turn>) -> (Fixture, Arc<Mutex<Vec<String>>>) 
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        max_consecutive_tool_failures: 0,
         max_parallel_tools: 3,
         default_enabled_tools: None,
     })
@@ -1182,6 +1390,7 @@ async fn session_model_selection_is_honoured() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        max_consecutive_tool_failures: 0,
         max_parallel_tools: 3,
         default_enabled_tools: None,
     })
@@ -1250,6 +1459,7 @@ async fn default_model_must_exist() {
         actions: Arc::new(ActionRegistry::new()),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
+        max_consecutive_tool_failures: 0,
         max_parallel_tools: 3,
         default_enabled_tools: None,
     });
@@ -1308,6 +1518,7 @@ async fn name_collision_is_rejected_at_construction() {
         actions: Arc::new(actions),
         prompt: PromptBuilder::new(),
         max_tool_rounds: 8,
+        max_consecutive_tool_failures: 0,
         max_parallel_tools: 3,
         default_enabled_tools: None,
     });
@@ -1438,4 +1649,207 @@ async fn batch_executes_approved_confirms_after_all_reviewed() {
         ["rm -rf build", "rm -rf dist"],
         "本批审完后按序执行"
     );
+}
+
+#[tokio::test]
+async fn responses_session_uses_responses_stack() {
+    let fx = fixture_with_session(vec![Turn::Text("好".into())], Mode::Agent, 3, Some("responses"));
+    fx.say("你好");
+    fx.run().await;
+    assert_eq!(fx.backend.last_mode(), Some(ApiMode::Responses));
+    assert!(
+        fx.backend
+            .last_instructions()
+            .as_ref()
+            .is_some_and(|s| !s.is_empty())
+    );
+    let input = fx.backend.last_input().unwrap();
+    assert_eq!(input.len(), 1);
+    assert_eq!(input[0]["type"], "message");
+    assert_eq!(input[0]["role"], "user");
+}
+
+#[tokio::test]
+async fn responses_native_web_excludes_ddg_search() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Db::open(dir.path().join("lya.db"))
+        .unwrap()
+        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
+    let memory = Arc::new(MemoryStore::with_db(db));
+
+    let mut tools = ToolRegistry::new();
+    tools.register(Arc::new(EchoTool::new())).unwrap();
+    tools.register(Arc::new(WebSearchTool::new())).unwrap();
+
+    let mut actions = ActionRegistry::new();
+    register_builtins(&mut actions, Arc::clone(&memory)).unwrap();
+
+    let backend = ScriptedBackend::new(vec![Turn::Text("好".into())]);
+    let agent = Agent::new(AgentParts {
+        backend: Arc::clone(&backend),
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")
+            .with_id("default")
+            .with_mode_params(
+                ApiMode::Completions,
+                serde_json::from_value(json!({ "model": "demo" })).unwrap(),
+            )
+            .with_mode_params(
+                ApiMode::Responses,
+                serde_json::from_value(json!({ "model": "demo" })).unwrap(),
+            )
+            .with_mode_capabilities(
+                ApiMode::Responses,
+                vec!["text".into(), "web_search".into()],
+            )],
+        default_model: "default".into(),
+        sessions: Arc::clone(&sessions),
+        memory,
+        tools: Arc::new(tools),
+        actions: Arc::new(actions),
+        prompt: PromptBuilder::new(),
+        max_tool_rounds: 3,
+        max_consecutive_tool_failures: 0,
+        max_parallel_tools: 3,
+        default_enabled_tools: None,
+    })
+    .unwrap();
+
+    let session_id = sessions
+        .create_session(CreateSession {
+            work_mode: Mode::Agent,
+            api_mode: Some("responses".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .id;
+
+    sessions
+        .append(
+            &session_id,
+            MessagePayload::user_text("查一下"),
+            false,
+        )
+        .unwrap();
+    let stream = agent.run_turn(&session_id, CancelToken::new());
+    futures_util::pin_mut!(stream);
+    while stream.next().await.is_some() {}
+
+    let names = backend.last_tool_names();
+    assert!(!names.iter().any(|n| n == "web_search"));
+    assert!(names.iter().any(|n| n == "echo"));
+}
+
+#[tokio::test]
+async fn responses_native_search_persists_and_replays_with_web_fetch() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = Db::open(dir.path().join("lya.db"))
+        .unwrap()
+        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
+        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
+    db.migrate().unwrap();
+    let db = Arc::new(db);
+
+    let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
+    let memory = Arc::new(MemoryStore::with_db(db));
+
+    let mut tools = ToolRegistry::new();
+    tools.register(Arc::new(WebSearchTool::new())).unwrap();
+    tools.register(Arc::new(WebFetchTool::new())).unwrap();
+
+    let mut actions = ActionRegistry::new();
+    register_builtins(&mut actions, Arc::clone(&memory)).unwrap();
+
+    let backend = ScriptedBackend::new(vec![
+        Turn::NativeSearch {
+            call_id: "ws1".into(),
+            query: "Rust 2024".into(),
+            text: "搜到了".into(),
+        },
+        Turn::Call {
+            text: "我读一下".into(),
+            call_id: "c1".into(),
+            name: "web_fetch".into(),
+            arguments: r#"{"url":"https://example.com/rust"}"#.into(),
+        },
+        Turn::Text("读完了".into()),
+    ]);
+    let agent = Agent::new(AgentParts {
+        backend: Arc::clone(&backend),
+        endpoints: vec![LlmEndpoint::new("https://example.invalid/v1", "k")
+            .with_id("default")
+            .with_mode_params(
+                ApiMode::Completions,
+                serde_json::from_value(json!({ "model": "demo" })).unwrap(),
+            )
+            .with_mode_params(
+                ApiMode::Responses,
+                serde_json::from_value(json!({ "model": "demo" })).unwrap(),
+            )
+            .with_mode_capabilities(
+                ApiMode::Responses,
+                vec!["text".into(), "web_search".into()],
+            )],
+        default_model: "default".into(),
+        sessions: Arc::clone(&sessions),
+        memory,
+        tools: Arc::new(tools),
+        actions: Arc::new(actions),
+        prompt: PromptBuilder::new(),
+        max_tool_rounds: 4,
+        max_consecutive_tool_failures: 0,
+        max_parallel_tools: 3,
+        default_enabled_tools: None,
+    })
+    .unwrap();
+
+    let session_id = sessions
+        .create_session(CreateSession {
+            work_mode: Mode::Agent,
+            api_mode: Some("responses".into()),
+            ..Default::default()
+        })
+        .unwrap()
+        .id;
+
+    sessions
+        .append(&session_id, MessagePayload::user_text("查 Rust"), false)
+        .unwrap();
+    let stream = agent.run_turn(&session_id, CancelToken::new());
+    futures_util::pin_mut!(stream);
+    while stream.next().await.is_some() {}
+
+    let path = sessions.path_to_active_leaf(&session_id).unwrap();
+    let search_msg = path
+        .iter()
+        .find(|m| m.payload.role == MessageRole::Assistant)
+        .expect("原生搜索应落库");
+    assert_eq!(search_msg.payload.lya.responses_items.len(), 1);
+    assert_eq!(
+        search_msg.payload.lya.responses_items[0]["type"],
+        "web_search_call"
+    );
+
+    let names = backend.last_tool_names();
+    assert!(!names.iter().any(|n| n == "web_search"));
+    assert!(names.iter().any(|n| n == "web_fetch"));
+
+    let stream = agent.run_turn(&session_id, CancelToken::new());
+    futures_util::pin_mut!(stream);
+    while stream.next().await.is_some() {}
+
+    let input = backend.last_input().unwrap();
+    assert!(
+        input.iter().any(|i| i["type"] == "web_search_call" && i["id"] == "ws1"),
+        "第二轮应回灌历史 search item"
+    );
+    let tool_msg = input
+        .iter()
+        .find(|i| i["type"] == "function_call_output" && i["call_id"] == "c1")
+        .expect("web_fetch 结果应回灌");
+    assert!(tool_msg["output"].as_str().unwrap().contains("example.com/rust"));
 }

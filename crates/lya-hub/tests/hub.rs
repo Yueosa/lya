@@ -13,7 +13,9 @@ use lya_action::ActionRegistry;
 use lya_agent::{Agent, AgentParts, ChatBackend};
 use lya_hub::SessionHub;
 use lya_db::Db;
-use lya_llm::{ChatEventStream, ChatMessage, LlmEndpoint, LlmError, StreamEvent};
+use lya_llm::{
+    ApiMode, ChatEventStream, ChatStreamRequest, LlmEndpoint, LlmError, StreamEvent,
+};
 use lya_memory::MemoryStore;
 use lya_prompt::PromptBuilder;
 use lya_session::{CreateSession, MessagePayload, SessionStore};
@@ -30,8 +32,9 @@ struct SlowBackend {
 impl ChatBackend for SlowBackend {
     fn chat_stream<'a>(
         &'a self,
+        _mode: ApiMode,
         _endpoint: &'a LlmEndpoint,
-        _messages: Vec<ChatMessage>,
+        _request: ChatStreamRequest,
         _tools: Vec<Value>,
     ) -> Pin<Box<dyn Future<Output = Result<ChatEventStream, LlmError>> + Send + 'a>> {
         let stop = Arc::clone(&self.stop);
@@ -86,6 +89,7 @@ fn fixture() -> Fixture {
             prompt: PromptBuilder::new(),
             max_tool_rounds: 4,
             max_parallel_tools: 3,
+            max_consecutive_tool_failures: 0,
             default_enabled_tools: None,
         })
         .unwrap(),
@@ -462,6 +466,7 @@ async fn session_without_custom_tools_follows_the_global_default() {
         prompt: PromptBuilder::new(),
         max_tool_rounds: 4,
         max_parallel_tools: 3,
+        max_consecutive_tool_failures: 0,
         default_enabled_tools: Some(vec!["file_read".into()]),
     })
     .unwrap();

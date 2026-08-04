@@ -106,8 +106,14 @@ impl ToolRegistry {
     /// - `names`：`None` 表示不按名过滤（全集）；`Some(list)` 只保留列表中的名字
     ///   （未知名字静默忽略，便于 session 配置里残留旧名）
     /// - `allowed`：权限上限；仅 `tool.prmt ⊆ allowed` 的工具入选
-    pub fn bundle(&self, names: Option<&[&str]>, allowed: Permission) -> ToolBundle {
-        let selected = self.select(names, allowed);
+    /// - `exclude`：额外排除的内部名（如 Responses 原生联网时去掉 DDG `web_search`）
+    pub fn bundle(
+        &self,
+        names: Option<&[&str]>,
+        allowed: Permission,
+        exclude: &[&str],
+    ) -> ToolBundle {
+        let selected = self.select(names, allowed, exclude);
         if selected.is_empty() {
             return ToolBundle::empty();
         }
@@ -138,13 +144,23 @@ impl ToolRegistry {
     }
 
     /// 只导出提示词段（等价于 [`ToolRegistry::bundle`] 的 `.prompt`）。
-    pub fn prompt_section(&self, names: Option<&[&str]>, allowed: Permission) -> String {
-        self.bundle(names, allowed).prompt
+    pub fn prompt_section(
+        &self,
+        names: Option<&[&str]>,
+        allowed: Permission,
+        exclude: &[&str],
+    ) -> String {
+        self.bundle(names, allowed, exclude).prompt
     }
 
     /// 只导出 OpenAI `tools` schemas。
-    pub fn openai_tools(&self, names: Option<&[&str]>, allowed: Permission) -> Vec<Value> {
-        self.bundle(names, allowed).schemas
+    pub fn openai_tools(
+        &self,
+        names: Option<&[&str]>,
+        allowed: Permission,
+        exclude: &[&str],
+    ) -> Vec<Value> {
+        self.bundle(names, allowed, exclude).schemas
     }
 
     /// 调用已注册工具（不做会话白名单；调用方先自己筛）。
@@ -161,12 +177,20 @@ impl ToolRegistry {
         Ok(tool.call(ctx, args).await)
     }
 
-    /// 内部筛选：名字 ∩ 权限。
-    fn select(&self, names: Option<&[&str]>, allowed: Permission) -> Vec<Arc<dyn Tool>> {
+    /// 内部筛选：名字 ∩ 权限，再排除 `exclude`。
+    fn select(
+        &self,
+        names: Option<&[&str]>,
+        allowed: Permission,
+        exclude: &[&str],
+    ) -> Vec<Arc<dyn Tool>> {
         self.tools
             .values()
             .filter(|tool| {
                 let meta = tool.meta();
+                if exclude.iter().any(|name| *name == meta.name) {
+                    return false;
+                }
                 if !meta.prmt.is_subset_of(allowed) {
                     return false;
                 }
@@ -256,20 +280,20 @@ mod tests {
         reg.register(tool("shell", Permission::READ_WRITE_EXEC))
             .unwrap();
 
-        let ask = reg.bundle(None, Permission::READ);
+        let ask = reg.bundle(None, Permission::READ, &[]);
         assert_eq!(ask.schemas.len(), 1);
         assert_eq!(ask.schemas[0]["function"]["name"], "read_only");
         assert!(ask.prompt.contains("read_only"));
         assert!(!ask.prompt.contains("writer"));
 
-        let edit = reg.bundle(None, Permission::READ_WRITE);
+        let edit = reg.bundle(None, Permission::READ_WRITE, &[]);
         let names: Vec<_> = edit.schemas
             .iter()
             .map(|s| s["function"]["name"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(names, vec!["read_only", "writer"]);
 
-        let agent = reg.bundle(None, Permission::READ_WRITE_EXEC);
+        let agent = reg.bundle(None, Permission::READ_WRITE_EXEC, &[]);
         assert_eq!(agent.schemas.len(), 3);
     }
 
@@ -280,7 +304,7 @@ mod tests {
         reg.register(tool("b", Permission::READ)).unwrap();
         reg.register(tool("c", Permission::READ)).unwrap();
 
-        let bundle = reg.bundle(Some(&["c", "a", "missing"]), Permission::READ_WRITE_EXEC);
+        let bundle = reg.bundle(Some(&["c", "a", "missing"]), Permission::READ_WRITE_EXEC, &[]);
         let names: Vec<_> = bundle
             .schemas
             .iter()
@@ -290,6 +314,15 @@ mod tests {
         assert_eq!(names, vec!["a", "c"]);
         assert!(bundle.prompt.contains("usage hint"));
         assert_eq!(bundle.schemas[0]["function"]["description"], "a desc");
+    }
+
+    #[test]
+    fn exclude_removes_named_tools() {
+        let mut reg = ToolRegistry::new();
+        reg.register(tool("web_search", Permission::READ)).unwrap();
+        reg.register(tool("web_fetch", Permission::READ)).unwrap();
+        let bundle = reg.bundle(None, Permission::READ, &["web_search"]);
+        assert_eq!(bundle.names, vec!["web_fetch"]);
     }
 
     #[test]

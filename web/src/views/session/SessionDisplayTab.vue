@@ -7,7 +7,7 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
   { key: 'hideResolvedHitl', label: '隐藏已答复的打断' },
   { key: 'hideNotices', label: '隐藏模式变更' },
   { key: 'followStream', label: '跟随流式输出' },
-  { key: 'autoCollapseAside', label: '流式结束后自动收起思考/工具' },
+  { key: 'autoCollapseAside', label: '思考块输出结束后自动收起' },
   { key: 'codeBlockWrap', label: '代码块自动换行' },
 ]
 </script>

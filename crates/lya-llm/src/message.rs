@@ -143,23 +143,26 @@ pub fn messages_to_json(messages: &[ChatMessage]) -> Value {
     Value::Array(messages.iter().map(ChatMessage::to_json).collect())
 }
 
+use crate::endpoint::{ApiMode, LlmEndpoint};
+use crate::error::LlmError;
+
 /// 组装 chat/completions 请求体。
 ///
-/// - 以 `endpoint.params` 为底（含 `model` 等）
+/// - 以 `endpoint.params(completions)` 为底（含 `model` 等）
 /// - 写入 `messages`、`stream`
 /// - `tools` 非空时写入 `tools` 字段（元素应为 OpenAI tool 定义 JSON）
 pub fn build_chat_body(
-    endpoint: &crate::endpoint::LlmEndpoint,
+    endpoint: &LlmEndpoint,
     messages: &[ChatMessage],
     tools: &[Value],
     stream: bool,
-) -> Value {
-    let mut body = Value::Object(endpoint.params.clone());
+) -> Result<Value, LlmError> {
+    let mut body = Value::Object(endpoint.params(ApiMode::Completions)?.clone());
     let obj = body.as_object_mut().expect("params 是 object");
     obj.insert("messages".into(), messages_to_json(messages));
     obj.insert("stream".into(), json!(stream));
     if !tools.is_empty() {
         obj.insert("tools".into(), Value::Array(tools.to_vec()));
     }
-    body
+    Ok(body)
 }

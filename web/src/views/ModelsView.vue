@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import type { ModelInfo, ProbeResult } from '../api/client'
+import type { ApiMode } from '../api/wire'
 import { client, loadModels, models } from '../app/useChat'
 import ViewHead from '../ui/ViewHead.vue'
 import { toast } from '../ui/useToast'
@@ -62,10 +63,13 @@ function gatewayLabel(url: string): string {
   }
 }
 
-function modelParam(model: ModelInfo, key: string): string | null {
-  const value = model.params?.[key]
-  if (value === undefined || value === null) return null
-  return typeof value === 'string' ? value : JSON.stringify(value)
+function modeCaps(model: ModelInfo, mode: ApiMode): string {
+  return model.modes[mode]?.capabilities.join(', ') ?? '—'
+}
+
+function modeStackHint(model: ModelInfo, mode: ApiMode): string {
+  if (model.modes[mode]) return modeCaps(model, mode)
+  return mode === 'responses' ? '未配置 modes.responses' : '未配置 modes.completions'
 }
 
 function formatContext(value: number | null | undefined): string {
@@ -160,27 +164,28 @@ function selectGroup(baseUrl: string): void {
                 <tr>
                   <th>显示名</th>
                   <th>配置 ID</th>
-                  <th>API model</th>
                   <th>context</th>
-                  <th>max_tokens</th>
                   <th>密钥</th>
-                  <th>能力</th>
+                  <th title="chat/completions 栈；DuckDuckGo web_search 可用">Completions</th>
+                  <th title="POST /responses；原生 web_search；无 modes.responses 则不可用于 Responses 会话">Responses</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="model in selected.models" :key="model.id">
                   <td><strong>{{ model.name }}</strong></td>
                   <td><code class="mono mono--strong">{{ model.id }}</code></td>
-                  <td><code class="mono">{{ modelParam(model, 'model') || '—' }}</code></td>
                   <td><code class="mono">{{ formatContext(model.context_window) }}</code></td>
-                  <td><code class="mono">{{ modelParam(model, 'max_tokens') || '—' }}</code></td>
                   <td>
                     <span v-if="model.api_key_placeholder" class="pill pill--bad">未配置</span>
                     <span v-else class="pill pill--key">{{ model.api_key_masked }}</span>
                   </td>
                   <td>
-                    <span v-if="!model.capabilities.length" class="muted">—</span>
-                    <span v-for="cap in model.capabilities" :key="cap" class="pill">{{ cap }}</span>
+                    <span v-if="!model.modes.completions" class="muted" :title="modeStackHint(model, 'completions')">—</span>
+                    <span v-else class="pill">{{ modeCaps(model, 'completions') }}</span>
+                  </td>
+                  <td>
+                    <span v-if="!model.modes.responses" class="muted" :title="modeStackHint(model, 'responses')">—</span>
+                    <span v-else class="pill">{{ modeCaps(model, 'responses') }}</span>
                   </td>
                 </tr>
               </tbody>

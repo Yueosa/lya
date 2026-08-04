@@ -23,7 +23,7 @@
 |------|------|------|------|
 | 进程 | `core.toml` | 端口、DB 路径、HTTP 超时、日志 | 设置页 / 手改；**改完重启** |
 | 全局默认 | `runtime.toml` | 新会话默认：agent、tools.enabled、shell、memory、media | 设置 → **默认配置**；热加载 |
-| 模型清单 | `models.toml` | id、密钥、capabilities、context_window、透传 params | 模型页只读 + 手改 |
+| 模型清单 | `models.toml` | id、密钥、`modes.*`（capabilities + params）、context_window | 模型页只读 + 手改 |
 | 全局人设 | `persona.toml` | 人设正文 | 设置 → 人设 |
 | **会话** | **`lya.db` → `sessions` 表** | work_mode、model_id、persona、enabled_tools_json | 聊天侧栏会话设置 |
 
@@ -60,15 +60,34 @@
 
 ### P1 — DeepSeek Responses / 原生联网
 
+**完整规格：** [`responses-api.md`](./responses-api.md)（Phase 0–6，按顺序做，避免漏项）
+
 前提：**全局 api 模式不影响已有会话**；模型能力在 **`models.toml`**，不在 runtime。
 
-- [ ] `models.toml` 扩展：`api_modes`、`capabilities` 按模式（Flash：completions=`[text]`，responses=`[text, web_search]`）
-- [ ] 会话创建时锁定 `api_mode`（DB 新列或 meta JSON）
-- [ ] `lya-llm`：Responses 客户端 + SSE → 统一 `StreamEvent` 适配
-- [ ] 原生 web：请求里带 provider `web_search`；**关闭** DDG `web_search` tool；保留 `web_fetch`
-- [ ] timeline **新块**：原生搜索 in_progress / completed（非 `call_started(web_search)`）
-- [ ] LyaSSE：`provider_status`（或等价）→ ChatStatusBar「正在搜索…」
-- [ ] 文档：Responses 与 chat/completions 双栈说明
+#### Phase 1 — 配置与会话
+- [x] **破坏性**重写 `models.toml`：`modes.*` 唯一入口；删顶层 `capabilities` / 扁平 params；**无旧格式兼容**
+- [x] 会话 DB `api_mode`；默认 **`completions`**；创建可显式选 responses；PATCH 不可改
+- [x] create / patch `model_id` 校验栈；patch `api_mode` → 400
+- [x] 前端：api_mode 默认 completions；模型 Picker 按栈过滤 + 后端硬拒绝
+
+#### Phase 2 — lya-llm Responses 通路（先无原生搜索）
+- [x] `POST /responses` + Responses SSE → `StreamEvent`
+- [x] `ChatBackend` 按 `api_mode` 分派
+- [x] `build_responses_input`（最小：user/assistant/tool 轮次）
+
+#### Phase 3 — 原生联网 + UI
+- [x] 请求注入 `{type:web_search}`；**关闭** DDG `web_search` tool；保留 `web_fetch`
+- [x] `WebSearchStatus` → `AgentEvent` → LyaSSE `provider_search`
+- [x] timeline 新块 + ChatStatusBar「正在搜索…」
+- [x] prompt：responses 会话说明原生搜索
+
+#### Phase 4 — 持久化与回放
+- [x] 落库 `web_search_call` items；刷新后可展示
+- [x] 历史 search items 回灌 Responses `input`
+
+#### Phase 5–6 — 文档与收尾
+- [x] ModelsView / ToolsView 只读说明
+- [x] 双栈 README；`plan.md` P1 全部勾选
 
 ### P2 — 上下文管理器（暂缓实施，先占位）
 
@@ -97,7 +116,9 @@
 
 ## 已完成（摘要）
 
-Wave A–F、调用组、crate 拆分、媒体 Phase 1、notify、web_fetch 翻页、tool 全局启用 UI、chat UX 一批修复（2026-08 提交 `8d9a145` 等）。
+- [x] 记忆 slot 编号 + 索引 #1 置顶（2026-08-03）
+- [x] Markdown 有序列表 Zpix 修复（2026-08-03）
+- [x] Responses 双栈完整设计稿 `docs/responses-api.md`（2026-08-03）
 
 细节不在这里重复；git log + archive 可查。
 

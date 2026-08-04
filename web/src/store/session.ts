@@ -20,6 +20,7 @@ import type {
   CallState,
   LyaEvent,
   MessageRecord,
+  ProviderSearchState,
   SessionMeta,
   Snapshot,
   ToolBatchCall,
@@ -91,7 +92,14 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
         ...state,
         // 新一轮的正文从头开始，上一轮的已经落库了；调用列表也跟着重置，
         // 否则上一轮的工具会一直挂在界面上
-        running: { round: event.round, message_id: null, content: '', reasoning: '', calls: [] },
+        running: {
+          round: event.round,
+          message_id: null,
+          content: '',
+          reasoning: '',
+          calls: [],
+          provider_searches: [],
+        },
         endReason: null,
         activeToolBatch: null,
       }
@@ -172,6 +180,20 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
       const pendingHitlId = findPendingHitl(state.messages) ?? event.message_id
       return { ...state, pendingHitlId }
     }
+
+    case 'provider_search':
+      return withRunning(state, (running) => {
+        const searches = [...(running.provider_searches ?? [])]
+        const index = searches.findIndex((s) => s.call_id === event.call_id)
+        const next: ProviderSearchState = {
+          call_id: event.call_id,
+          phase: event.phase,
+        }
+        if (event.query !== undefined) next.query = event.query
+        if (index >= 0) searches[index] = next
+        else searches.push(next)
+        return { ...running, provider_searches: searches }
+      })
 
     case 'turn_end':
       return {

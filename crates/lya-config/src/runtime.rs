@@ -6,6 +6,8 @@
 use lya_mode::Mode;
 use serde::{Deserialize, Serialize};
 
+use crate::models::ApiMode;
+
 /// `runtime.toml` 的内容。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -53,8 +55,15 @@ pub struct AgentSettings {
     pub max_tool_rounds: u32,
     /// 同一条 assistant 消息里 `tool_calls` 数量上限；超出则整组失败回灌。
     pub max_parallel_tools: u32,
+    /// 连续多少次工具调用全失败就中止本轮；任一次成功即清零。
+    ///
+    /// 和 `max_tool_rounds` 是两件事：那个管「跑得太久」，这个管「原地打转」。
+    /// 模型偶尔传错参数很正常，所以给得比较宽；`0` 表示不启用。
+    pub max_consecutive_tool_failures: u32,
     /// 新会话的默认工作模式。
     pub default_work_mode: Mode,
+    /// 新会话的默认 API 栈。
+    pub default_api_mode: ApiMode,
     /// 默认模型 id，指向 `models.toml` 里的某一条。
     pub default_model: Option<String>,
 }
@@ -64,9 +73,11 @@ impl Default for AgentSettings {
         Self {
             max_tool_rounds: 32,
             max_parallel_tools: 3,
+            max_consecutive_tool_failures: 16,
             // 与 sessions 表的默认值保持一致；Mode::default() 是 Ask，
             // 那个默认服务于「凭空造一个 Mode」，不适合当新会话默认
             default_work_mode: Mode::Agent,
+            default_api_mode: ApiMode::Completions,
             default_model: None,
         }
     }
