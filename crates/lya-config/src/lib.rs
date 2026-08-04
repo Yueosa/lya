@@ -111,12 +111,9 @@ impl Config {
     /// 想让用户有东西可改，先调 [`Config::init_missing`]。
     pub fn load_from(dir: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let dir = dir.as_ref().to_path_buf();
-        let runtime_path = dir.join(RUNTIME_FILE);
-        // 旧版前端曾把 runtime 写进 [tables.*]，导致整文件无法解析
-        repair_runtime_tables(&runtime_path)?;
         let config = Self {
             core: read_toml(&dir.join(CORE_FILE))?.unwrap_or_default(),
-            runtime: read_toml(&runtime_path)?.unwrap_or_default(),
+            runtime: read_toml(&dir.join(RUNTIME_FILE))?.unwrap_or_default(),
             models: read_toml(&dir.join(MODELS_FILE))?.unwrap_or_default(),
             persona: read_toml::<PersonaFile>(&dir.join(PERSONA_FILE))?
                 .map(|file| file.text.trim().to_string())
@@ -231,44 +228,6 @@ fn read_toml<T: serde::de::DeserializeOwned>(path: &Path) -> Result<Option<T>, C
             path: path.to_path_buf(),
             source,
         })
-}
-
-/// 去掉误写入的 `[tables]` / `[tables.*]` 段（旧版前端 bug 产物）。
-fn repair_runtime_tables(path: &Path) -> Result<(), ConfigError> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(source) => {
-            return Err(ConfigError::Io {
-                path: path.to_path_buf(),
-                source,
-            });
-        }
-    };
-    if !text.contains("[tables") {
-        return Ok(());
-    }
-    let mut out = Vec::new();
-    let mut skip = false;
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed == "[tables]" || trimmed.starts_with("[tables.") {
-            skip = true;
-            continue;
-        }
-        if skip && trimmed.starts_with('[') {
-            skip = false;
-        }
-        if !skip {
-            out.push(line);
-        }
-    }
-    let repaired = format!("{}\n", out.join("\n").trim_end());
-    fs::write(path, &repaired).map_err(|source| ConfigError::Io {
-        path: path.to_path_buf(),
-        source,
-    })?;
-    Ok(())
 }
 
 /// 把文件权限收紧到仅所有者可读写。

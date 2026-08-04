@@ -503,9 +503,9 @@ mod tests {
     fn nested_web_dirs_are_counted_not_dumped_into_other() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
-        // 旧版本 cache_web=false 时会把下载塞进 web/.ephemeral/，
-        // 以前的扫描只看目录下的直接文件，这些字节全落进「其它」
-        write_file(&root.join("sessions/s1/img_cache/web/.ephemeral/x.png"), &[0; 42]);
+        // 扫描只看目录下的直接文件的话，任何一层嵌套里的字节都会落进「其它」，
+        // 报出来就是「有 N MB 不知道是什么」
+        write_file(&root.join("sessions/s1/img_cache/web/nested/x.png"), &[0; 42]);
 
         let report = scan_usage_at(root).unwrap();
 
