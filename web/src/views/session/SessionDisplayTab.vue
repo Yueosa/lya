@@ -48,21 +48,6 @@ const DISPLAY: { key: keyof typeof prefs; label: string }[] = [
   gap: 4px;
 }
 
-.session-tab__banner {
-  margin: 0 0 12px;
-  padding: 10px 12px;
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--info) 12%, var(--surface));
-  border: var(--border-width) solid color-mix(in srgb, var(--info) 35%, transparent);
-  font-size: var(--text-sm);
-  line-height: var(--leading);
-  color: var(--text-muted);
-}
-
-.session-tab__banner strong {
-  color: var(--text);
-}
-
 .session-tab__row {
   display: flex;
   align-items: center;

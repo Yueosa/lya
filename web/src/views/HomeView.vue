@@ -29,7 +29,7 @@ interface ActiveFloat extends FloatLabel {
   driftSec: number
   driftDelaySec: number
   lifeMs: number
-  phase: 'in' | 'live' | 'out'
+  phase: 'live' | 'out'
 }
 
 const TITLE_ZONE: FloatBox = { x: 50, y: 50, w: 44, h: 38 }
@@ -192,15 +192,10 @@ function spawnOne(): boolean {
     driftSec: 11 + (seed % 8),
     driftDelaySec: -((seed % 90) / 10),
     lifeMs: 3200 + (seed % 2800),
-    phase: 'in',
+    phase: 'live',
   }
 
   active.value = [...active.value, item]
-
-  schedule(() => {
-    const row = active.value.find((entry) => entry.key === item.key)
-    if (row) row.phase = 'live'
-  }, 520)
 
   schedule(() => beginExit(item), item.lifeMs)
 
@@ -224,8 +219,8 @@ function floatStyle(item: ActiveFloat): Record<string, string> {
     left: `${item.x}%`,
     top: `${item.y}%`,
     fontSize: `${item.size}px`,
-    '--drift-sec': `${item.driftSec}s`,
-    '--drift-delay': `${item.driftDelaySec}s`,
+    '--local-drift-sec': `${item.driftSec}s`,
+    '--local-drift-delay': `${item.driftDelaySec}s`,
   }
 }
 
@@ -243,19 +238,21 @@ function floatStyle(item: ActiveFloat): Record<string, string> {
     </button>
 
     <div class="home__bg" aria-hidden="true">
-      <span
-        v-for="item in active"
-        :key="item.key"
-        class="home__float"
-        :class="[
-          `home__float--${item.kind}`,
-          item.phase === 'in' && 'home__float--in',
-          item.phase === 'live' && 'home__float--live',
-          item.phase === 'out' && 'home__float--out',
-        ]"
-        :style="floatStyle(item)"
-      >
-        {{ item.text }}
+      <!--
+        三层各管一件事，谁都不碰别人的属性：
+        外层定位（静态 transform）、中层漂移（transform，常驻）、内层进出场（opacity）。
+        合成一层的话，进出场动画和漂移动画会抢同一个 transform，
+        切换瞬间坐标直接跳到对方的关键帧上。
+      -->
+      <span v-for="item in active" :key="item.key" class="home__float" :style="floatStyle(item)">
+        <span class="home__drift">
+          <span
+            class="home__label"
+            :class="[`home__label--${item.kind}`, item.phase === 'out' && 'home__label--out']"
+          >
+            {{ item.text }}
+          </span>
+        </span>
       </span>
     </div>
 
@@ -283,90 +280,102 @@ function floatStyle(item: ActiveFloat): Record<string, string> {
   pointer-events: none;
 }
 
+/* 定位层：transform 是静态的，从生到死都不变 */
 .home__float {
   position: absolute;
+  transform: translate(-50%, -50%);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/*
+  漂移层：从挂载到卸载一直跑，永不切换。
+  drift-delay 是负值（见 spawnOne），所以第一帧就落在周期中间的偏移上；
+  只要这个动画不中途开始/结束，负延迟就不会表现成跳动。
+*/
+.home__drift {
+  display: inline-block;
+  animation: home-drift var(--local-drift-sec, 14s) ease-in-out var(--local-drift-delay, 0s)
+    infinite;
+}
+
+/* 进出场层：只碰 opacity 和自己的 translateY，与漂移层互不干涉 */
+.home__label {
+  display: inline-block;
   max-width: min(320px, 34vw);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 600;
-  line-height: 1.25;
-  transform: translate(-50%, -50%);
-  opacity: 0;
+  animation: home-label-in 0.55s ease-out both;
 }
 
-.home__float--in {
-  animation: home-float-in 0.55s ease-out forwards;
+.home__label--out {
+  animation: home-label-out 0.85s ease-in both;
 }
 
-.home__float--live {
-  opacity: 0.82;
-  animation: home-float-drift var(--drift-sec, 14s) ease-in-out var(--drift-delay, 0s) infinite;
-}
-
-.home__float--out {
-  animation: home-float-out 0.85s ease-in forwards;
-}
-
-@keyframes home-float-in {
-  from {
-    opacity: 0;
-    transform: translate(-50%, -50%) translateY(10px);
-  }
-  to {
-    opacity: 0.82;
-    transform: translate(-50%, -50%) translateY(0);
-  }
-}
-
-@keyframes home-float-drift {
+@keyframes home-drift {
   0%,
   100% {
-    transform: translate(-50%, -50%) translate(0, 0);
+    transform: translate(0, 0);
   }
   25% {
-    transform: translate(-50%, -50%) translate(6px, -10px);
+    transform: translate(6px, -10px);
   }
   50% {
-    transform: translate(-50%, -50%) translate(-5px, 8px);
+    transform: translate(-5px, 8px);
   }
   75% {
-    transform: translate(-50%, -50%) translate(8px, 4px);
+    transform: translate(8px, 4px);
   }
 }
 
-@keyframes home-float-out {
+@keyframes home-label-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 0.82;
+    transform: translateY(0);
+  }
+}
+
+@keyframes home-label-out {
   from {
     opacity: 0.82;
-    transform: translate(-50%, -50%) translateY(0);
+    transform: translateY(0);
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -50%) translateY(-12px);
+    transform: translateY(-12px);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .home__float--in,
-  .home__float--live,
-  .home__float--out {
+  .home__drift {
     animation: none;
   }
 
-  .home__float--live {
+  .home__label {
+    animation: none;
     opacity: 0.72;
+  }
+
+  .home__label--out {
+    animation: none;
+    opacity: 0;
   }
 }
 
-.home__float--session {
+.home__label--session {
   color: color-mix(in srgb, var(--info) 55%, var(--text));
 }
 
-.home__float--memory {
+.home__label--memory {
   color: color-mix(in srgb, var(--accent) 65%, var(--text));
 }
 
-.home__float--model {
+.home__label--model {
   color: color-mix(in srgb, var(--text-muted) 70%, var(--text));
   font-family: var(--font-mono);
 }

@@ -2,6 +2,7 @@
  * 聊天图片灯箱：放大、复制图片、复制路径/URL、保存。
  */
 
+import { fetchMediaMeta, mediaPathText, type MediaMeta } from './mediaMeta'
 import { toast } from './useToast'
 
 let overlay: HTMLDivElement | null = null
@@ -30,21 +31,6 @@ async function saveBlob(url: string, filename: string): Promise<void> {
   URL.revokeObjectURL(objectUrl)
 }
 
-interface MediaMeta {
-  kind: 'local' | 'web'
-  filename: string
-  copy_path: string | null
-  copy_url: string | null
-  display_url: string
-}
-
-async function fetchMeta(displayUrl: string): Promise<MediaMeta> {
-  const url = `${displayUrl}${displayUrl.includes('?') ? '&' : '?'}meta=1`
-  const response = await fetch(url)
-  if (!response.ok) throw new Error(`${response.status}`)
-  return response.json() as Promise<MediaMeta>
-}
-
 function makeButton(label: string, onClick: () => void | Promise<void>): HTMLButtonElement {
   const button = document.createElement('button')
   button.type = 'button'
@@ -63,7 +49,7 @@ export async function openImageLightbox(displayUrl: string, alt = ''): Promise<v
 
   let meta: MediaMeta | null = null
   try {
-    meta = await fetchMeta(displayUrl)
+    meta = await fetchMediaMeta(displayUrl)
   } catch {
     // 元数据拿不到仍可以放大
   }
@@ -101,7 +87,7 @@ export async function openImageLightbox(displayUrl: string, alt = ''): Promise<v
     }),
   )
 
-  const pathText = meta?.copy_path ?? meta?.copy_url
+  const pathText = meta ? mediaPathText(meta) : null
   if (pathText) {
     toolbar.appendChild(
       makeButton('复制路径', async () => {

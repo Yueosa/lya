@@ -76,7 +76,9 @@ function syncLineNumbers(pre: HTMLElement, code: HTMLElement): void {
   const body = pre.parentElement
   if (!body?.classList.contains('md-code__body')) return
 
-  const lineCount = Math.max(1, (code.textContent ?? '').split('\n').length)
+  // markdown-it 的围栏代码块正文末尾必带一个 \n，直接 split 会多算一行
+  const text = (code.textContent ?? '').replace(/\n$/, '')
+  const lineCount = Math.max(1, text.split('\n').length)
   let gutter = body.querySelector('.md-code__lines') as HTMLElement | null
   if (!gutter) {
     gutter = document.createElement('div')
@@ -242,6 +244,13 @@ function headerBar(block: HTMLElement): HTMLElement {
   color: var(--accent);
 }
 
+/*
+  行号栏和代码必须共用同一个字号基准，所以字号定在它们的共同父节点上。
+
+  否则：UA 样式给 `pre` 的 font-family 是裸的 `monospace`，会触发浏览器的
+  「默认等宽字号」quirk 把 pre 压到 13px，而行号栏挂在 body 上是 16px 基准。
+  两边各自算 0.92em 就是 11.96px vs 14.72px，行高一乘，行号越往下偏得越多。
+*/
 .md :deep(.md-code__body) {
   display: flex;
   min-width: 0;
@@ -251,6 +260,9 @@ function headerBar(block: HTMLElement): HTMLElement {
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
   background: var(--bg-sunken);
   overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.55;
 }
 
 .md :deep(.md-code__lines) {
@@ -259,27 +271,31 @@ function headerBar(block: HTMLElement): HTMLElement {
   border-right: var(--border-width) solid var(--border);
   background: color-mix(in srgb, var(--surface-active) 80%, var(--bg-sunken));
   color: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  line-height: 1.55;
+  font: inherit;
   text-align: right;
   user-select: none;
   white-space: pre;
 }
 
+/* padding 一律由里面的 code 出，pre 自己不能再垫一层——
+   否则代码文字比行号栏低一个 padding，肉眼就是行号对不上。
+   `font: inherit` 用来盖掉 UA 给 pre 的等宽字号 quirk，见 .md-code__body */
 .md :deep(.md-pre--barred),
 .md :deep(.md-pre--lined) {
   margin: 0;
+  padding: 0;
   border: none;
   border-radius: 0;
   flex: 1;
   min-width: 0;
+  font: inherit;
 }
 
 .md :deep(.md-code__body pre code) {
   display: block;
   padding: 12px 14px 12px 0;
-  line-height: 1.55;
+  /* 跟着 .md-code__body 的基准走，别再自己算一遍 0.92em */
+  font: inherit;
   white-space: pre;
 }
 
@@ -287,7 +303,14 @@ function headerBar(block: HTMLElement): HTMLElement {
   overflow-x: hidden;
 }
 
+/* 换行后一个逻辑行占多个视觉行，行号栏没法再对齐，索引也就没意义了 */
+.md--code-wrap :deep(.md-code__lines) {
+  display: none;
+}
+
 .md--code-wrap :deep(.md-code__body pre code) {
+  /* 行号栏没了，左边距得由 code 自己补上 */
+  padding-left: 14px;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
