@@ -20,8 +20,18 @@ import { sessionEnterMotionMs } from '../../ui/useMotion'
 
 const INITIAL_TAIL = 48
 
-/** 离底多少像素以内算「贴着底」。 */
+/** 离底多少像素以内算「精确贴着底」。用于百分比显示和位置记忆。 */
 const BOTTOM_EPS = 2
+
+/**
+ * 离底多少像素以内仍然算「在跟随」。
+ *
+ * 比 [`BOTTOM_EPS`] 松得多，因为这两件事问的不是一回事：贴没贴底是几何事实，
+ * 跟不跟随是用户意图。内容长高、字体换成、图片撑开都会让位置飘几十像素，用 2px
+ * 判定的话一次重排就把跟随取消了，之后再长高也没人管——那正是「进会话没滚到底」
+ * 的成因。真想离开底部的人不会只滚两行。
+ */
+const FOLLOW_EPS = 48
 
 /**
  * 每个会话记一个「离底多远」。
@@ -71,6 +81,8 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
   /** 内容长高时要不要跟着贴底。用户往上翻就false，翻回底部就 true。 */
   const stuckToBottom = ref(restoreOffset <= BOTTOM_EPS)
   let programmaticScroll = false
+  /** [`settle`] 的代次，见那里的注释。 */
+  let settleGeneration = 0
   let layoutObserver: ResizeObserver | null = null
 
   watch(
@@ -170,13 +182,16 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     if (!el) return
     const max = el.scrollHeight - el.clientHeight
     scrollable.value = max > 8
+    let nearBottom = true
     if (max <= 0) {
       scrollPercent.value = 100
       atScrollTop.value = true
       atScrollBottom.value = true
     } else {
+      const fromBottom = max - el.scrollTop
       atScrollTop.value = el.scrollTop <= BOTTOM_EPS
-      atScrollBottom.value = el.scrollTop + el.clientHeight >= el.scrollHeight - BOTTOM_EPS
+      atScrollBottom.value = fromBottom <= BOTTOM_EPS
+      nearBottom = fromBottom <= FOLLOW_EPS
       scrollPercent.value = atScrollBottom.value
         ? 100
         : Math.min(100, Math.round((el.scrollTop / max) * 100))
@@ -186,26 +201,46 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     if (id) savedOffsets.set(id, Math.max(0, max - el.scrollTop))
 
     if (programmaticScroll) return
-    stuckToBottom.value = atScrollBottom.value
+    // 铺首屏期间位置归 restoreScroll() 管，不能有第二个人写：那会儿内容正在长高，
+    // 「此刻没贴底」是过程量不是用户意图。这段时间容器还是 visibility: hidden，
+    // 也不可能有真的用户滚动
+    if (hydrating.value || !timelineReady.value) return
+    stuckToBottom.value = nearBottom
     if (running.value && scrollPercent.value < 92) {
       prefs.followStream = false
     }
     if (atScrollBottom.value) lastTurnFinished.value = false
   }
 
-  /** 连着试三帧：一次 nextTick 后布局还可能再变一次（字体、媒体）。 */
+  /**
+   * 连着试三帧：一次 nextTick 后布局还可能再变一次（字体、媒体）。
+   *
+   * 认代次而不是共享一个布尔：进会话时 `revealTimeline` 连发三次 `restoreScroll`，
+   * `ResizeObserver` 还会再插几次，它们叠在几帧里跑。共享布尔的话，最先跑到最内层的
+   * 那一次会替还在写 `scrollTop` 的其余几次把守卫撤掉，它们造成的 scroll 事件就被
+   * 当成用户滚动，跟随状态当场丢掉。谁最后发起谁说了算，旧的直接不干了。
+   */
   function settle(place: (el: HTMLElement) => void): void {
     const el = scroller.value
     if (!el) return
+    const generation = ++settleGeneration
     programmaticScroll = true
-    nextTick(() => {
+    const step = (next: () => void): void => {
+      if (generation !== settleGeneration) return
       place(el)
-      requestAnimationFrame(() => {
-        place(el)
+      next()
+    }
+    nextTick(() => {
+      step(() => {
         requestAnimationFrame(() => {
-          place(el)
-          programmaticScroll = false
-          onScroll()
+          step(() => {
+            requestAnimationFrame(() => {
+              step(() => {
+                programmaticScroll = false
+                onScroll()
+              })
+            })
+          })
         })
       })
     })
@@ -244,8 +279,9 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     // 媒体可能好几秒后才报出自己的尺寸
     if (content.value) {
       layoutObserver = new ResizeObserver(() => {
-        // 还在铺首屏，位置该听「进来时记下的那个」的
-        if (hydrating.value) {
+        // 还在铺首屏，位置该听「进来时记下的那个」的。窗口和 onScroll 让位的那段
+        // 一致：这期间位置只有 restoreScroll() 一个主人
+        if (hydrating.value || !timelineReady.value) {
           restoreScroll()
           return
         }
