@@ -108,6 +108,31 @@ export function nodeStatusTag(record: MessageRecord): string | null {
   return null
 }
 
+/** 缩进过的 JSON；拿不动就退回 `String()`，别让整个面板炸掉。 */
+export function prettyJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value)
+  } catch {
+    return String(value)
+  }
+}
+
+/**
+ * 模型发出的参数原文，带一个「能不能用」的判断。
+ *
+ * 参数为空或不是合法 JSON，这次调用注定失败——面板要能一眼看出来，
+ * 而不是只显示一个函数名。
+ */
+export function callArguments(raw: string): { text: string; broken: boolean } {
+  const trimmed = raw.trim()
+  if (!trimmed) return { text: '(模型未传参数)', broken: true }
+  try {
+    return { text: prettyJson(JSON.parse(trimmed)), broken: false }
+  } catch {
+    return { text: trimmed, broken: true }
+  }
+}
+
 function hitlTitle(block: HitlBlock | undefined): string {
   if (!block) return 'HITL'
   switch (block.type) {

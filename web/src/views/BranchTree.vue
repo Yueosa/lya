@@ -4,16 +4,19 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { MessageRecord } from '../api/wire'
 import { currentId, deleteMessage, loadTree, readOnly, switchToBranch } from '../app/useChat'
 import {
+  callArguments,
   defaultTreeFilters,
   nodeIcon,
   nodePreview,
   nodeStatusTag,
+  prettyJson,
   projectVisibleTree,
   treeNode,
   type TreeFilters,
 } from '../model/branchTree'
 import Icon from '../ui/Icon.vue'
 import { confirmAsync } from '../ui/useDialog'
+import { fmtBubbleTooltip } from '../utils/dateFormat'
 
 const props = defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
@@ -256,10 +259,19 @@ function roleLabel(record: MessageRecord): string {
 
 function openNode(record: MessageRecord): void {
   picked.value = record
+  copied.value = false
 }
 
 function closeModal(): void {
   picked.value = null
+}
+
+const copied = ref(false)
+
+async function copyRaw(): Promise<void> {
+  if (!picked.value) return
+  await navigator.clipboard.writeText(prettyJson(picked.value.payload))
+  copied.value = true
 }
 
 async function confirmSwitch(): Promise<void> {
@@ -414,6 +426,14 @@ function startResize(event: PointerEvent): void {
           </button>
         </header>
 
+        <dl class="tree-modal__facts">
+          <div><dt>类型</dt><dd>{{ picked.payload.kind }}</dd></div>
+          <div><dt>状态</dt><dd>{{ picked.payload.status }}</dd></div>
+          <div><dt>父节点</dt><dd>{{ picked.parent_id ?? '根' }}</dd></div>
+          <div><dt>序号</dt><dd>{{ picked.sort_key }}</dd></div>
+          <div><dt>时间</dt><dd>{{ fmtBubbleTooltip(picked.created_at) }}</dd></div>
+        </dl>
+
         <section v-if="picked.payload.lya.reasoning" class="tree-modal__section">
           <h4>思考</h4>
           <pre class="tree-modal__block">{{ picked.payload.lya.reasoning }}</pre>
@@ -421,21 +441,51 @@ function startResize(event: PointerEvent): void {
 
         <section v-if="picked.payload.openai?.tool_calls?.length" class="tree-modal__section">
           <h4>工具调用</h4>
-          <pre
-            v-for="call in picked.payload.openai.tool_calls"
-            :key="call.id"
-            class="tree-modal__block"
-          >{{ call.function.name }}({{ call.function.arguments }})</pre>
+          <div v-for="call in picked.payload.openai.tool_calls" :key="call.id" class="tree-modal__call">
+            <div class="tree-modal__call-head">
+              <code>{{ call.function.name }}</code>
+              <span class="tree-modal__call-id">{{ call.id }}</span>
+              <span v-if="callArguments(call.function.arguments).broken" class="tree-modal__warn">
+                参数无效
+              </span>
+            </div>
+            <pre class="tree-modal__block">{{ callArguments(call.function.arguments).text }}</pre>
+          </div>
+        </section>
+
+        <section v-if="picked.payload.role === 'tool'" class="tree-modal__section">
+          <h4>工具结果</h4>
+          <div class="tree-modal__call-head">
+            <span class="tree-modal__call-id">{{ picked.payload.openai?.tool_call_id }}</span>
+          </div>
+          <pre class="tree-modal__block">{{ picked.payload.openai?.content }}</pre>
+        </section>
+
+        <section v-if="picked.payload.lya.responses_items?.length" class="tree-modal__section">
+          <h4>Responses items</h4>
+          <pre class="tree-modal__block">{{ prettyJson(picked.payload.lya.responses_items) }}</pre>
         </section>
 
         <section v-if="picked.payload.lya.hitl" class="tree-modal__section">
           <h4>HITL</h4>
-          <pre class="tree-modal__block">{{ nodePreview(picked) }}</pre>
+          <pre class="tree-modal__block">{{ prettyJson(picked.payload.lya.hitl) }}</pre>
         </section>
 
-        <section v-if="picked.payload.openai?.content" class="tree-modal__section">
+        <section v-if="picked.payload.role !== 'tool' && picked.payload.openai?.content" class="tree-modal__section">
           <h4>正文</h4>
           <pre class="tree-modal__block">{{ picked.payload.openai.content }}</pre>
+        </section>
+
+        <section class="tree-modal__section">
+          <details>
+            <summary class="tree-modal__summary">
+              原始 payload
+              <button class="btn btn--sm btn--ghost" @click.prevent="copyRaw">
+                {{ copied ? '已复制' : '复制' }}
+              </button>
+            </summary>
+            <pre class="tree-modal__block">{{ prettyJson(picked.payload) }}</pre>
+          </details>
         </section>
 
         <div class="tree-modal__actions">
@@ -623,6 +673,61 @@ function startResize(event: PointerEvent): void {
   color: var(--text-muted);
   font-size: var(--text-xs);
   font-weight: 400;
+}
+
+.tree-modal__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0 0 4px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.tree-modal__facts div {
+  display: flex;
+  gap: 4px;
+}
+
+.tree-modal__facts dt {
+  color: var(--text-faint);
+}
+
+.tree-modal__facts dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.tree-modal__call-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: var(--text-xs);
+}
+
+.tree-modal__call-id {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+}
+
+.tree-modal__warn {
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+}
+
+.tree-modal__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--accent);
 }
 
 .tree-modal__section h4 {
