@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
-import type { ConfigView as Config, ToolInfo, UsageReport } from '../api/client'
-import { client, refreshRuntimeDefaults } from '../app/useChat'
+import type { ConfigView as Config, ToolInfo } from '../api/client'
+import { client, models, refreshRuntimeDefaults } from '../app/useChat'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
 import RawToml from '../ui/RawToml.vue'
-import StorageBreakdown from '../ui/StorageBreakdown.vue'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
 import {
@@ -16,28 +15,22 @@ import {
 } from '../utils/toolLimits'
 import { bytesToMegabytes, megabytesToBytes } from '../utils/formatBytes'
 
-type Tab = 'persona' | 'runtime' | 'storage' | 'raw'
+type Tab = 'runtime' | 'raw'
 type RawFile = 'core' | 'runtime' | 'models' | 'persona'
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'persona', label: '人设' },
   { id: 'runtime', label: '默认配置' },
-  { id: 'storage', label: '存储' },
   { id: 'raw', label: '原始文件' },
 ]
 
 const RAW_FILES: RawFile[] = ['core', 'runtime', 'models', 'persona']
 
-const tab = ref<Tab>('persona')
+const tab = ref<Tab>('runtime')
 const config = ref<Config | null>(null)
 const loadError = ref('')
-const persona = ref('')
 const saving = ref(false)
 const rawName = ref<RawFile>('runtime')
 const rawText = ref('')
-const storage = ref<UsageReport | null>(null)
-const storageError = ref('')
-const storageLoading = ref(false)
 
 const form = ref({
   maxToolRounds: 32,
@@ -45,6 +38,7 @@ const form = ref({
   maxConsecutiveToolFailures: 16,
   defaultWorkMode: 'agent',
   defaultApiMode: 'completions',
+  defaultModel: '',
   maxIndexEntries: 100,
   maxIndexChars: 4000,
   indexSummaryChars: 120,
@@ -72,7 +66,6 @@ async function load(): Promise<void> {
     const [data, toolList] = await Promise.all([client.config(), client.tools()])
     config.value = data
     catalogTools.value = toolList
-    persona.value = data.persona ?? ''
     readForm(data.runtime)
   } catch (error) {
     const msg = errMsg(error)
@@ -103,8 +96,9 @@ function readForm(runtime: Record<string, unknown>): void {
     maxParallelTools: Number(agent['max_parallel_tools'] ?? 3),
     maxConsecutiveToolFailures: Number(agent['max_consecutive_tool_failures'] ?? 16),
     defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
-    defaultApiMode:
-      agent['default_api_mode'] === 'responses' ? 'responses' : 'completions',
+    defaultApiMode: agent['default_api_mode'] === 'responses' ? 'responses' : 'completions',
+    // 没配就是空串，对应「跟随清单第一条」；保存时会写回 null 把这个键删掉
+    defaultModel: String(agent['default_model'] ?? ''),
     maxIndexEntries: Number(memory['max_index_entries'] ?? 100),
     maxIndexChars: Number(memory['max_index_chars'] ?? 4000),
     indexSummaryChars: Number(memory['index_summary_chars'] ?? 120),
@@ -158,6 +152,8 @@ async function saveRuntime(): Promise<void> {
         max_consecutive_tool_failures: form.value.maxConsecutiveToolFailures,
         default_work_mode: form.value.defaultWorkMode,
         default_api_mode: form.value.defaultApiMode,
+        // null 会让后端删掉这个键；空串是非法 id，会被启动校验拦下来
+        default_model: form.value.defaultModel || null,
       },
       tools: buildToolsEnabledPayload(globalMode.value, globalEnabled.value),
       memory: {
@@ -194,18 +190,6 @@ async function saveRuntime(): Promise<void> {
   }
 }
 
-async function savePersona(): Promise<void> {
-  saving.value = true
-  try {
-    await client.writePersona(persona.value)
-    toast('人设已保存', 'success')
-  } catch (error) {
-    toast(`保存失败：${errMsg(error)}`, 'error')
-  } finally {
-    saving.value = false
-  }
-}
-
 async function loadRaw(file: RawFile): Promise<void> {
   rawName.value = file
   try {
@@ -213,25 +197,6 @@ async function loadRaw(file: RawFile): Promise<void> {
   } catch (error) {
     rawText.value = `读取失败：${errMsg(error)}`
   }
-}
-
-async function loadStorage(): Promise<void> {
-  storageLoading.value = true
-  storageError.value = ''
-  try {
-    storage.value = await client.storageStats()
-  } catch (error) {
-    storage.value = null
-    storageError.value = errMsg(error)
-  } finally {
-    storageLoading.value = false
-  }
-}
-
-function pickTab(id: Tab): void {
-  tab.value = id
-  if (id === 'raw') void loadRaw(rawName.value)
-  if (id === 'storage') void loadStorage()
 }
 
 const workModeOptions: PickerOption[] = [
@@ -245,6 +210,11 @@ const apiModeOptions: PickerOption[] = [
   { value: 'responses', label: 'Responses' },
 ]
 
+const modelOptions = computed<PickerOption[]>(() => [
+  { value: '', label: '跟随 models.toml 第一条' },
+  ...models.value.map((model) => ({ value: model.id, label: `${model.name}（${model.id}）` })),
+])
+
 const shellConfirmOptions: PickerOption[] = [
   { value: 'always', label: '每条都问' },
   { value: 'unknown', label: '已知只读的直接放行，其余都问' },
@@ -253,7 +223,6 @@ const shellConfirmOptions: PickerOption[] = [
 
 watch(tab, (id) => {
   if (id === 'raw') void loadRaw(rawName.value)
-  if (id === 'storage') void loadStorage()
 })
 </script>
 
@@ -269,7 +238,7 @@ watch(tab, (id) => {
             :key="item.id"
             class="split-view__list-item"
             :class="{ 'split-view__list-item--on': tab === item.id }"
-            @click="pickTab(item.id)"
+            @click="tab = item.id"
           >
             <span class="split-view__list-title">{{ item.label }}</span>
           </button>
@@ -281,23 +250,18 @@ watch(tab, (id) => {
         <p v-else-if="!config" class="split-view__hint">正在读取…</p>
 
         <Transition v-else name="lya-split" mode="out-in">
-          <section v-if="tab === 'persona'" key="persona" class="page__pane">
-          <p class="page__hint">全局人设，写入 <code>persona.toml</code>，所有新会话默认继承</p>
-          <textarea v-model="persona" class="input cfg-text" rows="12" placeholder="全局人设" />
-          <div class="row row--end">
-            <button class="btn btn--primary" :disabled="saving" @click="savePersona">
-              {{ saving ? '保存中…' : '保存' }}
-            </button>
-          </div>
-        </section>
-
-          <section v-else-if="tab === 'runtime'" key="runtime" class="page__pane">
+          <section v-if="tab === 'runtime'" key="runtime" class="page__pane">
           <p class="page__hint">
             写入 <code>runtime.toml</code>
           </p>
 
           <div class="panel form-panel">
             <h3 class="form-panel__title">对话</h3>
+            <label class="field">
+              <span class="field__label">默认模型</span>
+              <Picker v-model="form.defaultModel" :options="modelOptions" />
+              <span class="field__note">会话没单独指定模型时用它；在「模型」页维护清单</span>
+            </label>
             <label class="field">
               <span class="field__label">新会话默认模式</span>
               <Picker v-model="form.defaultWorkMode" :options="workModeOptions" />
@@ -362,6 +326,10 @@ watch(tab, (id) => {
                 max="100"
               />
             </label>
+          </div>
+
+          <div class="panel form-panel">
+            <h3 class="form-panel__title">命令执行</h3>
             <label class="field">
               <span class="field__label">bash 命令确认</span>
               <Picker v-model="form.shellConfirm" :options="shellConfirmOptions" />
@@ -443,18 +411,6 @@ watch(tab, (id) => {
           </div>
         </section>
 
-          <section v-else-if="tab === 'storage'" key="storage" class="page__pane">
-          <p v-if="storageLoading" class="split-view__hint">正在扫描…</p>
-          <p v-else-if="storageError" class="page__error">{{ storageError }}</p>
-          <template v-else-if="storage">
-            <p class="page__hint">数据目录：<code>{{ storage.root }}</code></p>
-            <StorageBreakdown :report="storage" />
-            <div class="row row--end">
-              <button class="btn btn--sm" @click="loadStorage">刷新</button>
-            </div>
-          </template>
-        </section>
-
           <section v-else key="raw" class="page__pane">
           <div class="seg-row">
             <button
@@ -476,15 +432,6 @@ watch(tab, (id) => {
 </template>
 
 <style scoped>
-.cfg-text {
-  width: 100%;
-  height: auto;
-  padding: 10px 12px;
-  line-height: var(--leading);
-  resize: vertical;
-  font-family: var(--font-mono);
-}
-
 .field--check {
   align-items: center;
 }

@@ -25,7 +25,7 @@ import {
   menuFootRight,
   pickSplash,
 } from './mcMenuSplash'
-import type { ShellProps, View } from './types'
+import { NAV_ITEMS, type ShellProps, type View } from './types'
 
 defineProps<ShellProps>()
 const emit = defineEmits<{ navigate: [view: View] }>()
@@ -44,16 +44,31 @@ const footLeft = computed(() =>
 
 const footRight = computed(() => menuFootRight(models.value))
 
-const WHERE: Partial<Record<View, string>> = {
-  chat: '对话',
-  sessions: '对话列表',
-  memory: '记忆',
-  tools: '工具',
-  models: '模型',
-  theme: '外观',
-  config: '设置',
-  settings: '会话设置',
-}
+/**
+ * 主菜单按钮。
+ *
+ * 从 `NAV_ITEMS` 来而不是手写：以前这里是七个写死的 `<button>`，加一级入口就得
+ * 记得回来补一个，漏了也不报错，只是这套外壳静悄悄少一个去处。
+ *
+ * 菜单是两列，项数为奇数时最后一个占满整行，免得孤零零挂在左边。
+ */
+const entries = computed(() =>
+  NAV_ITEMS.map((item, index) => ({
+    ...item,
+    wide: NAV_ITEMS.length % 2 === 1 && index === NAV_ITEMS.length - 1,
+  })),
+)
+
+/** 内容页顶栏显示「我在哪」。导航项的名字直接复用，不另抄一份。 */
+const WHERE = computed<Partial<Record<View, string>>>(() => {
+  const labels: Partial<Record<View, string>> = {
+    chat: '对话',
+    sessions: '对话列表',
+    settings: '会话设置',
+  }
+  for (const item of NAV_ITEMS) labels[item.view] = item.label
+  return labels
+})
 
 function rollSplash(): void {
   splash.value = pickSplash(splashLines.value)
@@ -106,12 +121,14 @@ function go(view: View): void {
           <button class="btn btn--lg mc-shell__entry mc-shell__entry--wide" @click="go('sessions')">
             对话列表
           </button>
-          <button class="btn btn--lg mc-shell__entry" @click="go('memory')">记忆</button>
-          <button class="btn btn--lg mc-shell__entry" @click="go('tools')">工具</button>
-          <button class="btn btn--lg mc-shell__entry" @click="go('models')">模型</button>
-          <button class="btn btn--lg mc-shell__entry" @click="go('config')">设置</button>
-          <button class="btn btn--lg mc-shell__entry mc-shell__entry--wide" @click="go('theme')">
-            外观
+          <button
+            v-for="entry in entries"
+            :key="entry.view"
+            class="btn btn--lg mc-shell__entry"
+            :class="{ 'mc-shell__entry--wide': entry.wide }"
+            @click="go(entry.view)"
+          >
+            {{ entry.label }}
           </button>
         </div>
       </div>
@@ -278,10 +295,12 @@ function go(view: View): void {
   font-size: var(--text-sm);
 }
 
+/* 和默认外壳的 .shell__main 一致：滚动交给视图自己那层。
+   这里再开一层 overflow 会套出两个滚动条，滚动位置记忆也就无从下手 */
 .mc-shell__body {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
 }
 
 @media (max-width: 520px) {

@@ -31,7 +31,9 @@ export type View =
   | 'tools'
   | 'models'
   | 'theme'
+  | 'persona'
   | 'config'
+  | 'storage'
 
 /** 外壳组件的入参。 */
 export interface ShellProps {
@@ -50,11 +52,19 @@ export interface ShellEmits {
  *
  * 会话列表已经嵌在默认外壳侧栏里，会话设置挂在聊天页头部——这两项不再占一级入口。
  * `sessions` / `settings` 视图类型还留着，给 Minecraft 外壳或深链用。
+ *
+ * 人设和存储各自独立成一级：人设是天天要改的正文，存储是纯只读的观测面板，
+ * 都塞进「设置」里只会让那一页变成什么都有的杂物间。留在「设置」下的是
+ * 名副其实的配置——全局默认值和它们背后的 TOML 原文。
+ *
+ * **所有外壳都遍历这张表**，别再手写一遍按钮：漏掉一项的外壳会静悄悄少一个入口。
  */
 export const NAV_ITEMS: { view: View; label: string; icon: NavIconKey }[] = [
   { view: 'memory', label: '记忆', icon: 'memory' },
   { view: 'tools', label: '工具', icon: 'tools' },
   { view: 'models', label: '模型', icon: 'models' },
   { view: 'theme', label: '外观', icon: 'theme' },
+  { view: 'persona', label: '人设', icon: 'user' },
   { view: 'config', label: '设置', icon: 'config' },
+  { view: 'storage', label: '存储', icon: 'storage' },
 ]
