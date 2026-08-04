@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use futures_util::StreamExt;
 use lya_action::{ActionRegistry, FormAnswer, FormAnswerItem, register_builtins};
 use lya_agent::{Agent, AgentEvent, AgentParts, CancelToken, ChatBackend, TurnEndReason};
-use lya_db::Db;
+use lya_db::testing::open_test_db;
 use lya_llm::{
     ApiMode, ChatEventStream, ChatMessage, ChatStreamRequest, LlmEndpoint, LlmError, StreamEvent,
     ToolCallDelta, WebSearchStatus,
@@ -367,13 +367,7 @@ fn fixture_full(
     api_mode: Option<&str>,
     max_consecutive_tool_failures: u32,
 ) -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Db::open(dir.path().join("lya.db"))
-        .unwrap()
-        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
-    db.migrate().unwrap();
-    let db = Arc::new(db);
+    let (dir, db) = open_test_db();
 
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));
@@ -946,14 +940,7 @@ async fn out_of_mode_tool_is_blocked_at_execution() {
         }
     }
 
-    let dir = tempfile::tempdir().unwrap();
-    let db = Arc::new(
-        Db::open(dir.path().join("lya.db"))
-            .unwrap()
-            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
-    );
-    db.migrate().unwrap();
+    let (_dir, db) = open_test_db();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));
 
@@ -1362,14 +1349,7 @@ async fn permission_is_rechecked_after_approval() {
 
 #[tokio::test]
 async fn session_model_selection_is_honoured() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Arc::new(
-        Db::open(dir.path().join("lya.db"))
-            .unwrap()
-            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
-    );
-    db.migrate().unwrap();
+    let (_dir, db) = open_test_db();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));
 
@@ -1439,14 +1419,7 @@ async fn session_model_selection_is_honoured() {
 
 #[tokio::test]
 async fn default_model_must_exist() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Arc::new(
-        Db::open(dir.path().join("lya.db"))
-            .unwrap()
-            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
-    );
-    db.migrate().unwrap();
+    let (_dir, db) = open_test_db();
     let memory = Arc::new(MemoryStore::with_db(Arc::clone(&db)));
 
     let result = Agent::new(AgentParts {
@@ -1471,14 +1444,7 @@ async fn default_model_must_exist() {
 
 #[tokio::test]
 async fn name_collision_is_rejected_at_construction() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Arc::new(
-        Db::open(dir.path().join("lya.db"))
-            .unwrap()
-            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
-    );
-    db.migrate().unwrap();
+    let (_dir, db) = open_test_db();
     let memory = Arc::new(MemoryStore::with_db(Arc::clone(&db)));
 
     // 注册一个和动作同名的工具
@@ -1671,13 +1637,7 @@ async fn responses_session_uses_responses_stack() {
 
 #[tokio::test]
 async fn responses_native_web_excludes_ddg_search() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Db::open(dir.path().join("lya.db"))
-        .unwrap()
-        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
-    db.migrate().unwrap();
-    let db = Arc::new(db);
+    let (_dir, db) = open_test_db();
 
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));
@@ -1746,13 +1706,7 @@ async fn responses_native_web_excludes_ddg_search() {
 
 #[tokio::test]
 async fn responses_native_search_persists_and_replays_with_web_fetch() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Db::open(dir.path().join("lya.db"))
-        .unwrap()
-        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
-    db.migrate().unwrap();
-    let db = Arc::new(db);
+    let (_dir, db) = open_test_db();
 
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));

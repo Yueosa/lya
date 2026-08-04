@@ -5,9 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::MemoryError;
 
-/// 索引 #1 固定留给这条置顶记忆（见迁移 `002_pinned_seed.sql`）。
-pub const PINNED_MEMORY_TITLE: &str = "致小恋恋: 想对你说的话";
-
 /// 一条长期记忆。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Memory {

@@ -12,7 +12,7 @@ use std::time::Duration;
 use lya_action::ActionRegistry;
 use lya_agent::{Agent, AgentParts, ChatBackend};
 use lya_hub::SessionHub;
-use lya_db::Db;
+use lya_db::testing::open_test_db;
 use lya_llm::{
     ApiMode, ChatEventStream, ChatStreamRequest, LlmEndpoint, LlmError, StreamEvent,
 };
@@ -63,14 +63,7 @@ struct Fixture {
 }
 
 fn fixture() -> Fixture {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Arc::new(
-        Db::open(dir.path().join("lya.db"))
-            .unwrap()
-            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
-    );
-    db.migrate().unwrap();
+    let (dir, db) = open_test_db();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));
     let stop = Arc::new(AtomicBool::new(false));
@@ -442,14 +435,7 @@ async fn tree_exposes_every_branch_not_just_the_active_path() {
 
 #[tokio::test]
 async fn session_without_custom_tools_follows_the_global_default() {
-    let dir = tempfile::tempdir().unwrap();
-    let db = Arc::new(
-        Db::open(dir.path().join("lya.db"))
-            .unwrap()
-            .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-            .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS),
-    );
-    db.migrate().unwrap();
+    let (_dir, db) = open_test_db();
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
     let memory = Arc::new(MemoryStore::with_db(db));
 

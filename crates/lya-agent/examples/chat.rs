@@ -65,9 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 整份清单都交给 agent，会话可以各自选
     let endpoints = llm_endpoints_from_config(&config);
 
-    let db = Db::open(config.db_path())?
-        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
+    let db = Db::open(config.db_path())?;
     db.migrate()?;
     let db = Arc::new(db);
 

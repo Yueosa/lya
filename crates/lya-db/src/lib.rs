@@ -6,13 +6,20 @@
 //!
 //! - 解析数据根 `~/.lya`，默认库文件 `lya.db`
 //! - 打开连接并设置 WAL / `foreign_keys`
-//! - 执行各领域 crate 注册进来的迁移 SQL（要求语句幂等）
+//! - **持有全库 schema** 并在启动时把还没跑过的迁移执行掉
 //! - 提供串行化的读写封装，避免多线程交叉写
 //!
 //! ## 非职责
 //!
-//! - 不认识 sessions / messages / memory 等业务表；表结构由领域 crate 自带 SQL
 //! - 不做 ORM，也不封装查询构造器；领域 crate 直接写 SQL
+//!
+//! ## schema 为什么在这里而不在领域 crate
+//!
+//! 一个库文件、一份 schema。分散到领域 crate 的代价是**没人编排**：装配方得记着
+//! 逐个注册，漏一个就拿到半个库——只调 `SessionStore::open` 的测试和工具就是这样，
+//! 建出来的库里没有 memory 表。放在这里之后，打开库就等于拿到完整 schema。
+//!
+//! 改库加一个新的 `migrations/NNN_*.sql` 并挂进 [`SCHEMA`]，不要改已有文件。
 //!
 //! ## 并发模型
 //!
@@ -23,6 +30,8 @@
 
 mod error;
 mod paths;
+#[cfg(feature = "testing")]
+pub mod testing;
 
 pub use error::DbError;
 
@@ -43,17 +52,26 @@ use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 /// 这种没法写成「不存在才执行」的语句因此也能用。
 #[derive(Debug, Clone, Copy)]
 pub struct Migration {
-    /// 版本号，同一 scope 内从 1 开始递增。
+    /// 版本号，同一 scope 内递增。初始 schema 是 `0`。
     pub version: u32,
     /// 这一步要执行的 SQL。
     pub sql: &'static str,
 }
 
+/// 全库 schema 在迁移台账里的归属名。
+pub const SCHEMA_SCOPE: &str = "lya";
+
+/// 全库 schema。新版本追加一项，已有项不动。
+pub const SCHEMA: &[Migration] = &[Migration {
+    version: 0,
+    sql: include_str!("../migrations/000_init.sql"),
+}];
+
 /// 记录已执行迁移的表。
 ///
-/// 用 `(scope, version)` 而不是 `PRAGMA user_version`：一个库文件被多个领域
-/// crate 共用（会话、记忆各一套表），共享一个全局版本号的话，任何一边加迁移
-/// 都得跟另一边协调编号。
+/// 用 `(scope, version)` 而不是 `PRAGMA user_version`：全库 schema 走 `lya`
+/// 这个 scope，别处若要往同一个库文件里加自己的表（如将来的插件），可以另起
+/// scope 各记各的版本，不必和主线协调编号。
 const LEDGER: &str = "CREATE TABLE IF NOT EXISTS _migrations (
     scope       TEXT    NOT NULL,
     version     INTEGER NOT NULL,
@@ -100,14 +118,15 @@ impl Db {
         Ok(Self {
             path,
             conn: Mutex::new(conn),
-            migrations: Vec::new(),
+            // 打开就带上全库 schema：调用方不需要知道有哪些表，也就不可能漏注册
+            migrations: vec![(SCHEMA_SCOPE, SCHEMA)],
         })
     }
 
-    /// 注册一个领域的迁移序列。
+    /// 追加一套迁移序列。
     ///
-    /// `scope` 是这套表的归属（如 `"session"`），用来和别的领域各记各的版本。
-    /// 步骤按 `version` 从小到大执行，跑过的不再跑。
+    /// `scope` 用来和别的序列各记各的版本。步骤按 `version` 从小到大执行，
+    /// 跑过的不再跑。正常不需要调——全库 schema 打开时就带上了。
     pub fn with_migrations(mut self, scope: &'static str, steps: &'static [Migration]) -> Self {
         self.migrations.push((scope, steps));
         self
@@ -210,6 +229,36 @@ mod tests {
             Ok(names)
         })
         .unwrap()
+    }
+
+    /// 打开 + migrate 就该拿到完整的库，不需要调用方再注册什么。
+    #[test]
+    fn fresh_database_has_the_whole_schema() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::open(dir.path().join("t.db")).unwrap();
+        db.migrate().unwrap();
+
+        let tables: Vec<String> = db
+            .read::<_, DbError>(|conn| {
+                let mut stmt = conn
+                    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")?;
+                let names = stmt
+                    .query_map([], |row| row.get::<_, String>(0))?
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(names)
+            })
+            .unwrap();
+
+        for expected in ["memories", "memory_tags", "messages", "sessions"] {
+            assert!(
+                tables.iter().any(|t| t == expected),
+                "缺 {expected}：{tables:?}"
+            );
+        }
+        assert!(
+            !tables.iter().any(|t| t == "branch_meta"),
+            "branch_meta 已经删了"
+        );
     }
 
     #[test]

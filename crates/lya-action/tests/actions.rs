@@ -57,13 +57,13 @@ async fn memory_write_then_read_roundtrip() {
         )
         .await;
     assert!(!is_err(&written), "{}", content(&written));
-    assert!(content(&written).contains("#2"));
+    assert!(content(&written).contains("#1"));
 
     // 写入时自动记录来源会话
-    let stored = store.get(2).unwrap();
+    let stored = store.get(1).unwrap();
     assert_eq!(stored.source_session_id.as_deref(), Some("session-1"));
 
-    let got = read.call(ctx(Mode::Agent), json!({ "id": 2 })).await;
+    let got = read.call(ctx(Mode::Agent), json!({ "id": 1 })).await;
     let text = content(&got);
     assert!(text.contains("Hyprland 崩溃"));
     assert!(text.contains("换 -git 包可绕过"));
@@ -82,7 +82,7 @@ async fn memory_write_same_title_updates_in_place() {
         assert!(!is_err(&outcome));
     }
 
-    assert_eq!(store.count().unwrap(), 2, "置顶 + 一条用户记忆");
+    assert_eq!(store.count().unwrap(), 1, "同名写两次只有一条");
     let user = store.find_by_title("同名").unwrap().unwrap();
     assert_eq!(user.body, "第二版");
 }
@@ -122,7 +122,7 @@ async fn memory_read_accepts_stringified_id() {
         .await;
 
     // 模型偶尔把数字写成字符串，能救则救
-    let got = read.call(ctx(Mode::Agent), json!({ "id": "2" })).await;
+    let got = read.call(ctx(Mode::Agent), json!({ "id": "1" })).await;
     assert!(!is_err(&got));
 }
 

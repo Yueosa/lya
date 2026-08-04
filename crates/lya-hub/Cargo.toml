@@ -24,7 +24,7 @@ uuid = { workspace = true }
 async-stream = { workspace = true }
 lya-action = { workspace = true }
 lya-config = { workspace = true }
-lya-db = { workspace = true }
+lya-db = { workspace = true, features = ["testing"] }
 lya-memory = { workspace = true }
 lya-mode = { workspace = true }
 lya-prompt = { workspace = true }

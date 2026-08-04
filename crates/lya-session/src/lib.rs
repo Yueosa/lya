@@ -7,6 +7,8 @@
 //! - HITL 独立节点（`role=hitl`）与 pending 查询
 //! - `message_json`：自研外壳 + 内嵌 OpenAI 结构
 //!
+//! 表结构不在这里，在 `lya-db` 的 `migrations/`：一个库文件一份 schema。
+//!
 //! ## 分支约定
 //!
 //! - 当前路径由 `sessions.active_leaf_id` 决定
@@ -21,7 +23,6 @@ pub mod store;
 pub mod types;
 
 pub use error::SessionError;
-pub use lya_db::Migration;
 pub use message::{
     ConfirmStepBlock, FormOption, FormQuestion, FormQuestionKind, HitlBlock, HitlKind, LyaExtras,
     MessageKind, MessagePayload, MessageRole, MessageStatus, OpenAiFunction, OpenAiMessage,
@@ -29,22 +30,3 @@ pub use message::{
 };
 pub use store::SessionStore;
 pub use types::{CreateSession, MessageRecord, SessionMeta, SessionStatus};
-
-/// 会话相关表的迁移序列。
-pub const MIGRATIONS: &[Migration] = &[
-    Migration {
-        version: 1,
-        sql: include_str!("../migrations/001_init.sql"),
-    },
-    Migration {
-        version: 2,
-        sql: include_str!("../migrations/002_model_id.sql"),
-    },
-    Migration {
-        version: 3,
-        sql: include_str!("../migrations/003_api_mode.sql"),
-    },
-];
-
-/// 迁移台账里用的归属名。
-pub const MIGRATION_SCOPE: &str = "session";

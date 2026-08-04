@@ -4,11 +4,16 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "lya SQLite 基建：数据目录、连接、迁移与写事务"
+description = "lya SQLite 基建：数据目录、连接、全库 schema 与写事务"
+
+[features]
+# 临时库助手。给需要建库的测试开，正式构建里不带 tempfile
+testing = ["dep:tempfile"]
 
 [dependencies]
 chrono = { workspace = true }
 rusqlite = { workspace = true }
+tempfile = { workspace = true, optional = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]

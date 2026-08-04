@@ -24,7 +24,7 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 lya-config = { workspace = true }
-lya-db = { workspace = true }
+lya-db = { workspace = true, features = ["testing"] }
 lya-http = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true }

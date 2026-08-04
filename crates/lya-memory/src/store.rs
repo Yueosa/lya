@@ -12,7 +12,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 use crate::error::MemoryError;
 use crate::index::{IndexBudget, render_index};
 use crate::types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};
-use crate::{MIGRATION_SCOPE, MIGRATIONS};
 
 /// 长期记忆仓储。
 pub struct MemoryStore {
@@ -25,19 +24,16 @@ pub struct MemoryStore {
 }
 
 impl MemoryStore {
-    /// 用已打开的 [`Db`] 构造，并登记 memory 迁移（不执行）。
+    /// 用已打开的 [`Db`] 构造。
     pub fn new(db: Db) -> Self {
         Self {
-            db: Arc::new(db.with_migrations(MIGRATION_SCOPE, MIGRATIONS)),
+            db: Arc::new(db),
             limits: MemoryLimits::default(),
             budget: IndexBudget::default(),
         }
     }
 
-    /// 复用别处已经建好的 [`Db`]。
-    ///
-    /// **不登记迁移**——调用方要自己先 `with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS)`
-    /// 并 `migrate()`。与 `lya-session` 共享同一个库文件时用这个。
+    /// 复用别处已经建好的 [`Db`]，与 `lya-session` 共享同一个库文件。
     pub fn with_db(db: Arc<Db>) -> Self {
         Self {
             db,
@@ -46,14 +42,14 @@ impl MemoryStore {
         }
     }
 
-    /// 打开默认库 `~/.lya/lya.db` 并立即迁移。
+    /// 打开默认库 `~/.lya/lya.db` 并建好表。
     pub fn open_default() -> Result<Self, MemoryError> {
         let store = Self::new(Db::open_default()?);
         store.migrate()?;
         Ok(store)
     }
 
-    /// 打开指定库文件并立即迁移。
+    /// 打开指定库文件并建好表。
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, MemoryError> {
         let store = Self::new(Db::open(path)?);
         store.migrate()?;
@@ -72,7 +68,7 @@ impl MemoryStore {
         self
     }
 
-    /// 执行已登记的迁移。
+    /// 建表（全库 schema 由 `lya-db` 持有）。
     pub fn migrate(&self) -> Result<(), MemoryError> {
         self.db.migrate()?;
         Ok(())
@@ -522,12 +518,21 @@ mod tests {
 
     use super::*;
 
-    use crate::PINNED_MEMORY_TITLE;
-
     fn store() -> (TempDir, MemoryStore) {
         let dir = tempfile::tempdir().unwrap();
         let store = MemoryStore::open(dir.path().join("lya.db")).unwrap();
         (dir, store)
+    }
+
+    /// 置顶只由用户在界面上设，仓储层没有写接口，测试直接改库。
+    fn pin(store: &MemoryStore, id: i64) {
+        store
+            .db()
+            .write::<_, MemoryError>(|conn| {
+                conn.execute("UPDATE memories SET pinned = 1 WHERE id = ?1", [id])?;
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
@@ -542,7 +547,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(created.id, 2, "迁移会种子一条置顶 #1");
+        assert_eq!(created.id, 1, "新库是空的");
         // 标签去重且排序
         assert_eq!(
             created.tags,
@@ -551,8 +556,8 @@ mod tests {
         );
         assert_eq!(created.source_session_id.as_deref(), Some("s1"));
         assert_eq!(store.get(created.id).unwrap(), created);
-        assert_eq!(store.count().unwrap(), 2);
-        assert_eq!(store.slot_of(created.id).unwrap(), 2);
+        assert_eq!(store.count().unwrap(), 1);
+        assert_eq!(store.slot_of(created.id).unwrap(), 1);
     }
 
     #[test]
@@ -568,10 +573,10 @@ mod tests {
         let updated = store
             .upsert_by_title(NewMemory::new("同名", "第二版").with_tags(["新标签"]))
             .unwrap();
-        assert_eq!(updated.id, 2, "同名应更新原记录而不是新建");
+        assert_eq!(updated.id, 1, "同名应更新原记录而不是新建");
         assert_eq!(updated.body, "第二版");
         assert_eq!(updated.tags, vec!["新标签".to_string()]);
-        assert_eq!(store.count().unwrap(), 2);
+        assert_eq!(store.count().unwrap(), 1);
     }
 
     #[test]
@@ -580,8 +585,8 @@ mod tests {
         let created = store
             .upsert_by_title(NewMemory::new("新的", "正文"))
             .unwrap();
-        assert_eq!(created.id, 2);
-        assert_eq!(store.count().unwrap(), 2);
+        assert_eq!(created.id, 1);
+        assert_eq!(store.count().unwrap(), 1);
     }
 
     #[test]
@@ -644,7 +649,8 @@ mod tests {
     #[test]
     fn delete_cascades_tags_and_rejects_pinned() {
         let (_dir, store) = store();
-        let pinned = store.list().unwrap().into_iter().find(|m| m.pinned).unwrap();
+        let pinned = store.create(NewMemory::new("置顶的", "x")).unwrap();
+        pin(&store, pinned.id);
         assert!(matches!(
             store.delete(pinned.id),
             Err(MemoryError::Invalid(_))
@@ -676,6 +682,8 @@ mod tests {
     #[test]
     fn list_is_newest_first_and_index_renders_with_slots() {
         let (_dir, store) = store();
+        let pinned = store.create(NewMemory::new("置顶的", "p")).unwrap();
+        pin(&store, pinned.id);
         store.create(NewMemory::new("先写的", "x")).unwrap();
         let second = store.create(NewMemory::new("后写的", "y")).unwrap();
 
@@ -685,19 +693,23 @@ mod tests {
 
         let section = store.index_section().unwrap();
         assert!(section.contains("共 3 条"));
-        assert!(section.contains(&format!("#1 {PINNED_MEMORY_TITLE}")));
+        assert!(section.contains("#1 置顶的"));
         assert!(section.contains("#2 后写的"));
         assert!(section.contains("#3 先写的"));
         assert_eq!(store.get_by_slot(2).unwrap().title, "后写的");
     }
 
     #[test]
-    fn migration_seeds_pinned_memory_at_slot_one() {
+    fn fresh_database_has_no_memories() {
         let (_dir, store) = store();
-        assert_eq!(store.count().unwrap(), 1);
-        let pinned = store.get_by_slot(1).unwrap();
-        assert!(pinned.pinned);
-        assert_eq!(pinned.title, PINNED_MEMORY_TITLE);
+        assert_eq!(store.count().unwrap(), 0);
+        assert!(matches!(store.get_by_slot(1), Err(MemoryError::NotFound(_))));
+        assert!(
+            store
+                .index_section()
+                .unwrap()
+                .contains("当前没有任何长期记忆")
+        );
     }
 
     #[test]

@@ -13,6 +13,7 @@
 //! - 不定义暴露给模型的 action/tool，也不写「什么时候该记」的指导文案，
 //!   那些属于 `lya-action`
 //! - 不做向量检索
+//! - 不建表：表结构在 `lya-db` 的 `migrations/`，一个库文件一份 schema
 //!
 //! ## 为什么是「常驻索引」而不是检索
 //!
@@ -42,21 +43,5 @@ pub mod types;
 
 pub use error::MemoryError;
 pub use index::{IndexBudget, MEMORY_SECTION_TITLE, render_index};
-pub use lya_db::Migration;
 pub use store::MemoryStore;
-pub use types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory, PINNED_MEMORY_TITLE};
-
-/// 记忆相关表的迁移序列。
-pub const MIGRATIONS: &[Migration] = &[
-    Migration {
-        version: 1,
-        sql: include_str!("../migrations/001_init.sql"),
-    },
-    Migration {
-        version: 2,
-        sql: include_str!("../migrations/002_pinned_seed.sql"),
-    },
-];
-
-/// 迁移台账里用的归属名。
-pub const MIGRATION_SCOPE: &str = "memory";
+pub use types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};

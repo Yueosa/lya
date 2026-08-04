@@ -15,8 +15,6 @@ use std::sync::Arc;
 
 use lya_db::Db;
 
-use crate::{MIGRATION_SCOPE, MIGRATIONS};
-
 /// 会话存储：会话元数据 + 消息树。
 pub struct SessionStore {
     /// 共享数据库句柄。
@@ -24,11 +22,9 @@ pub struct SessionStore {
 }
 
 impl SessionStore {
-    /// 用已打开的 [`Db`] 构造，并把 session 迁移登记进去。
+    /// 用已打开的 [`Db`] 构造。
     pub fn new(db: Db) -> Self {
-        Self {
-            db: Arc::new(db.with_migrations(MIGRATION_SCOPE, MIGRATIONS)),
-        }
+        Self { db: Arc::new(db) }
     }
 
     /// 复用别处已经建好的 [`Db`]。
@@ -36,21 +32,21 @@ impl SessionStore {
         Self { db }
     }
 
-    /// 打开默认库 `~/.lya/lya.db` 并立即迁移。
+    /// 打开默认库 `~/.lya/lya.db` 并建好表。
     pub fn open_default() -> Result<Self, crate::SessionError> {
         let store = Self::new(Db::open_default()?);
         store.migrate()?;
         Ok(store)
     }
 
-    /// 打开指定库文件并立即迁移。
+    /// 打开指定库文件并建好表。
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, crate::SessionError> {
         let store = Self::new(Db::open(path)?);
         store.migrate()?;
         Ok(store)
     }
 
-    /// 执行已登记的迁移。
+    /// 建表（全库 schema 由 `lya-db` 持有）。
     pub fn migrate(&self) -> Result<(), crate::SessionError> {
         self.db.migrate()?;
         Ok(())

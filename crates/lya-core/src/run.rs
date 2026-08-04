@@ -135,9 +135,7 @@ async fn serve(
         ..Default::default()
     })?;
 
-    let db = Db::open(config.db_path())?
-        .with_migrations(lya_session::MIGRATION_SCOPE, lya_session::MIGRATIONS)
-        .with_migrations(lya_memory::MIGRATION_SCOPE, lya_memory::MIGRATIONS);
+    let db = Db::open(config.db_path())?;
     db.migrate()?;
     let db = Arc::new(db);
     let sessions = Arc::new(SessionStore::with_db(Arc::clone(&db)));
