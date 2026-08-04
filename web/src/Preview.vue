@@ -257,8 +257,8 @@ function onContextMenu(event: MouseEvent): void {
   gap: 8px;
 }
 
-/* 气泡形状全靠 token：东京夜是 14px 圆角配 4px 尖尾巴，
-   MTF 把尾巴设成和圆角一样大，也就没有尾巴了 */
+/* 气泡形状全靠 token：尖尾巴那一角单列一个变量，
+   MTF 把它设成和圆角一样大，也就没有尾巴了 */
 .bubble {
   max-width: 76%;
   padding: 9px 13px;

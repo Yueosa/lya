@@ -15,7 +15,6 @@
 
 import { ref } from 'vue'
 
-import './tokyo-night.css'
 import './mtf.css'
 import './mc.css'
 import './base.css'
@@ -32,13 +31,12 @@ export interface Theme {
 }
 
 export const THEMES: Theme[] = [
-  { id: 'tokyo-night', label: '东京夜', scheme: 'dark' },
   { id: 'mtf', label: 'MTF 简约', scheme: 'light' },
   { id: 'mc', label: 'Minecraft', scheme: 'light' },
 ]
 
 const STORAGE_KEY = 'lya.theme'
-const DEFAULT_THEME = 'tokyo-night'
+const DEFAULT_THEME = 'mtf'
 
 /** 当前主题 id；认不出的一律回退到默认，免得整个界面没有颜色。 */
 export function currentTheme(): string {

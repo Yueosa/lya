@@ -30,35 +30,6 @@ defineProps<{ themeId: string }>()
       </div>
     </section>
 
-    <section v-else-if="themeId === 'tokyo-night'" class="panel theme-preview__card">
-      <h4 class="theme-preview__title">地铁线导航</h4>
-      <div class="theme-preview__tokyo-metro">
-        <div class="theme-preview__tokyo-track" aria-hidden="true">
-          <span class="theme-preview__tokyo-seg theme-preview__tokyo-seg--0" />
-          <span class="theme-preview__tokyo-seg theme-preview__tokyo-seg--1" />
-          <span class="theme-preview__tokyo-seg theme-preview__tokyo-seg--2" />
-        </div>
-        <div class="theme-preview__tokyo-stations">
-          <div class="theme-preview__tokyo-station theme-preview__tokyo-station--on">
-            <span class="theme-preview__tokyo-dot" aria-hidden="true" />
-            <span>首页</span>
-          </div>
-          <div class="theme-preview__tokyo-station">
-            <span class="theme-preview__tokyo-dot" aria-hidden="true" />
-            <span>对话</span>
-          </div>
-          <div class="theme-preview__tokyo-station">
-            <span class="theme-preview__tokyo-dot" aria-hidden="true" />
-            <span>记忆</span>
-          </div>
-          <div class="theme-preview__tokyo-station">
-            <span class="theme-preview__tokyo-dot" aria-hidden="true" />
-            <span>工具</span>
-          </div>
-        </div>
-      </div>
-    </section>
-
     <section v-else class="panel theme-preview__card">
       <h4 class="theme-preview__title">侧栏导航</h4>
       <div class="theme-preview__side">

@@ -1,12 +1,12 @@
 /**
- * 动效开关：MTF / 东京夜启用；MC token 时长为 0；系统「减少动效」时关闭。
+ * 动效开关：MTF 启用；MC token 时长为 0；系统「减少动效」时关闭。
  */
 
 import { computed } from 'vue'
 
 import { themeId } from '../themes'
 
-const MOTION_THEMES = new Set(['mtf', 'tokyo-night'])
+const MOTION_THEMES = new Set(['mtf'])
 
 function prefersReducedMotion(): boolean {
   try {
