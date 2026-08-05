@@ -15,6 +15,7 @@ mod memories;
 mod sessions;
 mod static_ui;
 mod storage;
+mod theme_assets;
 
 use std::sync::Arc;
 
@@ -50,6 +51,9 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
             "/api/sessions/{id}/tools/{tool}",
             axum::routing::put(introspect::toggle_tool),
         )
+        // 主题素材：加载图与记忆大厅 CG 放数据目录，不进二进制
+        .route("/api/theme/{theme}/assets", get(theme_assets::list))
+        .route("/api/theme/{theme}/asset", get(theme_assets::asset))
         // 白盒：模型手里有什么，用户看得见
         .route("/api/tools", get(introspect::tools))
         .route("/api/actions", get(introspect::actions))

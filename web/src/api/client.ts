@@ -175,6 +175,22 @@ export interface UsageSection {
   children?: UsageSection[]
 }
 
+/** 主题素材目录里的一个文件。 */
+export interface ThemeAsset {
+  name: string
+  /** `image` 走 <img>，`video` 走 <video>——CG 是视频。 */
+  media: 'image' | 'video'
+  bytes: number
+}
+
+/** `GET /api/theme/{id}/assets` 响应。 */
+export interface ThemeAssetList {
+  /** 素材目录的绝对路径，界面据此告诉用户往哪儿丢文件。 */
+  dir: string
+  exists: boolean
+  assets: ThemeAsset[]
+}
+
 /** `GET /api/storage/stats` 响应。 */
 export interface UsageReport {
   root: string
@@ -375,6 +391,16 @@ export class LyaClient {
   /** 数据目录占用（只读）。 */
   storageStats(): Promise<UsageReport> {
     return this.request('GET', '/api/storage/stats')
+  }
+
+  /**
+   * 列一套主题的本地素材。
+   *
+   * 目录不存在也会正常返回（`exists: false`）——主题在没有素材时该照常能用，
+   * 界面拿 `dir` 提示用户往哪儿放就行。
+   */
+  themeAssets(theme: string, kind: 'home' | 'cg'): Promise<ThemeAssetList> {
+    return this.request('GET', `/api/theme/${theme}/assets?kind=${kind}`)
   }
 
   /**
