@@ -112,8 +112,21 @@ function sessionMenu(event: MouseEvent, session: SessionMeta): void {
 <template>
   <div class="ba-shell">
     <aside class="ba-shell__side">
+      <!--
+        字标就是回首页的按钮，和默认外壳一致。`NAV_ITEMS` 里没有 `home`（默认外壳挂在
+        字标上、MC 外壳自己就是首页），所以每套外壳都得自己给一个入口——这一条第一版
+        漏了，结果是一离开首页就再也回不去。
+      -->
       <header class="ba-shell__brand">
-        <BaLogo class="ba-shell__logo" left="lya" right="Archive" />
+        <button
+          class="ba-shell__brand-btn"
+          :class="{ 'ba-shell__brand-btn--on': view === 'home' }"
+          type="button"
+          v-tip="'回首页'"
+          @click="emit('navigate', 'home')"
+        >
+          <BaLogo class="ba-shell__logo" left="lya" right="Archive" />
+        </button>
       </header>
 
       <nav class="ba-shell__nav">
@@ -216,7 +229,27 @@ function sessionMenu(event: MouseEvent, session: SessionMeta): void {
 }
 
 .ba-shell__brand {
-  padding: 18px 16px 12px;
+  padding: 12px 12px 10px;
+}
+
+.ba-shell__brand-btn {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.ba-shell__brand-btn:hover {
+  background: var(--surface-hover);
+}
+
+.ba-shell__brand-btn--on {
+  background: var(--accent-soft);
 }
 
 .ba-shell__logo {
