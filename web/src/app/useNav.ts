@@ -14,6 +14,7 @@ import { ref, watch } from 'vue'
 
 import type { View } from '../shell/types'
 import { currentId } from './chat/state'
+import { readLocal, writeLocal } from '../utils/storage'
 
 const VIEW_KEY = 'lya.nav.view'
 const SESSION_KEY = 'lya.nav.session'
@@ -33,26 +34,8 @@ const VIEWS: readonly View[] = [
   'storage',
 ]
 
-function read(key: string): string | null {
-  try {
-    return globalThis.localStorage?.getItem(key) ?? null
-  } catch {
-    // 隐私模式读不到就当没存过
-    return null
-  }
-}
-
-function write(key: string, value: string | null): void {
-  try {
-    if (value === null) globalThis.localStorage?.removeItem(key)
-    else globalThis.localStorage?.setItem(key, value)
-  } catch {
-    // 写不进去只影响下次刷新的落点，不值得打断用户
-  }
-}
-
 function savedView(): View {
-  const raw = read(VIEW_KEY)
+  const raw = readLocal(VIEW_KEY)
   return VIEWS.includes(raw as View) ? (raw as View) : 'home'
 }
 
@@ -66,17 +49,17 @@ export const view = ref<View>(savedView())
 
 export function setView(next: View): void {
   view.value = next
-  write(VIEW_KEY, next)
+  writeLocal(VIEW_KEY, next)
 }
 
 /** 上次打开的会话 id。 */
 export function savedSession(): string | null {
-  return read(SESSION_KEY)
+  return readLocal(SESSION_KEY)
 }
 
 // 盯着 currentId 记，而不是让 openSession / closeSession 各自记一次：那样每加一条
 // 改变当前会话的路径（删除、归档、切分支）都得记着补一句，漏了不报错，只是刷新之后
 // 落错地方
 watch(currentId, (id) => {
-  write(SESSION_KEY, id)
+  writeLocal(SESSION_KEY, id)
 })

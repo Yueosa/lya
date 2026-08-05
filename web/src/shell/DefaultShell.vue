@@ -17,6 +17,7 @@ import {
   setArchived,
 } from '../app/useChat'
 import { setSidebarCollapsed, sidebarCollapsed } from '../app/useShell'
+import { readLocal, writeLocal } from '../utils/storage'
 import { openContextMenu } from '../ui/useContextMenu'
 import { confirm, confirmAsync, prompt } from '../ui/useDialog'
 import { toast } from '../ui/useToast'
@@ -27,8 +28,10 @@ import { NAV_ICONS } from './icons'
 const props = defineProps<ShellProps>()
 const emit = defineEmits<{ navigate: [view: View] }>()
 
+const ARCHIVED_KEY = 'lya.sidebar.archived'
+
 const collapsed = sidebarCollapsed
-const showArchived = ref(localStorage.getItem('lya.sidebar.archived') === '1')
+const showArchived = ref(readLocal(ARCHIVED_KEY) === '1')
 
 const archiveCount = computed(() => archivedSessions.value.length)
 const activeCount = computed(() => sessions.value.length)
@@ -40,7 +43,7 @@ const viewingActive = computed(
 )
 
 watch(showArchived, (open) => {
-  localStorage.setItem('lya.sidebar.archived', open ? '1' : '0')
+  writeLocal(ARCHIVED_KEY, open ? '1' : '0')
 })
 
 watch(

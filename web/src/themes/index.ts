@@ -19,6 +19,7 @@ import './mtf.css'
 import './mc.css'
 import './base.css'
 
+import { readLocal, writeLocal } from '../utils/storage'
 import { ensureMcFont } from './mcFont'
 
 /** 一套主题。 */
@@ -40,13 +41,8 @@ const DEFAULT_THEME = 'mtf'
 
 /** 当前主题 id；认不出的一律回退到默认，免得整个界面没有颜色。 */
 export function currentTheme(): string {
-  try {
-    // 节点测试里可能没有 localStorage；缺了就当没存过
-    const saved = globalThis.localStorage?.getItem(STORAGE_KEY)
-    return THEMES.some((theme) => theme.id === saved) ? saved! : DEFAULT_THEME
-  } catch {
-    return DEFAULT_THEME
-  }
+  const saved = readLocal(STORAGE_KEY)
+  return THEMES.some((theme) => theme.id === saved) ? saved! : DEFAULT_THEME
 }
 
 /**
@@ -63,11 +59,7 @@ export function applyTheme(id: string): void {
   document.documentElement.dataset['theme'] = theme.id
   // 让原生滚动条、下拉、日期选择器跟着深浅走，否则浅色主题里会冒出深色控件
   document.documentElement.style.colorScheme = theme.scheme
-  try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, theme.id)
-  } catch {
-    // 测试环境或隐私模式写不进去就算了，内存里的 themeId 仍然有效
-  }
+  writeLocal(STORAGE_KEY, theme.id)
   themeId.value = theme.id
   if (theme.id === 'mc') void ensureMcFont()
 }

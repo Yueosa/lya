@@ -17,6 +17,8 @@
 
 import { reactive, ref, watch } from 'vue'
 
+import { readJson, writeJson, writeLocal } from '../utils/storage'
+
 /** 跟着这台机器走的偏好。 */
 export interface MachinePrefs {
   followStream: boolean
@@ -61,24 +63,6 @@ const SESSION_DEFAULTS: SessionPrefs = {
 export const MACHINE_PREF_KEYS = Object.keys(MACHINE_DEFAULTS) as (keyof MachinePrefs)[]
 export const SESSION_PREF_KEYS = Object.keys(SESSION_DEFAULTS) as (keyof SessionPrefs)[]
 
-function read<T extends object>(key: string, defaults: T): T {
-  try {
-    const saved = JSON.parse(localStorage.getItem(key) ?? '{}') as Partial<T>
-    // 逐字段合并而不是整体替换：以后加了新偏好，老用户存的那份不会缺字段
-    return { ...defaults, ...saved }
-  } catch {
-    return { ...defaults }
-  }
-}
-
-function write(key: string, value: object): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    // 隐私模式或配额满了写不进去就算了，内存里的值仍然有效
-  }
-}
-
 function pick<T extends object, K extends keyof T>(source: T, keys: K[]): Pick<T, K> {
   const out = {} as Pick<T, K>
   for (const key of keys) out[key] = source[key]
@@ -86,7 +70,7 @@ function pick<T extends object, K extends keyof T>(source: T, keys: K[]): Pick<T
 }
 
 export const prefs = reactive<Prefs>({
-  ...read(MACHINE_KEY, MACHINE_DEFAULTS),
+  ...readJson(MACHINE_KEY, MACHINE_DEFAULTS),
   ...SESSION_DEFAULTS,
 })
 
@@ -96,9 +80,9 @@ const boundSession = ref<string | null>(null)
 watch(
   prefs,
   (value) => {
-    write(MACHINE_KEY, pick(value, MACHINE_PREF_KEYS))
+    writeJson(MACHINE_KEY, pick(value, MACHINE_PREF_KEYS))
     const id = boundSession.value
-    if (id) write(sessionKey(id), pick(value, SESSION_PREF_KEYS))
+    if (id) writeJson(sessionKey(id), pick(value, SESSION_PREF_KEYS))
   },
   { deep: true },
 )
@@ -113,16 +97,12 @@ export function bindSessionPrefs(id: string | null): void {
   if (boundSession.value === id) return
   // 先换归属再改值，否则 watch 回调会把新会话的设置写到旧会话名下
   boundSession.value = id
-  Object.assign(prefs, id ? read(sessionKey(id), SESSION_DEFAULTS) : SESSION_DEFAULTS)
+  Object.assign(prefs, id ? readJson(sessionKey(id), SESSION_DEFAULTS) : SESSION_DEFAULTS)
 }
 
 /** 会话删了，它那份显示偏好也没有留下的意义。 */
 export function forgetSessionPrefs(id: string): void {
-  try {
-    localStorage.removeItem(sessionKey(id))
-  } catch {
-    // 同上，读不到写不进都不影响使用
-  }
+  writeLocal(sessionKey(id), null)
 }
 
 /** 恢复默认。会话级那部分只影响当前会话。 */

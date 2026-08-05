@@ -1,24 +1,17 @@
 /** 各会话输入框草稿，切页回来不丢。 */
 import { reactive } from 'vue'
 
+import { readLocal, writeLocal } from '../../utils/storage'
+
 const KEY_PREFIX = 'lya.composer.draft.'
 const drafts = reactive<Record<string, string>>({})
 
 function load(id: string): string {
-  try {
-    return localStorage.getItem(`${KEY_PREFIX}${id}`) ?? ''
-  } catch {
-    return ''
-  }
+  return readLocal(`${KEY_PREFIX}${id}`) ?? ''
 }
 
 function persist(id: string, text: string): void {
-  try {
-    if (text) localStorage.setItem(`${KEY_PREFIX}${id}`, text)
-    else localStorage.removeItem(`${KEY_PREFIX}${id}`)
-  } catch {
-    // localStorage 不可用时仅保留内存草稿
-  }
+  writeLocal(`${KEY_PREFIX}${id}`, text || null)
 }
 
 export function readComposerDraft(sessionId: string | null): string {

@@ -17,6 +17,7 @@ import {
 import Icon from '../ui/Icon.vue'
 import { confirmAsync } from '../ui/useDialog'
 import { fmtBubbleTooltip } from '../utils/dateFormat'
+import { readJson, writeJson } from '../utils/storage'
 
 const props = defineProps<{ open: boolean }>()
 defineEmits<{ close: [] }>()
@@ -35,13 +36,7 @@ const MAX_PANEL_RATIO = 0.8
 const PANEL_PAD = 32
 
 function loadFilters(): TreeFilters {
-  try {
-    const raw = localStorage.getItem(FILTER_KEY)
-    if (!raw) return { ...defaultTreeFilters }
-    return { ...defaultTreeFilters, ...JSON.parse(raw) }
-  } catch {
-    return { ...defaultTreeFilters }
-  }
+  return readJson(FILTER_KEY, defaultTreeFilters)
 }
 
 const nodes = ref<MessageRecord[]>([])
@@ -61,7 +56,7 @@ const filters = ref<TreeFilters>(loadFilters())
 watch(
   filters,
   (value) => {
-    localStorage.setItem(FILTER_KEY, JSON.stringify(value))
+    writeJson(FILTER_KEY, value)
     if (props.open) void refresh()
   },
   { deep: true },

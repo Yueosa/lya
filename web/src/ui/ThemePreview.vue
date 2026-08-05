@@ -15,16 +15,27 @@
 -->
 
 <script setup lang="ts">
+import { computed } from 'vue'
+
 import CollapsibleBlock from '../views/CollapsibleBlock.vue'
 import MarkdownBody from '../views/MarkdownBody.vue'
 import ScrollJumpButton from '../views/chat/ScrollJumpButton.vue'
+import { chromeFor } from '../shell/registry'
 import { NAV_ITEMS } from '../shell/types'
 import StorageBreakdown from './StorageBreakdown.vue'
 import { SAMPLE_MARKDOWN, SAMPLE_USAGE } from './themeSamples'
 
-defineProps<{ themeId: string }>()
+const props = defineProps<{ themeId: string }>()
 
-/** MC 主菜单是两列，项数为奇数时最后一个占满整行——和 `McShell` 同一条规则。 */
+/**
+ * 画哪种导航示意，问外壳注册表要，不在这里另判一次。
+ *
+ * 原先这里写死 `themeId === 'mc'`，于是任何新主题都会被画成侧栏——哪怕它有自己的
+ * 菜单式外壳。判断只该有一个来源。
+ */
+const chrome = computed(() => chromeFor(props.themeId))
+
+/** 菜单式外壳是两列，项数为奇数时最后一个占满整行——和 `McShell` 同一条规则。 */
 const entries = NAV_ITEMS.map((item, index) => ({
   ...item,
   wide: NAV_ITEMS.length % 2 === 1 && index === NAV_ITEMS.length - 1,
@@ -33,7 +44,7 @@ const entries = NAV_ITEMS.map((item, index) => ({
 
 <template>
   <div class="theme-preview" :data-theme="themeId">
-    <section v-if="themeId === 'mc'" class="panel theme-preview__card">
+    <section v-if="chrome === 'menu'" class="panel theme-preview__card">
       <h4 class="theme-preview__title">主菜单</h4>
       <div class="theme-preview__mc-menu">
         <button type="button" class="btn theme-preview__mc-entry theme-preview__mc-entry--wide">

@@ -14,7 +14,9 @@ import { mount } from '@vue/test-utils'
 import { flushPromises } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
+import { chromeFor } from '../shell/registry'
 import { NAV_ITEMS } from '../shell/types'
+import { THEMES } from '../themes'
 import ThemePreview from './ThemePreview.vue'
 import { SAMPLE_MARKDOWN } from './themeSamples'
 import { vTip } from './vTip'
@@ -32,12 +34,23 @@ async function render(themeId: string) {
 
 describe('主题预览', () => {
   it('导航项跟着 NAV_ITEMS 走，不手写', async () => {
-    for (const themeId of ['mtf', 'mc']) {
-      const wrapper = await render(themeId)
+    for (const theme of THEMES) {
+      const wrapper = await render(theme.id)
       const text = wrapper.text()
       for (const item of NAV_ITEMS) {
-        expect(text, `${themeId} 缺少导航项「${item.label}」`).toContain(item.label)
+        expect(text, `${theme.id} 缺少导航项「${item.label}」`).toContain(item.label)
       }
+    }
+  })
+
+  it('导航示意跟着外壳注册表走，不自己判主题 id', async () => {
+    for (const theme of THEMES) {
+      const wrapper = await render(theme.id)
+      const title = chromeFor(theme.id) === 'menu' ? '主菜单' : '侧栏导航'
+      expect(
+        wrapper.text(),
+        `${theme.id} 用的是 ${chromeFor(theme.id)} 外壳，预览里该画「${title}」`,
+      ).toContain(title)
     }
   })
 
