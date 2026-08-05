@@ -4,7 +4,7 @@ use super::SessionStore;
 use crate::error::SessionError;
 use crate::message::{HitlBlock, MessageKind, MessagePayload, MessageStatus};
 use crate::types::{CreateSession, SessionStatus};
-use lya_mode::Mode;
+use lya_base::Mode;
 
     fn store() -> (TempDir, SessionStore) {
         let dir = tempfile::tempdir().unwrap();

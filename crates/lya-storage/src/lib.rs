@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::fs::Metadata;
 use std::path::Path;
 
-use lya_config::data_root;
+use lya_base::data_root;
 use serde::Serialize;
 use std::os::unix::fs::MetadataExt;
 use thiserror::Error;

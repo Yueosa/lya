@@ -2,11 +2,11 @@
 resolver = "2"
 members = [
     "crates/lya",
+    "crates/lya-base",
     "crates/lya-http",
     "crates/lya-llm",
     "crates/lya-tool",
     "crates/lya-prompt",
-    "crates/lya-mode",
     "crates/lya-db",
     "crates/lya-session",
     "crates/lya-memory",
@@ -41,6 +41,7 @@ lya-action = { path = "crates/lya-action" }
 lya-agent = { path = "crates/lya-agent" }
 lya-config = { path = "crates/lya-config" }
 lya-api = { path = "crates/lya-api" }
+lya-base = { path = "crates/lya-base" }
 lya-hub = { path = "crates/lya-hub" }
 lya-media = { path = "crates/lya-media" }
 lya-storage = { path = "crates/lya-storage" }
@@ -49,7 +50,6 @@ lya-db = { path = "crates/lya-db" }
 lya-http = { path = "crates/lya-http" }
 lya-llm = { path = "crates/lya-llm" }
 lya-memory = { path = "crates/lya-memory" }
-lya-mode = { path = "crates/lya-mode" }
 lya-prompt = { path = "crates/lya-prompt" }
 lya-session = { path = "crates/lya-session" }
 lya-tool = { path = "crates/lya-tool" }

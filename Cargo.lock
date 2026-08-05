@@ -1162,8 +1162,8 @@ dependencies = [
 name = "lya-action"
 version = "0.1.0"
 dependencies = [
+ "lya-base",
  "lya-memory",
- "lya-mode",
  "lya-session",
  "lya-tool",
  "serde",
@@ -1182,12 +1182,12 @@ dependencies = [
  "futures-core",
  "futures-util",
  "lya-action",
+ "lya-base",
  "lya-config",
  "lya-db",
  "lya-http",
  "lya-llm",
  "lya-memory",
- "lya-mode",
  "lya-prompt",
  "lya-session",
  "lya-tool",
@@ -1208,13 +1208,13 @@ dependencies = [
  "futures-util",
  "lya-action",
  "lya-agent",
+ "lya-base",
  "lya-config",
  "lya-http",
  "lya-hub",
  "lya-llm",
  "lya-media",
  "lya-memory",
- "lya-mode",
  "lya-session",
  "lya-storage",
  "lya-tool",
@@ -1229,10 +1229,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "lya-base"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "lya-config"
 version = "0.1.0"
 dependencies = [
- "lya-mode",
+ "lya-base",
  "serde",
  "serde_json",
  "tempfile",
@@ -1268,6 +1277,7 @@ name = "lya-db"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "lya-base",
  "rusqlite",
  "tempfile",
  "thiserror",
@@ -1299,7 +1309,6 @@ dependencies = [
  "lya-http",
  "lya-llm",
  "lya-memory",
- "lya-mode",
  "lya-prompt",
  "lya-session",
  "lya-tool",
@@ -1319,6 +1328,7 @@ dependencies = [
  "bytes",
  "futures-core",
  "futures-util",
+ "lya-base",
  "lya-http",
  "serde",
  "serde_json",
@@ -1330,7 +1340,7 @@ dependencies = [
 name = "lya-media"
 version = "0.1.0"
 dependencies = [
- "lya-config",
+ "lya-base",
  "lya-http",
  "lya-tool",
  "serde",
@@ -1352,16 +1362,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lya-mode"
-version = "0.1.0"
-dependencies = [
- "lya-tool",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "lya-prompt"
 version = "0.1.0"
 
@@ -1370,8 +1370,8 @@ name = "lya-session"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "lya-base",
  "lya-db",
- "lya-mode",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1384,7 +1384,7 @@ dependencies = [
 name = "lya-storage"
 version = "0.1.0"
 dependencies = [
- "lya-config",
+ "lya-base",
  "serde",
  "tempfile",
  "thiserror",
@@ -1396,6 +1396,7 @@ version = "0.1.0"
 dependencies = [
  "ego-tree",
  "imagesize",
+ "lya-base",
  "lya-http",
  "percent-encoding",
  "regex",

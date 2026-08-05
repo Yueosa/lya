@@ -158,7 +158,7 @@ impl RawSession {
             work_mode: self
                 .work_mode
                 .parse()
-                .map_err(|err: lya_mode::ModeParseError| SessionError::Invalid(err.to_string()))?,
+                .map_err(|err: lya_base::ModeParseError| SessionError::Invalid(err.to_string()))?,
             enabled_tools: self
                 .enabled_tools_json
                 .as_deref()

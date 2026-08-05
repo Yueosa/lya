@@ -1,5 +1,5 @@
 use chrono::Utc;
-use lya_mode::Mode;
+use lya_base::Mode;
 use rusqlite::params;
 use uuid::Uuid;
 
@@ -151,7 +151,7 @@ impl SessionStore {
     /// 设置用户启用的工具列表（内部名）；`None` 表示启用全部。
     ///
     /// 这里只存用户意愿，不做 RWX 校验；实际可见工具由
-    /// [`lya_mode::Mode::resolve`] 与本列表取交集决定。
+    /// [`lya_base::Mode::resolve`] 与本列表取交集决定。
     pub fn set_enabled_tools(
         &self,
         session_id: &str,

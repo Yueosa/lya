@@ -3,7 +3,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use lya_mode::Mode;
+use lya_base::Mode;
 use serde_json::Value;
 
 use crate::meta::{ActionMeta, ActionOutcome};

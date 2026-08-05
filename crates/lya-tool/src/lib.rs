@@ -19,7 +19,6 @@
 //!
 //! ## 模块结构
 //!
-//! - [`permission`] — RWX 权限位与 `-R-W-X-` 文本格式
 //! - [`meta`] — [`ToolMeta`] / [`ToolResult`]
 //! - [`traits`] — [`Tool`] trait
 //! - [`registry`] — [`ToolRegistry`] / [`ToolBundle`]
@@ -33,7 +32,6 @@ pub mod context;
 pub mod error;
 pub mod limits;
 pub mod meta;
-pub mod permission;
 pub mod registry;
 pub mod traits;
 pub mod tools;
@@ -42,7 +40,9 @@ pub use confirm::{ConfirmRequest, ConfirmStep};
 pub use context::{CancelToken, ToolCtx};
 pub use error::ToolError;
 pub use meta::{ToolMeta, ToolResult};
-pub use permission::Permission;
+// 权限住在 lya-base：模式要把自己映射成权限上限，而模式在工具层之下。
+// 这里转出来，是为了让工具的调用方不必为一个类型多写一条依赖
+pub use lya_base::Permission;
 pub use registry::{openai_function_schema, openai_tool_schema, ToolBundle, ToolRegistry};
 pub use tools::register_builtins;
 pub use traits::Tool;

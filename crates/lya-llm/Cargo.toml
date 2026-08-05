@@ -8,6 +8,7 @@ description = "lya OpenAI 兼容 chat/completions 客户端：请求组装、非
 readme = "README.md"
 
 [dependencies]
+lya-base = { workspace = true }
 async-stream = { workspace = true }
 bytes = { workspace = true }
 futures-core = { workspace = true }

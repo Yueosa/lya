@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use crate::context::ToolCtx;
 use crate::limits::web_search::{DEFAULT_MAX_RESULTS, MAX_RESULTS_CAP, SNIPPET_CHARS};
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::traits::{Tool, ToolCallFuture};
 
 /// DDG 的无脚本搜索端点。

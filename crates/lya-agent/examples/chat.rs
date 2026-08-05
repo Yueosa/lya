@@ -19,7 +19,7 @@ use lya_db::Db;
 use lya_http::{HttpClient, HttpConfig};
 use lya_llm::{LlmClient, LlmEndpoint};
 use lya_memory::MemoryStore;
-use lya_mode::Mode;
+use lya_base::Mode;
 use lya_prompt::PromptBuilder;
 use lya_session::{CreateSession, MessagePayload, SessionStore};
 use lya_tool::{ToolRegistry, register_builtins as register_tools};

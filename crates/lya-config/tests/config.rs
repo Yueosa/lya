@@ -6,7 +6,7 @@ use std::path::Path;
 use lya_config::{
     ApiMode, Config, ConfigError, LogLevel, MODELS_FILE, validate_session_binding,
 };
-use lya_mode::Mode;
+use lya_base::Mode;
 
 fn write(dir: &Path, name: &str, text: &str) {
     fs::write(dir.join(name), text).unwrap();

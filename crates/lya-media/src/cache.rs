@@ -5,7 +5,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use lya_config::data_root;
+use lya_base::data_root;
 use lya_http::HttpClient;
 use lya_tool::tools::web::net::{Reach, classify_literal, classify_resolved, split_host_port};
 use sha2::{Digest, Sha256};

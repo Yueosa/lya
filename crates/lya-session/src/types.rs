@@ -1,7 +1,7 @@
 //! 会话元数据与消息行。
 
 use chrono::{DateTime, Utc};
-use lya_mode::Mode;
+use lya_base::Mode;
 use serde::{Deserialize, Serialize};
 
 use crate::message::MessagePayload;

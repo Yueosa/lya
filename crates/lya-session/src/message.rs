@@ -163,8 +163,8 @@ pub struct FormQuestion {
 
 /// 工具确认里拆出的一步。
 ///
-/// 对应 `lya_tool::ConfirmStep` 的持久化形状——两边分开定义是因为
-/// `lya-session → lya-mode → lya-tool`，工具层不能反过来引用会话类型。
+/// 对应 `lya_tool::ConfirmStep` 的**持久化**形状。两边分开定义：这一份跟着 schema 走，
+/// 那一份跟着工具签名走，合成一个就意味着改工具接口要动库。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConfirmStepBlock {
     /// 原始片段。

@@ -7,7 +7,7 @@ rust-version.workspace = true
 description = "lya 数据目录占用统计（只读）"
 
 [dependencies]
-lya-config = { workspace = true }
+lya-base = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

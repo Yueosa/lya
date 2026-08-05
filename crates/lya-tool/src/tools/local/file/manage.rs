@@ -11,7 +11,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::tools::local::file::write::describe_path_error;
 use crate::tools::local::path::{resolve_path, ResolvedPath};
 use crate::context::ToolCtx;

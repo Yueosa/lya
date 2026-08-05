@@ -10,7 +10,7 @@ use crate::confirm::{ConfirmRequest, ConfirmStep};
 use crate::context::ToolCtx;
 use crate::limits::web_fetch::{DEFAULT_MAX_CHARS, MAX_CHARS_CAP, MAX_DOWNLOAD_BYTES};
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::tools::web::html;
 use crate::tools::web::net::{Reach, classify_literal, classify_resolved, split_host_port};
 use crate::traits::{Tool, ToolCallFuture};

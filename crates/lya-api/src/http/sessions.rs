@@ -34,7 +34,7 @@ pub struct CreateBody {
     pub title: String,
     /// 工作模式；不给则用配置默认。
     #[serde(default)]
-    pub work_mode: Option<lya_mode::Mode>,
+    pub work_mode: Option<lya_base::Mode>,
     /// 模型 id；不给则用配置默认。
     #[serde(default)]
     pub model_id: Option<String>,
@@ -85,7 +85,7 @@ pub struct PatchBody {
     /// 新标题。
     pub title: Option<String>,
     /// 新工作模式。
-    pub work_mode: Option<lya_mode::Mode>,
+    pub work_mode: Option<lya_base::Mode>,
     /// 新模型 id；显式给 `null` 表示回退到默认模型。
     #[serde(default, deserialize_with = "double_option")]
     pub model_id: Option<Option<String>>,

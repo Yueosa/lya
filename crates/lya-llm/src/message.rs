@@ -143,7 +143,8 @@ pub fn messages_to_json(messages: &[ChatMessage]) -> Value {
     Value::Array(messages.iter().map(ChatMessage::to_json).collect())
 }
 
-use crate::endpoint::{ApiMode, LlmEndpoint};
+use crate::endpoint::LlmEndpoint;
+use lya_base::ApiMode;
 use crate::error::LlmError;
 
 /// 组装 chat/completions 请求体。

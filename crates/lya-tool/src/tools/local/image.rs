@@ -17,7 +17,7 @@ use sha2::{Digest, Sha256};
 use crate::context::ToolCtx;
 use crate::limits::image_scan::{DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT};
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::tools::local::file::manage::human_size;
 use crate::tools::local::file::write::describe_path_error;
 use crate::tools::local::path::resolve_path;

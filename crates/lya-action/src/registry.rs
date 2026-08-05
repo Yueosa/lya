@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use lya_mode::Mode;
+use lya_base::Mode;
 use lya_tool::openai_function_schema;
 use serde_json::Value;
 

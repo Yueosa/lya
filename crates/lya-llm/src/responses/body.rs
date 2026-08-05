@@ -2,7 +2,8 @@
 
 use serde_json::{json, Map, Value};
 
-use crate::endpoint::{ApiMode, LlmEndpoint};
+use crate::endpoint::LlmEndpoint;
+use lya_base::ApiMode;
 use crate::error::LlmError;
 
 /// 组装 `POST /responses` 请求体。

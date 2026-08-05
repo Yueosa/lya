@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use crate::context::ToolCtx;
 use crate::limits::dir_list::{DEFAULT_DEPTH, DEFAULT_LIMIT, MAX_DEPTH, MAX_LIMIT};
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::tools::local::file::manage::human_size;
 use crate::tools::local::file::write::describe_path_error;
 use crate::tools::local::path::resolve_path;

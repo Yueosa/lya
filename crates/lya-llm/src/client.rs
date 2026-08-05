@@ -7,7 +7,8 @@ use futures_util::StreamExt;
 use lya_http::{header, HttpClient};
 use serde_json::Value;
 
-use crate::endpoint::{ApiMode, LlmEndpoint};
+use crate::endpoint::LlmEndpoint;
+use lya_base::ApiMode;
 use crate::error::LlmError;
 use crate::event::{ChatCompletion, CompletionAssembler, StreamEvent};
 use crate::message::{build_chat_body, ChatMessage};
@@ -300,7 +301,7 @@ impl LlmClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::endpoint::ApiMode;
+    use lya_base::ApiMode;
     use crate::message::Role;
     use serde_json::json;
 

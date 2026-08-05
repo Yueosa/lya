@@ -7,7 +7,7 @@ rust-version.workspace = true
 description = "lya 会话媒体：img/vdo/ado 缓存与 serving 逻辑"
 
 [dependencies]
-lya-config = { workspace = true }
+lya-base = { workspace = true }
 lya-http = { workspace = true }
 lya-tool = { workspace = true }
 serde = { workspace = true }

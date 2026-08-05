@@ -43,7 +43,7 @@ pub fn register_builtins(
 
 #[cfg(test)]
 mod tests {
-    use crate::permission::Permission;
+    use lya_base::Permission;
 
     use super::*;
 

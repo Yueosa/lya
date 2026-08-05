@@ -13,7 +13,7 @@ use lya_llm::{
 };
 use lya_prompt::RESPONSES_NATIVE_SEARCH;
 use lya_memory::MemoryStore;
-use lya_mode::Mode;
+use lya_base::Mode;
 use lya_prompt::{PromptBuilder, PromptInput};
 use lya_session::{
     ConfirmStepBlock, HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus,
@@ -265,9 +265,13 @@ impl<B: ChatBackend> Agent<B> {
                 let native_web = api_mode == ApiMode::Responses
                     && endpoint.supports(ApiMode::Responses, CAPABILITY_WEB_SEARCH);
                 let tool_exclude: &[&str] = if native_web { &["web_search"] } else { &[] };
-                let mode_bundle =
-                    meta.work_mode
-                        .resolve(&self.tools, enabled.as_deref(), tool_exclude);
+                // 「模式 → 权限上限 → 筛工具」原先包在 lya-mode 的 ModeBundle 里，
+                // 而那一层为此把整个工具依赖垫到了 Mode 底下。展开就是这两行
+                let tool_bundle = self.tools.bundle(
+                    enabled.as_deref(),
+                    meta.work_mode.permission(),
+                    tool_exclude,
+                );
                 let action_bundle = self.actions.bundle(meta.work_mode);
                 let memory_section = bail!(self.memory.index_section());
 
@@ -277,8 +281,8 @@ impl<B: ChatBackend> Agent<B> {
 
                 let mut input = PromptInput::new()
                     .with_actions(action_bundle.prompt.clone())
-                    .with_tools(mode_bundle.tools.prompt.clone())
-                    .with_mode(mode_bundle.mode_prompt.clone())
+                    .with_tools(tool_bundle.prompt.clone())
+                    .with_mode(meta.work_mode.prompt_section().to_string())
                     .with_memory(memory_section)
                     .with_vision(vision);
                 if native_web {
@@ -302,7 +306,7 @@ impl<B: ChatBackend> Agent<B> {
                     }
                 };
 
-                let mut schemas = mode_bundle.tools.schemas.clone();
+                let mut schemas = tool_bundle.schemas.clone();
                 schemas.extend(action_bundle.schemas.clone());
 
                 // ── 流式生成 ────────────────────────────────────
@@ -427,7 +431,7 @@ impl<B: ChatBackend> Agent<B> {
                         self.classify_call(
                             &session_id,
                             meta.work_mode,
-                            &mode_bundle.tools,
+                            &tool_bundle,
                             &call.name,
                             &call.arguments,
                         )
@@ -516,7 +520,7 @@ impl<B: ChatBackend> Agent<B> {
                         let result = self
                             .execute_auto(
                                 meta.work_mode,
-                                &mode_bundle.tools,
+                                &tool_bundle,
                                 name,
                                 args.clone(),
                                 ToolCtx::new(cancel.clone()),
@@ -917,10 +921,9 @@ impl<B: ChatBackend> Agent<B> {
         let enabled: Option<Vec<&str>> = enabled
             .as_ref()
             .map(|names| names.iter().map(String::as_str).collect());
-        let allowed = meta
-            .work_mode
-            .resolve(&self.tools, enabled.as_deref(), &[])
-            .tools;
+        let allowed = self
+            .tools
+            .bundle(enabled.as_deref(), meta.work_mode.permission(), &[]);
 
         let Some(tool) = self.tools.get(tool_name) else {
             return Ok(format!("工具 `{tool_name}` 已经不存在，操作未执行。"));
@@ -1085,7 +1088,7 @@ impl<B: ChatBackend> Agent<B> {
         let text = if approved {
             let mode: Mode = to_mode
                 .parse()
-                .map_err(|err: lya_mode::ModeParseError| AgentError::Invalid(err.to_string()))?;
+                .map_err(|err: lya_base::ModeParseError| AgentError::Invalid(err.to_string()))?;
             self.sessions.set_work_mode(session_id, mode)?;
             format!("用户已同意，会话切换到 {to_mode} 模式。")
         } else {

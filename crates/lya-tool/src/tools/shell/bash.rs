@@ -10,7 +10,7 @@ use crate::confirm::{ConfirmRequest, ConfirmStep};
 use crate::context::ToolCtx;
 use crate::limits::bash::{MAX_CAPTURE_BYTES, MAX_REPORT_CHARS, MAX_TIMEOUT_SECS};
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::tools::local::path::resolve_path;
 use crate::tools::shell::parse::{parse, ParsedCommand};
 use crate::tools::shell::rules::{judge, pipeline_risks};

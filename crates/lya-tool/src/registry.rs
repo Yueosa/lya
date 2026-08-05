@@ -10,7 +10,7 @@ use serde_json::{json, Value};
 
 use crate::error::ToolError;
 use crate::meta::ToolResult;
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::context::ToolCtx;
 use crate::traits::Tool;
 

@@ -7,7 +7,7 @@ rust-version.workspace = true
 description = "lya 分层配置：进程级 core、运行时默认值、模型清单与全局人设"
 
 [dependencies]
-lya-mode = { workspace = true }
+lya-base = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

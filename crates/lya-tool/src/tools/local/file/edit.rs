@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use crate::context::ToolCtx;
 use crate::limits::file_edit::MAX_EDIT_BYTES;
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::tools::local::file::write::{count_lines, describe_path_error};
 use crate::tools::local::path::resolve_path;
 use crate::traits::{Tool, ToolCallFuture};

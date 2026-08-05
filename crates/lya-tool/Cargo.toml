@@ -10,6 +10,7 @@ readme = "README.md"
 [dependencies]
 ego-tree = { workspace = true }
 imagesize = { workspace = true }
+lya-base = { workspace = true }
 lya-http = { workspace = true }
 percent-encoding = { workspace = true }
 regex = { workspace = true }

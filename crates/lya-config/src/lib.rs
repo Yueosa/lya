@@ -17,7 +17,7 @@
 //! 只解析成朴素数据，不产出别的 crate 的配置类型——否则本 crate 会因为要
 //! 构造 `HttpConfig` 而拖进 reqwest、因为要构造 `IndexBudget` 而拖进 rusqlite，
 //! 而它偏偏是被最多人依赖的那个。映射由装配方（agent / core）负责，也就那
-//! 几行。唯一的例外是 [`lya_mode::Mode`]：让 `default_work_mode = "asdf"`
+//! 几行。唯一的例外是 [`lya_base::Mode`]：让 `default_work_mode = "asdf"`
 //! 在启动时就报错，比运行时才发现值得。
 //!
 //! ## 「可热改」的现有含义
@@ -36,16 +36,17 @@ pub mod write;
 pub use core::{CoreConfig, DbConfig, HttpSettings, LogConfig, LogLevel, ServerConfig};
 pub use error::ConfigError;
 pub use write::{edit_file, merge_table, redact_models_toml, write_persona, write_runtime};
+// 调用栈与 capability 键住在 lya-base：它们是 models.toml 与请求体之间的合约，
+// 这里和 lya-llm 都得认，而两边互不依赖
+pub use lya_base::{ApiMode, CAPABILITY_TEXT, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH};
 pub use models::{
-    ApiMode, ModelCatalog, ModelEntry, ModeConfig, CAPABILITY_TEXT, CAPABILITY_VISION,
-    CAPABILITY_WEB_SEARCH, validate_session_binding,
+    ModelCatalog, ModelEntry, ModeConfig, validate_session_binding,
 };
 pub use runtime::{
     AgentSettings, AudioMediaSettings, ImageMediaSettings, MediaSettings, MemorySettings,
     RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings, VideoMediaSettings,
 };
 
-use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -70,11 +71,7 @@ const PERSONA_TEMPLATE: &str = include_str!("../templates/persona.toml");
 /// 与 `lya_db::data_root` 是同一个位置。这里重写一遍五行逻辑，是为了不让
 /// 配置层依赖数据库层（那会拖进 rusqlite）。
 pub fn data_root() -> Result<PathBuf, ConfigError> {
-    let home = env::var_os("HOME").ok_or_else(|| ConfigError::Path("HOME is not set".into()))?;
-    if home.is_empty() {
-        return Err(ConfigError::Path("HOME is empty".into()));
-    }
-    Ok(PathBuf::from(home).join(".lya"))
+    lya_base::data_root().map_err(|err| ConfigError::Path(err.to_string()))
 }
 
 /// `persona.toml` 的结构。

@@ -3,10 +3,10 @@
 //! 这一层只提供**默认**。会话自己设过的字段（工作模式、启用工具、人设）存在
 //! `sessions` 表里，以会话为准；本文件不重复存储它们。
 
-use lya_mode::Mode;
+use lya_base::Mode;
 use serde::{Deserialize, Serialize};
 
-use crate::models::ApiMode;
+use lya_base::ApiMode;
 
 /// `runtime.toml` 的内容。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

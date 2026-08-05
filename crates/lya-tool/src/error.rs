@@ -11,10 +11,6 @@ pub enum ToolError {
     #[error("tool not found: {0}")]
     NotFound(String),
 
-    /// 权限字符串无法解析。
-    #[error("invalid permission: {0}")]
-    InvalidPermission(String),
-
     /// 工具执行失败（业务错误；也可直接放在 [`crate::ToolResult`] 里返回）。
     #[error("tool call failed: {0}")]
     Call(String),

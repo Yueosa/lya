@@ -7,40 +7,7 @@ use std::collections::BTreeMap;
 use serde_json::{Map, Value};
 
 use crate::error::LlmError;
-
-/// Responses 原生联网能力键（与 `models.toml` capabilities 一致）。
-pub const CAPABILITY_WEB_SEARCH: &str = "web_search";
-
-/// 原生看图能力键（与 `models.toml` capabilities 一致）。
-pub const CAPABILITY_VISION: &str = "vision";
-
-/// LLM 调用栈。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ApiMode {
-    /// OpenAI Chat Completions（`/chat/completions`）。
-    Completions,
-    /// OpenAI Responses API（`/responses`）。
-    Responses,
-}
-
-impl ApiMode {
-    /// 配置 / 数据库里的字符串键。
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Completions => "completions",
-            Self::Responses => "responses",
-        }
-    }
-
-    /// 解析；非法值返回 `None`。
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_lowercase().as_str() {
-            "completions" => Some(Self::Completions),
-            "responses" => Some(Self::Responses),
-            _ => None,
-        }
-    }
-}
+use lya_base::ApiMode;
 
 /// 一次 LLM 调用所指向的端点。
 ///

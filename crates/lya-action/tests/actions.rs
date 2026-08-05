@@ -11,7 +11,7 @@ use lya_action::{
     register_builtins, render_form_answer,
 };
 use lya_memory::MemoryStore;
-use lya_mode::Mode;
+use lya_base::Mode;
 use lya_session::{FormQuestionKind, HitlBlock};
 use serde_json::json;
 use tempfile::TempDir;

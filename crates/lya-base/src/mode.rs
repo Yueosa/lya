@@ -1,12 +1,19 @@
-//! 工作模式定义、权限映射、提示词与工具筛选。
+//! 工作模式：`ask` / `edit` / `agent`。
+//!
+//! 只表达**行为边界**：模式 → 权限上限，以及告诉模型「你现在能做什么」的那段提示词。
+//! 「按这个上限筛出哪些工具」是 `lya-tool` 的事，需要注册中心，不在这一层。
+//!
+//! 住在这里而不是一个 `lya-mode`：会话表要存它、配置文件要写它、HTTP 接口要收它，
+//! 三处都在工具层之下。放在需要 `lya-tool` 的 crate 里，就等于让 `lya-config` 依赖
+//! HTTP 客户端。
 
 use std::fmt;
 use std::str::FromStr;
 
-use lya_tool::{Permission, ToolBundle, ToolRegistry};
 use serde::{Deserialize, Serialize};
 
-use crate::ModeParseError;
+use crate::error::ModeParseError;
+use crate::permission::Permission;
 
 /// lya 的工作模式。
 ///
@@ -53,34 +60,6 @@ impl Mode {
             Self::Agent => AGENT_PROMPT,
         }
     }
-
-    /// 按当前模式筛选工具。
-    ///
-    /// - `names = None`：从注册中心全部工具中按权限筛选
-    /// - `names = Some(...)`：先限制为 session 启用列表，再按权限筛选
-    pub fn tools(
-        self,
-        registry: &ToolRegistry,
-        names: Option<&[&str]>,
-        exclude: &[&str],
-    ) -> ToolBundle {
-        registry.bundle(names, self.permission(), exclude)
-    }
-
-    /// 一次性解析当前模式所需的提示词与工具材料。
-    pub fn resolve(
-        self,
-        registry: &ToolRegistry,
-        names: Option<&[&str]>,
-        exclude: &[&str],
-    ) -> ModeBundle {
-        ModeBundle {
-            mode: self,
-            permission: self.permission(),
-            mode_prompt: self.prompt_section().to_string(),
-            tools: self.tools(registry, names, exclude),
-        }
-    }
 }
 
 impl fmt::Display for Mode {
@@ -103,19 +82,6 @@ impl FromStr for Mode {
             }),
         }
     }
-}
-
-/// 一次模式解析产生的完整运行时材料。
-#[derive(Debug, Clone, PartialEq)]
-pub struct ModeBundle {
-    /// 当前模式。
-    pub mode: Mode,
-    /// 当前模式允许的最高工具权限。
-    pub permission: Permission,
-    /// 交给 `lya-prompt` 的模式提示词段。
-    pub mode_prompt: String,
-    /// 经「session 启用列表 ∩ 模式权限」过滤后的工具材料。
-    pub tools: ToolBundle,
 }
 
 /// Ask 模式提示词。
@@ -146,67 +112,7 @@ const AGENT_PROMPT: &str = "\
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use lya_tool::traits::ToolCallFuture;
-    use lya_tool::{Tool, ToolCtx, ToolMeta, ToolResult};
-    use serde_json::{Value, json};
-
     use super::*;
-
-    struct TestTool {
-        meta: ToolMeta,
-        schema: Value,
-    }
-
-    impl Tool for TestTool {
-        fn meta(&self) -> &ToolMeta {
-            &self.meta
-        }
-
-        fn parameters(&self) -> &Value {
-            &self.schema
-        }
-
-        fn prompt_hint(&self) -> &str {
-            "测试工具提示"
-        }
-
-        fn call(&self, _ctx: ToolCtx, _args: Value) -> ToolCallFuture<'_> {
-            Box::pin(async { ToolResult::ok("ok") })
-        }
-    }
-
-    fn tool(name: &str, permission: Permission) -> Arc<dyn Tool> {
-        Arc::new(TestTool {
-            meta: ToolMeta::new(name, name, "测试", permission),
-            schema: json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-        })
-    }
-
-    fn registry() -> ToolRegistry {
-        let mut registry = ToolRegistry::new();
-        registry.register(tool("reader", Permission::READ)).unwrap();
-        registry
-            .register(tool("writer", Permission::READ_WRITE))
-            .unwrap();
-        registry
-            .register(tool("runner", Permission::READ_WRITE_EXEC))
-            .unwrap();
-        registry
-    }
-
-    fn schema_names(bundle: &ToolBundle) -> Vec<&str> {
-        bundle
-            .schemas
-            .iter()
-            .filter_map(|schema| schema["function"]["name"].as_str())
-            .collect()
-    }
 
     #[test]
     fn permissions_are_exact() {
@@ -216,36 +122,21 @@ mod tests {
     }
 
     #[test]
-    fn filters_tools_by_mode() {
-        let registry = registry();
-        assert_eq!(
-            schema_names(&Mode::Ask.resolve(&registry, None, &[]).tools),
-            vec!["reader"]
-        );
-        assert_eq!(
-            schema_names(&Mode::Edit.resolve(&registry, None, &[]).tools),
-            vec!["reader", "writer"]
-        );
-        assert_eq!(
-            schema_names(&Mode::Agent.resolve(&registry, None, &[]).tools),
-            vec!["reader", "runner", "writer"]
-        );
-    }
-
-    #[test]
-    fn intersects_session_names_and_permission() {
-        let registry = registry();
-        let enabled = ["reader", "runner"];
-        let edit = Mode::Edit.resolve(&registry, Some(&enabled), &[]);
-        assert_eq!(schema_names(&edit.tools), vec!["reader"]);
-    }
-
-    #[test]
     fn parses_and_serializes_modes() {
         assert_eq!(" ASK ".parse::<Mode>().unwrap(), Mode::Ask);
         assert_eq!("edit".parse::<Mode>().unwrap(), Mode::Edit);
         assert_eq!(serde_json::to_string(&Mode::Agent).unwrap(), "\"agent\"");
         assert!("other".parse::<Mode>().is_err());
+    }
+
+    #[test]
+    fn as_str_and_serde_agree() {
+        // 库里存的是 as_str，配置是 serde 读的，两者错开会「存得进读不出」
+        for mode in [Mode::Ask, Mode::Edit, Mode::Agent] {
+            let json = serde_json::to_string(&mode).unwrap();
+            assert_eq!(json, format!("\"{}\"", mode.as_str()));
+            assert_eq!(mode.as_str().parse::<Mode>().unwrap(), mode);
+        }
     }
 
     #[test]

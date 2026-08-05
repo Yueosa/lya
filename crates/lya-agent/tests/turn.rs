@@ -16,7 +16,7 @@ use lya_llm::{
     ToolCallDelta, WebSearchStatus,
 };
 use lya_memory::MemoryStore;
-use lya_mode::Mode;
+use lya_base::Mode;
 use lya_prompt::PromptBuilder;
 use lya_session::{CreateSession, HitlBlock, MessagePayload, MessageRole, SessionStore};
 use lya_tool::{

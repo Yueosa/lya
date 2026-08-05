@@ -125,7 +125,7 @@ pub async fn actions(State(hub): Hub) -> Json<Vec<ActionInfo>> {
                 },
                 parameters: action.parameters().clone(),
                 prompt_hint: action.prompt_hint().to_string(),
-                visible_in: [lya_mode::Mode::Ask, lya_mode::Mode::Edit, lya_mode::Mode::Agent]
+                visible_in: [lya_base::Mode::Ask, lya_base::Mode::Edit, lya_base::Mode::Agent]
                     .into_iter()
                     .filter(|mode| action.visible_in(*mode))
                     .map(|mode| mode.as_str())

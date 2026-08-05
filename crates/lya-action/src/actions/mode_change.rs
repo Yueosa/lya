@@ -4,7 +4,7 @@
 //! 说一句「请切换到 agent 模式」，用户还得自己去点。这里让模型能带着理由发起
 //! 请求，用户一次确认即可放行。
 
-use lya_mode::Mode;
+use lya_base::Mode;
 use lya_session::HitlBlock;
 use serde_json::{Value, json};
 

@@ -14,7 +14,7 @@ futures-util = { workspace = true }
 lya-action = { workspace = true }
 lya-llm = { workspace = true }
 lya-memory = { workspace = true }
-lya-mode = { workspace = true }
+lya-base = { workspace = true }
 lya-prompt = { workspace = true }
 lya-session = { workspace = true }
 lya-tool = { workspace = true }

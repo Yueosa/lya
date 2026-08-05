@@ -1,13 +1,12 @@
 [package]
-name = "lya-mode"
+name = "lya-base"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "lya 工作模式：权限边界、模式提示词与工具筛选"
+description = "lya 的公共词汇：数据根、工作模式、工具权限、API 栈"
 
 [dependencies]
-lya-tool = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

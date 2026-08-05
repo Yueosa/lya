@@ -12,7 +12,7 @@ use std::path::Path;
 use serde_json::{json, Value};
 
 use crate::meta::{ToolMeta, ToolResult};
-use crate::permission::Permission;
+use lya_base::Permission;
 use crate::context::ToolCtx;
 use crate::traits::{Tool, ToolCallFuture};
 

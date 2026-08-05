@@ -8,11 +8,17 @@
 //! 筛选规则：**工具权限必须是允许权限的子集**
 //!（`tool.permissions ⊆ allowed`）。例如模式只允许 `R` 时，
 //! 带 `W` 或 `X` 的工具不可见。
+//!
+//! 住在这里而不是 `lya-tool`：[`crate::Mode`] 要把模式映射成权限上限，而工具接口页
+//! 又要把它渲染给用户看。放在工具层的话，`Mode` 就得依赖整个工具层。
 
 use std::fmt;
 use std::str::FromStr;
 
-use crate::error::ToolError;
+/// 权限字符串没法解析。
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[error("非法权限 {0:?}，可用字符：R / W / X")]
+pub struct PermissionParseError(pub String);
 
 /// 工具权限位（可组合）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -33,8 +39,7 @@ impl Permission {
     /// `-R-W-`
     pub const READ_WRITE: Self = Self(Self::READ.0 | Self::WRITE.0);
     /// `-R-W-X-`
-    pub const READ_WRITE_EXEC: Self =
-        Self(Self::READ.0 | Self::WRITE.0 | Self::EXEC.0);
+    pub const READ_WRITE_EXEC: Self = Self(Self::READ.0 | Self::WRITE.0 | Self::EXEC.0);
 
     /// 从原始位构造（主要用于测试）。
     pub const fn from_bits(bits: u8) -> Self {
@@ -106,13 +111,13 @@ impl fmt::Display for Permission {
 }
 
 impl FromStr for Permission {
-    type Err = ToolError;
+    type Err = PermissionParseError;
 
     /// 解析 `-R-`、`-R-W-`、`-R-W-X-`、`R`、`RW`、`RWX` 等。
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let raw = s.trim();
         if raw.is_empty() {
-            return Err(ToolError::InvalidPermission(s.to_string()));
+            return Err(PermissionParseError(s.to_string()));
         }
 
         let mut bits = 0u8;
@@ -123,8 +128,8 @@ impl FromStr for Permission {
                 'X' | 'x' => bits |= Self::EXEC.0,
                 '-' | '_' | ' ' | '|' => {}
                 other => {
-                    return Err(ToolError::InvalidPermission(format!(
-                        "unknown permission char `{other}` in `{s}`"
+                    return Err(PermissionParseError(format!(
+                        "`{s}` 里有认不出的权限字符 `{other}`"
                     )));
                 }
             }

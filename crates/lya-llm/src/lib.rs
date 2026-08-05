@@ -42,8 +42,11 @@ pub mod responses;
 pub mod sse;
 
 pub use client::{ChatEventStream, LlmClient};
-pub use endpoint::{ApiMode, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH, LlmEndpoint};
+pub use endpoint::LlmEndpoint;
 pub use error::LlmError;
+// 调用栈与 capability 键住在 lya-base：它们是 models.toml 与请求体之间的合约，
+// 配置层和这里都得认，而两边互不依赖。转出来省得调用方多写一条依赖
+pub use lya_base::{ApiMode, CAPABILITY_TEXT, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH};
 pub use event::{
     ChatCompletion, CompletionAssembler, StreamEvent, ToolCallDelta, WebSearchStatus,
 };

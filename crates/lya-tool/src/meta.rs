@@ -1,6 +1,6 @@
 //! 工具元数据与调用结果。
 
-use crate::permission::Permission;
+use lya_base::Permission;
 
 /// 工具静态元信息。
 ///
