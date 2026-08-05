@@ -20,7 +20,7 @@ struct Envelope {
 static ICON_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     let path = std::env::temp_dir().join("lya-tray-icon.png");
     if !path.exists() {
-        let _ = std::fs::write(&path, include_bytes!("../../../web/public/icon.png"));
+        let _ = std::fs::write(&path, include_bytes!("../../../../web/public/icon.png"));
     }
     path
 });

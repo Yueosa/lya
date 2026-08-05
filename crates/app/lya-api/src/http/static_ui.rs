@@ -6,8 +6,9 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use rust_embed::Embed;
 
+// 相对本 crate 的目录。crate 按层分了组之后是 crates/app/lya-api/，所以要退三级
 #[derive(Embed)]
-#[folder = "../../web/dist/"]
+#[folder = "../../../web/dist/"]
 struct UiAssets;
 
 /// 非 API 路径：返回内嵌的前端文件；未知路径回退到 `index.html`（SPA）。

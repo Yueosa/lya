@@ -131,7 +131,7 @@ fn open_webui(port: u16) {
 }
 
 fn load_tray_icon() -> Icon {
-    let bytes = include_bytes!("../../../web/public/icon.png");
+    let bytes = include_bytes!("../../../../web/public/icon.png");
     let image = image::load_from_memory_with_format(bytes, ImageFormat::Png)
         .expect("icon.png 应能解码");
     let rgba = image.into_rgba8();

@@ -3,7 +3,7 @@
 # 构建 lya，产物放到 output/lya_<版本>_<系统>_<架构>/。
 #
 # 前端必须先构建：WebUI 是 rust-embed 从 web/dist/ 编进二进制的
-# （见 crates/lya-api/src/http/static_ui.rs），漏掉这步会得到一个
+# （见 crates/app/lya-api/src/http/static_ui.rs），漏掉这步会得到一个
 # 能跑但打不开界面的 lya。
 #
 # 进度打到 stderr，最后一行 stdout 是产物路径，方便 install.sh 直接取。
@@ -15,9 +15,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # 有些环境（如编辑器沙箱）会用 CARGO_TARGET_DIR 把产物挪走，别写死 target/
 target_dir="${CARGO_TARGET_DIR:-$repo_root/target}"
 
-version="$(grep -m1 -E '^version[[:space:]]*=' "$repo_root/crates/lya/Cargo.toml" | cut -d'"' -f2)"
+version="$(grep -m1 -E '^version[[:space:]]*=' "$repo_root/crates/app/lya/Cargo.toml" | cut -d'"' -f2)"
 if [[ -z "$version" ]]; then
-  echo "读不出版本号：crates/lya/Cargo.toml" >&2
+  echo "读不出版本号：crates/app/lya/Cargo.toml" >&2
   exit 1
 fi
 

@@ -1,24 +1,6 @@
 [workspace]
 resolver = "2"
-members = [
-    "crates/lya",
-    "crates/lya-base",
-    "crates/lya-http",
-    "crates/lya-llm",
-    "crates/lya-tool",
-    "crates/lya-prompt",
-    "crates/lya-db",
-    "crates/lya-session",
-    "crates/lya-memory",
-    "crates/lya-action",
-    "crates/lya-config",
-    "crates/lya-agent",
-    "crates/lya-hub",
-    "crates/lya-api",
-    "crates/lya-media",
-    "crates/lya-storage",
-    "crates/lya-core",
-]
+members = ["crates/*/*"]
 
 [workspace.package]
 edition = "2024"
@@ -37,22 +19,22 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 futures-core = "0.3"
 futures-util = "0.3"
-lya-action = { path = "crates/lya-action" }
-lya-agent = { path = "crates/lya-agent" }
-lya-config = { path = "crates/lya-config" }
-lya-api = { path = "crates/lya-api" }
-lya-base = { path = "crates/lya-base" }
-lya-hub = { path = "crates/lya-hub" }
-lya-media = { path = "crates/lya-media" }
-lya-storage = { path = "crates/lya-storage" }
-lya-core = { path = "crates/lya-core" }
-lya-db = { path = "crates/lya-db" }
-lya-http = { path = "crates/lya-http" }
-lya-llm = { path = "crates/lya-llm" }
-lya-memory = { path = "crates/lya-memory" }
-lya-prompt = { path = "crates/lya-prompt" }
-lya-session = { path = "crates/lya-session" }
-lya-tool = { path = "crates/lya-tool" }
+lya-action = { path = "crates/domain/lya-action" }
+lya-agent = { path = "crates/app/lya-agent" }
+lya-config = { path = "crates/infra/lya-config" }
+lya-api = { path = "crates/app/lya-api" }
+lya-base = { path = "crates/infra/lya-base" }
+lya-hub = { path = "crates/app/lya-hub" }
+lya-media = { path = "crates/capability/lya-media" }
+lya-storage = { path = "crates/domain/lya-storage" }
+lya-core = { path = "crates/app/lya-core" }
+lya-db = { path = "crates/infra/lya-db" }
+lya-http = { path = "crates/infra/lya-http" }
+lya-llm = { path = "crates/capability/lya-llm" }
+lya-memory = { path = "crates/domain/lya-memory" }
+lya-prompt = { path = "crates/capability/lya-prompt" }
+lya-session = { path = "crates/domain/lya-session" }
+lya-tool = { path = "crates/capability/lya-tool" }
 percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = [
     "json",
