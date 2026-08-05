@@ -10,9 +10,9 @@
 
 ## 由外部注入（本 crate 不实现）
 
-- **元认知 / Action** ← 未来 `lya-action`
+- **元认知 / Action** ← `lya-action`
 - **工具说明** ← `lya-tool` 的 `ToolBundle.prompt`
-- **工作模式** ← 未来 `agent_mode`
+- **工作模式** ← `lya-base::Mode`
 
 ## 用法
 

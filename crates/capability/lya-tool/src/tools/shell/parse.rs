@@ -53,7 +53,7 @@ pub struct Segment {
 }
 
 impl Segment {
-    /// 命令名（argv[0]）。
+    /// 命令名（`argv[0]`）。
     pub fn program(&self) -> Option<&str> {
         self.argv.as_ref()?.first().map(String::as_str)
     }

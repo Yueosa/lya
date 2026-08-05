@@ -7,9 +7,9 @@
 //! | 段落 | 来源 |
 //! |------|------|
 //! | 系统认知 / 自我认知 / 人设 | **本 crate 内置** |
-//! | 元认知（Action） | 调用方注入，未来由 `lya-action` 提供 |
+//! | 元认知（Action） | 调用方注入，来自 `lya-action::ActionBundle.prompt` |
 //! | 工具说明 | 调用方注入，通常来自 `lya-tool::ToolBundle.prompt` |
-//! | 工作模式 | 调用方注入，未来由 `agent_mode` 提供 |
+//! | 工作模式 | 调用方注入，来自 `lya-base::Mode::prompt_section` |
 //! | 记忆索引 | 调用方注入，来自 `lya-memory` |
 //!
 //! ## 拼接顺序

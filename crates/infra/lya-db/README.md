@@ -4,7 +4,7 @@ SQLite 基建：数据目录、连接、全库 schema 与写事务。
 
 ## 职责
 
-- 数据根 `~/.lya`，默认库 `lya.db`
+- 默认库 `~/.lya/lya.db`（数据根来自 `lya-base`）
 - WAL、`foreign_keys`
 - 持有 `migrations/` 下的全库 schema，启动时把没跑过的补上
 - 串行化读写封装（单进程 agent 够用）

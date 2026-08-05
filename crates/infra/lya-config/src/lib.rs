@@ -68,8 +68,8 @@ const PERSONA_TEMPLATE: &str = include_str!("../templates/persona.toml");
 
 /// 配置根目录：`$HOME/.lya`。
 ///
-/// 与 `lya_db::data_root` 是同一个位置。这里重写一遍五行逻辑，是为了不让
-/// 配置层依赖数据库层（那会拖进 rusqlite）。
+/// 真正的实现在 `lya-base`。这里只是把它的错误换成本 crate 的类型——四个 crate
+/// 都要问同一个问题，答案只该有一份。
 pub fn data_root() -> Result<PathBuf, ConfigError> {
     lya_base::data_root().map_err(|err| ConfigError::Path(err.to_string()))
 }
@@ -183,7 +183,7 @@ impl Config {
 
     /// 检查是否已经可以真正发请求。
     ///
-    /// 与 [`Config::validate`] 分开：结构合法但密钥还是模板占位符时，配置本身
+    /// 与内部的结构校验分开：结构合法但密钥还是模板占位符时，配置本身
     /// 没错，只是还没填完。测试和界面可以加载配置而不必先有密钥。
     pub fn check_ready(&self) -> Result<(), ConfigError> {
         if self.models.is_empty() {

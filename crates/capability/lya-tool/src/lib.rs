@@ -13,7 +13,6 @@
 //!
 //! ## 明确不做什么
 //!
-//! - 不实现具体业务工具（见 [`tools`] 占位模块）
 //! - 不解析 LLM 响应里的 `tool_calls`（那是 `lya-llm`）
 //! - 不做 HITL / 鉴权 UI（钩子以后可写在各工具的 [`Tool::call`] 内）
 //!
@@ -23,7 +22,10 @@
 //! - [`traits`] — [`Tool`] trait
 //! - [`registry`] — [`ToolRegistry`] / [`ToolBundle`]
 //! - [`error`] — [`ToolError`]
-//! - [`tools`] — 内置工具（`local/file_read` 等）
+//! - [`confirm`] — 执行前的用户确认请求（判断与执行分两步）
+//! - [`context`] — [`ToolCtx`]，带取消信号
+//! - [`limits`] — 各工具的上限与默认值，**不走配置文件**
+//! - [`tools`] — 内置工具（`file_read` / `bash` / `web_search` 等）
 
 #![deny(missing_docs)]
 

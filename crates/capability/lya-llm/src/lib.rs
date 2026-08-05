@@ -5,7 +5,7 @@
 //! ## 设计目标
 //!
 //! - **只做传输与 wire 解析**：组请求、发 HTTP、解析非流式 JSON / SSE 流。
-//! - **依赖 [`lya-http`]**：共享连接池；本 crate 不自建 Client。
+//! - **依赖 `lya-http`**：共享连接池；本 crate 不自建 Client。
 //! - **流式优先**：[`LlmClient::chat_stream`] 产出 [`StreamEvent`]，
 //!   上层可边收边展示；需要整包时用 [`CompletionAssembler`] 或
 //!   [`LlmClient::chat`]。
@@ -15,7 +15,7 @@
 //! ## 明确不做什么
 //!
 //! - 不负责 prompt 拼接（身份 / persona / tool schema / 历史）→ 留给 `lya-prompt`
-//! - 不负责 tool 参数业务校验与执行 → 留给 `lya-tools` / agent
+//! - 不负责 tool 参数业务校验与执行 → 留给 `lya-tool` / agent
 //! - 不做「失败自动重试」；是否重试由 agent 决定
 //! - 不读 `model.toml`；endpoint 由上层注入 [`LlmEndpoint`]
 //!

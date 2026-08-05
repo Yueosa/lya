@@ -91,7 +91,7 @@ pub struct ToolSettings {
     ///
     /// `None`（键缺省）= 启用全部；`Some(list)` = 只启用列出的；
     /// `Some(vec![])` = 一个都不启用。正好对上
-    /// [`lya_tool::ToolRegistry::bundle`] 的 `names` 语义，不必额外发明
+    /// `lya_tool::ToolRegistry::bundle` 的 `names` 语义，不必额外发明
     /// 「all」这种特殊值。
     pub enabled: Option<Vec<String>>,
 }

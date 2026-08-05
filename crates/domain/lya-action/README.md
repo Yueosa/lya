@@ -18,5 +18,5 @@
 use lya_action::ActionRegistry;
 
 let mut actions = ActionRegistry::new();
-register_actions(&mut actions, memory)?;
+register_builtins(&mut actions, memory)?;
 ```
