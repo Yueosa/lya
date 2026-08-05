@@ -1,9 +1,16 @@
 <!--
-  原件预览页。
+  原件预览页（`#preview`）。
 
-  两套主题并排看得见，才知道 token 层是不是真的够用——只做一套的话，很容易
-  写出一堆看着像 token、实则绑死在那套风格上的变量。等真正的界面搭起来之后，
-  这一页仍然留着当回归检查用。
+  和外观页里的 `ThemePreview` 分工：**原件清单只有一份**，就是 `ThemePreview`，两边
+  都用它。这一页额外提供两样它给不了的东西——
+
+  1. **浮层**：确认框、输入框、toast、右键菜单都要点一下才看得见，而外观页里的预览是
+     个不能交互的岛。
+  2. **整屏外壳**：换主题时排版会整个换掉（MC 是主菜单，其余是侧栏），这得占满窗口
+     才看得出来。
+
+  以前这一页自己抄了一套按钮、输入、气泡和代码块，和 `ThemePreview` 各写各的，两边
+  都不全也不一致。抄的那份已经删掉了。
 -->
 
 <script setup lang="ts">
@@ -12,6 +19,7 @@ import { computed, ref } from 'vue'
 import { shellFor } from './shell/registry'
 import type { View } from './shell/types'
 import { applyTheme, currentTheme, THEMES } from './themes'
+import ThemePreview from './ui/ThemePreview.vue'
 import UiHost from './ui/UiHost.vue'
 import { openContextMenu } from './ui/useContextMenu'
 import { confirm, confirmAsync, prompt } from './ui/useDialog'
@@ -117,27 +125,6 @@ function onContextMenu(event: MouseEvent): void {
     </header>
 
     <section class="panel preview__card">
-      <h3>按钮</h3>
-      <div class="preview__row">
-        <button class="btn">普通</button>
-        <button class="btn btn--primary">主要</button>
-        <button class="btn btn--danger">危险</button>
-        <button class="btn btn--ghost">幽灵</button>
-        <button class="btn" disabled>禁用</button>
-      </div>
-      <div class="preview__row">
-        <button class="btn btn--sm">小</button>
-        <button class="btn">中</button>
-        <button class="btn btn--lg">大</button>
-      </div>
-    </section>
-
-    <section class="panel preview__card">
-      <h3>输入</h3>
-      <input class="input" placeholder="在这里输入…" />
-    </section>
-
-    <section class="panel preview__card">
       <h3>浮层</h3>
       <div class="preview__row">
         <button class="btn" @click="tryConfirm(false)">确认框</button>
@@ -155,19 +142,8 @@ function onContextMenu(event: MouseEvent): void {
       <p class="preview__result">{{ lastResult }}</p>
     </section>
 
-    <section class="panel preview__card">
-      <h3>气泡与代码</h3>
-      <div class="preview__bubbles">
-        <div class="bubble bubble--user">这是我说的话</div>
-        <div class="bubble bubble--assistant">
-          这是回复。注意气泡尾巴的形状在两套主题下不一样。
-        </div>
-      </div>
-      <pre class="hljs preview__code"><code><span class="hljs-keyword">fn</span> <span class="hljs-function">main</span>() {
-    <span class="hljs-comment">// 代码配色跟着主题走</span>
-    <span class="hljs-built_in">println!</span>(<span class="hljs-string">"你好"</span>, <span class="hljs-number">42</span>);
-}</code></pre>
-    </section>
+    <!-- 原件清单只有一份，和外观页共用 -->
+    <ThemePreview :theme-id="theme" />
 
     <UiHost />
   </div>
@@ -249,44 +225,5 @@ function onContextMenu(event: MouseEvent): void {
   margin: 0;
   color: var(--text-faint);
   font-size: var(--text-sm);
-}
-
-.preview__bubbles {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* 气泡形状全靠 token：尖尾巴那一角单列一个变量，
-   MTF 把它设成和圆角一样大，也就没有尾巴了 */
-.bubble {
-  max-width: 76%;
-  padding: 9px 13px;
-  border-radius: var(--bubble-radius);
-  font-size: var(--text-md);
-}
-
-.bubble--user {
-  align-self: flex-end;
-  background: color-mix(in srgb, var(--info) 14%, var(--surface));
-  border: var(--border-width) solid color-mix(in srgb, var(--info) 38%, transparent);
-  color: var(--text);
-  border-bottom-right-radius: var(--bubble-tail-radius);
-}
-
-.bubble--assistant {
-  align-self: flex-start;
-  background: var(--accent-soft);
-  border: var(--border-width) solid var(--border);
-  border-bottom-left-radius: var(--bubble-tail-radius);
-}
-
-.preview__code {
-  margin: 0;
-  padding: 12px;
-  border-radius: var(--radius-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  overflow-x: auto;
 }
 </style>

@@ -286,6 +286,11 @@ select.input {
   align-items: center;
 }
 
+/* 跳转按钮在聊天页是绝对定位钉在右下角的，摆进预览得先拽回文档流 */
+.theme-preview__jumps .chat__jump {
+  position: static;
+}
+
 .theme-preview__side {
   display: flex;
   flex-direction: column;
