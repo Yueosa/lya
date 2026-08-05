@@ -4,7 +4,9 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Memory } from '../api/client'
 import { archivedSessions, client, models, sessions } from '../app/useChat'
 import { setSidebarCollapsed, sidebarCollapsed } from '../app/useShell'
+import BaLogo from '../ui/BaLogo.vue'
 import Icon from '../ui/Icon.vue'
+import { themeId } from '../themes'
 
 type FloatKind = 'session' | 'memory' | 'model'
 
@@ -256,7 +258,12 @@ function floatStyle(item: ActiveFloat): Record<string, string> {
       </span>
     </div>
 
-    <h1 class="home__title">lya</h1>
+    <!--
+      蔚蓝档案那套用它自己的字标，其余主题是朴素的 lya 大字。这是唯一按主题分叉的
+      地方——字标是那套风格的招牌，用通用标题表达不出来。
+    -->
+    <BaLogo v-if="themeId === 'ba'" class="home__logo" left="lya" right="Archive" />
+    <h1 v-else class="home__title">lya</h1>
     <p v-if="labelPool.length === 0" class="home__hint">开始对话、写记忆、配模型后，这里会慢慢热闹起来。</p>
   </div>
 </template>
@@ -389,6 +396,8 @@ function floatStyle(item: ActiveFloat): Record<string, string> {
   padding: 4px 8px;
 }
 
+/* 字标与大字标题占同一个位置，所以共用定位与层级 */
+.home__logo,
 .home__title {
   position: relative;
   z-index: 1;
@@ -399,6 +408,10 @@ function floatStyle(item: ActiveFloat): Record<string, string> {
   color: var(--accent);
   text-shadow: var(--text-shadow);
   user-select: none;
+}
+
+.home__logo {
+  font-size: clamp(40px, 9vw, 84px);
 }
 
 .home__hint {

@@ -95,6 +95,20 @@ describe('主题预览', () => {
     expect(wrapper.find('.storage').exists(), '缺少存储占用').toBe(true)
   })
 
+  it('每套主题都渲染得出来，且区块数一致', async () => {
+    // 加主题时最容易漏的是「注册了但 CSS 没导入」「有自己的外壳但没登记形态」这类
+    // 半步到位。这里不检查长相，只保证每套都挂得起来、且没有哪一套悄悄少一个区块
+    const counts = new Map<string, number>()
+    for (const theme of THEMES) {
+      const wrapper = await render(theme.id)
+      expect(wrapper.find('.theme-preview').attributes('data-theme')).toBe(theme.id)
+      expect(wrapper.find('.md-code').exists(), `${theme.id} 缺代码块`).toBe(true)
+      expect(wrapper.find('.storage').exists(), `${theme.id} 缺存储条`).toBe(true)
+      counts.set(theme.id, wrapper.findAll('.theme-preview__card').length)
+    }
+    expect(new Set(counts.values()).size, `区块数不一致：${[...counts]}`).toBe(1)
+  })
+
   it('气泡三态都在', async () => {
     const wrapper = await render('mtf')
     expect(wrapper.find('.bubble--user').exists()).toBe(true)

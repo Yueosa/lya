@@ -11,6 +11,7 @@
 
 import type { Component } from 'vue'
 
+import BaShell from './BaShell.vue'
 import DefaultShell from './DefaultShell.vue'
 import McShell from './McShell.vue'
 
@@ -31,6 +32,9 @@ const DEFAULT_ENTRY: ShellEntry = { component: DefaultShell, chrome: 'sidebar' }
 
 /** 需要另一种排版的主题登记在这里；没登记的用默认外壳。 */
 const OVERRIDES: Record<string, ShellEntry> = {
+  // 仿 Momotalk 的联系人列表：每项是带头像与状态的卡片，比默认侧栏矮得多也宽得多，
+  // 所以是 sidebar 家族里的另一种，不是同一套布局换皮
+  ba: { component: BaShell, chrome: 'sidebar' },
   mc: { component: McShell, chrome: 'menu' },
 }
 

@@ -1,0 +1,225 @@
+/**
+ * 蔚蓝档案 — 平面设计 2.0 + 轻拟物。
+ *
+ * # 取值依据
+ *
+ * 官方没公开色板，下面这几个是有出处的：`#128AFA`（logo 左半的蓝）和 `#2B2B2B`
+ * （logo 右半的近黑）来自 logo 生成器源码；`#4b6989` 是社区复刻里用的 UI 前景蓝，
+ * `#fc879b` 是粉色强调。勾选用绿色。
+ *
+ * 但**照抄会挂在对比度测试上**：`#4b6989` 压在白底上是 5.9:1，当正文可以；而
+ * `#128AFA` 压在白底只有 3.2:1，达不到 4.5:1 的正文要求。所以分工是——亮蓝只出现在
+ * logo 和大色块上（那里它是图形不是正文），需要被读的文字一律走压暗后的蓝。
+ *
+ * # 为什么不是纯平
+ *
+ * 这套 UI 的手法是平面色上叠几个百分点的透明，让底色微微透出来。原话说得很直白：
+ * 「人の目は単色使いを割とすぐ見抜ける」——纯色平铺一眼就看得出廉价。所以 hover、
+ * 选中、边框这些不参与对比度检查的 token 全用 `rgba`，让它们吃到下面的颜色。
+ *
+ * 轻拟物那部分体现在极淡的笔记本横线上（见文件末尾）：原作在学生管理页用它，设计
+ * 链条是「学生 → 学校 → 文具」。lya 的记忆页正好也是笔记，语义上对得上。
+ */
+
+[data-theme='ba'] {
+  /* 底色偏冷白，不是纯白：纯白配蓝会显得发灰 */
+  --bg: #eef2f7;
+  --bg-sunken: #e4eaf2;
+  --surface: #ffffff;
+  --surface-hover: rgba(18, 138, 250, 0.07);
+  --surface-active: rgba(18, 138, 250, 0.14);
+  --overlay: rgba(43, 43, 43, 0.32);
+
+  /* #4b6989 是社区复刻用的前景蓝，压在白底 5.9:1，当正文够 */
+  --text: #3d566e;
+  --text-muted: #5f7286;
+  --text-faint: #66798e;
+  --on-accent: #ffffff;
+
+  --border: rgba(61, 86, 110, 0.16);
+  --border-strong: #128afa;
+  --border-width: 1px;
+  --border-accent-width: 3px;
+
+  /* accent 压暗到 4.5:1 才配得上白字；亮蓝 #128AFA 留给 logo 与图形 */
+  --accent: #1c74c9;
+  --accent-soft: rgba(18, 138, 250, 0.12);
+  --danger: #c9425c;
+  --danger-soft: rgba(201, 66, 92, 0.12);
+  --success: #3fa564;
+  --warning: #e0932f;
+  --info: #4a8fd4;
+
+  /* 官方按钮是 4px 小圆角，很克制；气泡是 Momotalk 的大圆角 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+  --bubble-radius: 16px;
+  --bubble-tail-radius: 4px;
+
+  /* 轻拟物：柔和低阴影，不是 MTF 那种硬偏移 */
+  --shadow-card: 0 1px 3px rgba(43, 62, 84, 0.1);
+  --shadow-float: 0 6px 20px rgba(43, 62, 84, 0.18);
+  --shadow-focus: 0 0 0 3px rgba(18, 138, 250, 0.22);
+  --shadow-button: 0 2px 4px rgba(43, 62, 84, 0.16);
+  --shadow-tooltip: 0 2px 6px rgba(43, 62, 84, 0.14);
+
+  /* 官方用 RoG2 サンセリフ（Morisawa 商业字体），这里不下字体，用系统重量级无衬线 */
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'Source Han Sans SC',
+    sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 15px;
+  --text-lg: 19px;
+  --leading: 1.6;
+
+  --sidebar-width: 272px;
+  --split-list-width: 288px;
+  --ctl-h-sm: 26px;
+  --ctl-h-md: 32px;
+  --ctl-h-lg: 40px;
+  --ctl-pad-x-sm: 10px;
+  --ctl-pad-x-md: 14px;
+  --ctl-pad-x-lg: 20px;
+
+  --text-shadow: none;
+  --transition: 0.18s ease;
+  --duration-fast: 0.14s;
+  --duration-normal: 0.2s;
+
+  /* 冷色系高亮，和蓝白底配；每一种都过了 4.5:1 */
+  --code-keyword: #b0308c;
+  --code-string: #1d7048;
+  --code-number: #a1490d;
+  --code-comment: #556676;
+  --code-function: #1c5fa8;
+  --code-type: #6a3fb0;
+  --code-variable: #3d566e;
+}
+
+/* ── 字标上色 ─────────────────────────────────────────── */
+
+/*
+ * `BaLogo.vue` 只写几何，颜色在这里——和 `McShell` 同一个规矩。
+ *
+ * 这三个值直接取自 logo 生成器：左半 `#128AFA`、右半 `#2B2B2B`、描边白。亮蓝在这里
+ * 是图形而不是正文，所以不受对比度检查约束；正文用的是压暗后的 `--accent`。
+ */
+[data-theme='ba'] .ba-logo__left {
+  color: #128afa;
+}
+
+[data-theme='ba'] .ba-logo__right {
+  color: #2b2b2b;
+  -webkit-text-stroke: 0.07em #ffffff;
+}
+
+[data-theme='ba'] .ba-logo__halo::before {
+  border-color: #128afa;
+}
+
+[data-theme='ba'] .ba-logo__slash {
+  background: #128afa;
+}
+
+/* ── 轻拟物：极淡的笔记本横线 ─────────────────────────────── */
+
+/*
+ * 原作在学生管理页铺过这个，设计链条是「学生 → 学校 → 文具」。这里给记忆页和
+ * 分栏列表用——它们本来就是「一条条记下来的东西」，语义对得上。
+ * 24px 一行，跟着 --leading 的节奏走。
+ */
+[data-theme='ba'] .split-view__list,
+[data-theme='ba'] .ba-ruled {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0,
+    transparent 23px,
+    rgba(61, 86, 110, 0.06) 23px,
+    rgba(61, 86, 110, 0.06) 24px
+  );
+}
+
+/* ── 按钮：白底蓝字 + 低阴影，主按钮才上色 ─────────────────── */
+
+[data-theme='ba'] .btn {
+  font-weight: 600;
+  box-shadow: var(--shadow-card);
+}
+
+[data-theme='ba'] .btn--primary,
+[data-theme='ba'] .btn--danger {
+  box-shadow: var(--shadow-button);
+}
+
+[data-theme='ba'] .btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+/* ── Momotalk：只作用在聊天页 ─────────────────────────────── */
+
+/*
+ * 隐喻只铺到这里为止。工具页、模型页那些塞进「手机聊天」会很别扭，它们走通用的
+ * 白卡片面板风。
+ *
+ * 学生（助手）的气泡是白底，老师（用户）的是蓝底白字——和游戏里反过来，因为这里
+ * 「我」是发号施令的一方，视觉重心该在自己那边。
+ */
+
+[data-theme='ba'] .bubble--assistant {
+  background: var(--surface);
+  border-color: rgba(61, 86, 110, 0.12);
+  box-shadow: var(--shadow-card);
+}
+
+[data-theme='ba'] .bubble--user {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--on-accent);
+}
+
+/* 中断的回复：左边一条竖线，不改底色，免得和失败态撞 */
+[data-theme='ba'] .bubble--interrupted {
+  border-left: var(--border-accent-width) solid var(--warning);
+}
+
+/*
+ * 助手头像上方的光环。
+ *
+ * 只给助手：用户那边是「老师」，游戏里老师没有光环。压在头像上沿、稍微出框，
+ * 是为了让它读起来像浮在头顶而不是套在脸上。`overflow` 不能裁，所以包装层没有裁剪。
+ */
+[data-theme='ba'] .chat__avatar-wrap--assistant::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 50%;
+  width: 26px;
+  height: 9px;
+  transform: translateX(-50%);
+  border: 2px solid #128afa;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+/* 头像本身收成圆的，配合光环才像一个「人」而不是一张图标 */
+[data-theme='ba'] .chat__avatar {
+  border-radius: 50%;
+}
+
+/* ── 动效 ─────────────────────────────────────────────── */
+
+[data-theme='ba'] .lya-page-enter-active {
+  animation: lya-slide-in-up var(--duration-normal) ease both;
+}
+
+[data-theme='ba'] .lya-drawer-enter-active {
+  animation: lya-panel-in var(--duration-normal) cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+[data-theme='ba'] .lya-drawer-leave-active {
+  animation: lya-panel-out var(--duration-fast) ease both;
+}

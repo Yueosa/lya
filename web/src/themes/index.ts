@@ -16,6 +16,7 @@
 import { ref } from 'vue'
 
 import './mtf.css'
+import './ba.css'
 import './mc.css'
 import './base.css'
 
@@ -33,6 +34,7 @@ export interface Theme {
 
 export const THEMES: Theme[] = [
   { id: 'mtf', label: 'MTF 简约', scheme: 'light' },
+  { id: 'ba', label: '蔚蓝档案', scheme: 'light' },
   { id: 'mc', label: 'Minecraft', scheme: 'light' },
 ]
 

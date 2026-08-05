@@ -15,16 +15,22 @@ const label = computed(() => (props.role === 'user' ? '用户' : 'lya'))
 </script>
 
 <template>
-  <img
-    class="chat__avatar"
-    :src="src"
-    :alt="label"
-    loading="lazy"
-    decoding="async"
-  />
+  <!--
+    外面包一层，是为了给主题留装饰位：`<img>` 挂不了伪元素，而蔚蓝档案那套要在助手
+    头像上方画一个光环。包装层不带任何视觉，默认主题下它就是个透明壳子。
+  -->
+  <span class="chat__avatar-wrap" :class="`chat__avatar-wrap--${role}`">
+    <img class="chat__avatar" :src="src" :alt="label" loading="lazy" decoding="async" />
+  </span>
 </template>
 
 <style scoped>
+.chat__avatar-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 .chat__avatar {
   width: 40px;
   height: 40px;
