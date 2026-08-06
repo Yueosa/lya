@@ -173,10 +173,9 @@
 }
 
 [data-theme='ba'] .ba__session p {
-  color: #0f3457;
-  text-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.55),
-    0 2px 6px rgba(0, 0, 0, 0.18);
+  background: #0f3457;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(14, 32, 54, 0.32);
 }
 
 /*
@@ -198,6 +197,70 @@
   color: #ffffff;
 }
 
+
+/* ── 会话区：Momotalk 的联系人列表 ─────────────────────────── */
+
+/*
+ * 视图只有一份（架构上「外壳可换、视图不可换」），所以这里靠主题 CSS 把通用的会话
+ * 列表改扮成 Momotalk：每行是一张联系人卡，圆头像在左、名字与摘要在右。
+ *
+ * 之前它看着像 Minecraft，是因为底部那排动作按钮用的是 `btn--lg`——那个尺寸本来是给
+ * MC 主菜单的，放在这里又大又方，一屏里六个并排非常突兀。这里把它压回常规控件高度。
+ */
+
+[data-theme='ba'] .sessions__title {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+[data-theme='ba'] .sessions__row {
+  gap: 12px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+}
+
+[data-theme='ba'] .sessions__row:hover {
+  background: rgba(18, 138, 250, 0.08);
+}
+
+/* 选中的那行：左边一道蓝条，是聊天列表的通用语汇 */
+[data-theme='ba'] .sessions__row--on {
+  background: rgba(18, 138, 250, 0.14);
+  box-shadow: inset 3px 0 0 #128afa;
+}
+
+/* 圆头像。Momotalk 里学生头像都是圆的，方头像一眼就出戏 */
+[data-theme='ba'] .sessions__icon {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: none;
+}
+
+[data-theme='ba'] .sessions__name {
+  font-weight: 700;
+}
+
+/* 「当前」标记做成小圆牌，和列表里的圆形语汇一致 */
+[data-theme='ba'] .sessions__mark {
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+  background: #128afa;
+  color: #ffffff;
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
+/* 动作条压回常规高度：btn--lg 是给 MC 主菜单的尺寸，六个并排太重 */
+[data-theme='ba'] .sessions__action.btn--lg {
+  height: var(--ctl-h-md);
+  padding: 0 var(--ctl-pad-x-md);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
 
 /* ── 轻拟物：极淡的笔记本横线 ─────────────────────────────── */
 

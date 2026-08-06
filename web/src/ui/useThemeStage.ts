@@ -18,6 +18,7 @@ import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 
 import { client } from '../app/chat/client'
 import { imageBootstrap } from '../app/chat/state'
+import { readLocal, writeLocal } from '../utils/storage'
 
 /** 一条可以直接渲染的素材。 */
 export interface StageItem {
@@ -38,9 +39,17 @@ export interface ThemeStageOptions {
   kind: 'home' | 'cg'
   /** 自动轮播的间隔毫秒；不给就只能手动切。 */
   autoMs?: number
+  /**
+   * 记住用户选的是哪一张。
+   *
+   * 记忆大厅是**挑一张长期看**的东西，每次回大厅都重置到第一张说不过去。按**文件名**
+   * 记而不是下标：加删素材之后下标会指到别的东西上，名字不会。
+   */
+  remember?: boolean
 }
 
 export function useThemeStage(options: ThemeStageOptions) {
+  const pickKey = `lya.stage.${options.theme}.${options.kind}`
   const items = shallowRef<StageItem[]>([])
   const index = ref(0)
   /** 素材目录的绝对路径，空态提示要用。 */
@@ -69,6 +78,7 @@ export function useThemeStage(options: ThemeStageOptions) {
     const total = items.value.length
     if (total === 0) return
     index.value = (index.value + delta + total) % total
+    if (options.remember) writeLocal(pickKey, items.value[index.value]?.name ?? null)
   }
 
   function urlOf(name: string): string {
@@ -89,7 +99,10 @@ export function useThemeStage(options: ThemeStageOptions) {
         title: asset.title ?? asset.name,
         ...(asset.poster ? { poster: urlOf(asset.poster) } : {}),
       }))
-      index.value = 0
+      // 恢复上次挑的那张。素材可能已经被删掉，找不到就回到第一张
+      const saved = options.remember ? readLocal(pickKey) : null
+      const at = saved ? items.value.findIndex((item) => item.name === saved) : -1
+      index.value = at >= 0 ? at : 0
       startAuto()
     } catch {
       // 拿不到就当没有素材：主题在空目录下也该能用，不值得弹错误

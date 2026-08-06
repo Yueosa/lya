@@ -55,9 +55,12 @@ const landing = ref<'boot' | 'lobby'>('boot')
 const atBoot = computed(() => props.view === 'home' && landing.value === 'boot')
 const atLobby = computed(() => props.view === 'home' && landing.value === 'lobby')
 
-/** 加载页自动轮播加载图；大厅里的记忆大厅由左右箭头手动切。 */
+/**
+ * 加载页自动轮播加载图；记忆大厅**不自动切**，而且记住上次挑的那张——它是挑一张
+ * 长期看的东西，不是走马灯。
+ */
 const boot = useThemeStage({ theme: 'ba', kind: 'home', autoMs: 9000 })
-const cg = useThemeStage({ theme: 'ba', kind: 'cg' })
+const cg = useThemeStage({ theme: 'ba', kind: 'cg', remember: true })
 
 /** 小恋恋现在在做什么。计数在右上角，这里不重复。 */
 const status = computed(() => {
@@ -438,10 +441,11 @@ function backToLanding(): void {
 .ba__session {
   position: absolute;
   right: calc(2.5vw + 8px);
-  bottom: 140px;
+  bottom: 132px;
   z-index: 2;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   padding: 0;
   border: none;
   background: transparent;
@@ -449,7 +453,6 @@ function backToLanding(): void {
 }
 
 .ba__session-icon {
-  grid-area: 1 / 1;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -459,28 +462,26 @@ function backToLanding(): void {
   transition: transform var(--duration-fast) ease;
 }
 
-/* 图标往上让一点：文字压在圆的下沿，居中会撞上 */
 .ba__session-icon svg {
-  width: 38px;
-  height: 38px;
-  transform: translateY(-6px);
+  width: 40px;
+  height: 40px;
 }
 
 .ba__session:hover .ba__session-icon {
   transform: scale(1.05);
 }
 
+/* 标签是一块独立的牌，不是压在圆上的字——压上去要靠投影才看得清，那就显得脏 */
 .ba__session p {
-  grid-area: 1 / 1;
-  z-index: 1;
-  /* 相对圆心下移溢出；用 px，百分比会把中心算偏 */
-  transform: translateY(26px);
-  margin: 0;
+  position: relative;
+  margin: -8px 0 0;
+  padding: 3px 14px;
+  border-radius: var(--radius-pill);
   width: max-content;
   white-space: nowrap;
-  font-size: 22px;
+  font-size: 13px;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.4;
 }
 
 /* ── 底栏 ─────────────────────────────────────── */
