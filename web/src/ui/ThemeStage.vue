@@ -46,12 +46,18 @@ watch(
       class="stage__slide"
       :class="{ 'stage__slide--on': at === index }"
     >
+      <!--
+        记忆大厅一个几十 MB，首帧要等好一会儿。`poster` 是创意工坊条目自带的预览图，
+        几百 KB，先顶上去，视频就位了浏览器自己换掉——不给的话这段时间是一片空白。
+      -->
       <video
         v-if="item.media === 'video'"
         data-theme-stage
         class="stage__media"
         :src="item.url"
+        :poster="item.poster"
         :autoplay="at === index"
+        preload="metadata"
         loop
         muted
         playsinline

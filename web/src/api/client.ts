@@ -177,10 +177,15 @@ export interface UsageSection {
 
 /** 主题素材目录里的一个文件。 */
 export interface ThemeAsset {
+  /** 相对素材目录的路径，可能带一层子目录。 */
   name: string
   /** `image` 走 <img>，`video` 走 <video>——CG 是视频。 */
   media: 'image' | 'video'
   bytes: number
+  /** 展示名；创意工坊条目来自 project.json。 */
+  title?: string
+  /** 预览图的相对路径，视频加载出来之前当封面。 */
+  poster?: string
 }
 
 /** `GET /api/theme/{id}/assets` 响应。 */

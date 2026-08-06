@@ -31,9 +31,8 @@ import { computed, onUnmounted, ref } from 'vue'
 
 import {
   archivedSessions,
-  createSession,
+  client,
   defaultModel,
-  openSession,
   running,
   sessions,
 } from '../app/useChat'
@@ -66,11 +65,23 @@ const status = computed(() => {
   return running.value ? `正在输出 · ${model}` : `空闲 · ${model}`
 })
 
-/** 右上角三个信息胶囊：大圆图标在左，文字在右。 */
+/**
+ * 记忆条数。
+ *
+ * 会话列表 `App.vue` 启动时就拉了，记忆没有——外壳自己要一次。失败就留 0，
+ * 大厅少一个数字不值得弹错误。
+ */
+const memoryCount = ref(0)
+void client
+  .memories()
+  .then((list) => (memoryCount.value = list.length))
+  .catch(() => {})
+
+/** 右上角三个信息胶囊：大圆图标在左，文字在右。模型名已经在左上的状态里，这里不重复。 */
 const badges = computed(() => [
   { key: 'chat', icon: 'chat' as const, text: `会话 ${sessions.value.length}` },
+  { key: 'memory', icon: 'memory' as const, text: `记忆 ${memoryCount.value}` },
   { key: 'archive', icon: 'archive' as const, text: `归档 ${archivedSessions.value.length}` },
-  { key: 'model', icon: 'models' as const, text: defaultModel.value?.name ?? '未配置模型' },
 ])
 
 const clock = ref(nowText())
@@ -85,25 +96,15 @@ function enterLobby(): void {
   landing.value = 'lobby'
 }
 
+/** 底栏第一格：回加载页。 */
+function backToBoot(): void {
+  landing.value = 'boot'
+}
+
 /** 从内容页回落地：回大厅而不是加载页——加载页是「刚打开」才该看到的。 */
 function backToLanding(): void {
   landing.value = 'lobby'
   emit('navigate', 'home')
-}
-
-async function start(): Promise<void> {
-  await createSession()
-  emit('navigate', 'chat')
-}
-
-async function openRecent(): Promise<void> {
-  const recent = sessions.value[0]
-  if (!recent) {
-    await start()
-    return
-  }
-  await openSession(recent.id)
-  emit('navigate', 'chat')
 }
 </script>
 
@@ -174,15 +175,21 @@ async function openRecent(): Promise<void> {
 
       <!-- 右下：大圆 + 压在下沿的文字 -->
       <button class="ba__session" type="button" @click="emit('navigate', 'sessions')">
-        <span class="ba__session-icon" />
+        <span class="ba__session-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
+            <path d="M8.5 10.5h7M8.5 14h4.5" />
+          </svg>
+        </span>
         <p>会话区</p>
       </button>
 
       <!-- 底栏：浮动圆角条，着色只占下半，卡片左对齐 -->
       <nav class="ba__dock">
-        <button class="ba__card" type="button" @click="openRecent">
-          <span class="ba__card-icon ba__card-icon--go" v-html="NAV_ICONS.chat" />
-          <p>对话</p>
+        <button class="ba__card" type="button" @click="backToBoot">
+          <span class="ba__card-icon" v-html="NAV_ICONS.home" />
+          <p>主页</p>
         </button>
         <button
           v-for="item in NAV_ITEMS"
@@ -467,10 +474,20 @@ async function openRecent(): Promise<void> {
 
 .ba__session-icon {
   grid-area: 1 / 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 88px;
   height: 88px;
   border-radius: 50%;
   transition: transform var(--duration-fast) ease;
+}
+
+/* 图标往上让一点：文字压在圆的下沿，居中会撞上 */
+.ba__session-icon svg {
+  width: 38px;
+  height: 38px;
+  transform: translateY(-6px);
 }
 
 .ba__session:hover .ba__session-icon {

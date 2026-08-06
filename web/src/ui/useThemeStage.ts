@@ -16,7 +16,6 @@
 
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 
-import type { ThemeAsset } from '../api/client'
 import { client } from '../app/chat/client'
 import { imageBootstrap } from '../app/chat/state'
 
@@ -26,6 +25,10 @@ export interface StageItem {
   media: 'image' | 'video'
   /** 带令牌的取文件地址。 */
   url: string
+  /** 展示名，界面上报「现在放的是哪一个」。 */
+  title: string
+  /** 预览图地址；视频几十 MB，没加载出来之前先拿它顶着。 */
+  poster?: string
 }
 
 export interface ThemeStageOptions {
@@ -68,9 +71,9 @@ export function useThemeStage(options: ThemeStageOptions) {
     index.value = (index.value + delta + total) % total
   }
 
-  function urlOf(asset: ThemeAsset): string {
+  function urlOf(name: string): string {
     const token = imageBootstrap.value?.token ?? ''
-    const q = new URLSearchParams({ kind: options.kind, name: asset.name, token })
+    const q = new URLSearchParams({ kind: options.kind, name, token })
     return `/api/theme/${options.theme}/asset?${q}`
   }
 
@@ -82,7 +85,9 @@ export function useThemeStage(options: ThemeStageOptions) {
       items.value = list.assets.map((asset) => ({
         name: asset.name,
         media: asset.media,
-        url: urlOf(asset),
+        url: urlOf(asset.name),
+        title: asset.title ?? asset.name,
+        ...(asset.poster ? { poster: urlOf(asset.poster) } : {}),
       }))
       index.value = 0
       startAuto()
