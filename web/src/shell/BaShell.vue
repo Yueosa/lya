@@ -119,22 +119,10 @@ function backToLanding(): void {
           <BaLogo class="ba__logo--big" left="lya" right="Archive" />
         </button>
 
-        <div class="ba__boot-foot">
-          <p class="ba__tip">
-            <template v-if="boot.items.value.length">点字标进入大厅</template>
-            <template v-else>
-              把加载图放进 <code>{{ boot.dir.value }}</code>，点字标进入大厅
-            </template>
-          </p>
-          <div v-if="boot.many.value" class="ba__dots">
-            <i
-              v-for="(item, at) in boot.items.value"
-              :key="item.name"
-              class="ba__dot"
-              :class="{ 'ba__dot--on': at === boot.index.value }"
-            />
-          </div>
-        </div>
+        <!-- 只在真的没素材时说一句：有图的时候画面自己会说话，不需要提示 -->
+        <p v-if="!boot.items.value.length && !boot.loading.value" class="ba__empty">
+          把加载图放进 <code>{{ boot.dir.value }}</code>，点字标进入大厅
+        </p>
       </div>
     </template>
 
@@ -235,8 +223,8 @@ function backToLanding(): void {
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  padding: 20px 24px 28px;
+  gap: 14px;
+  padding: 20px 24px;
 }
 
 /* 字标本身就是按钮，不要 hover 底块——它是一块招牌，不是一个控件 */
@@ -249,49 +237,11 @@ function backToLanding(): void {
 }
 
 .ba__logo--big {
-  font-size: clamp(38px, 7vw, 62px);
+  font-size: clamp(28px, 4.2vw, 40px);
 }
 
 .ba__logo--sm {
   font-size: 20px;
-}
-
-.ba__boot-foot {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.ba__tip {
-  margin: 0;
-  padding: 7px 15px;
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
-  backdrop-filter: blur(4px);
-}
-
-.ba__tip code {
-  font-family: var(--font-mono);
-  opacity: 0.9;
-}
-
-.ba__dots {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-.ba__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  transition: background var(--transition), width var(--transition);
-}
-
-.ba__dot--on {
-  width: 20px;
-  border-radius: var(--radius-pill);
 }
 
 /* ── 左上：账号面板 ───────────────────────────── */
@@ -591,6 +541,7 @@ function backToLanding(): void {
   letter-spacing: 0.05em;
 }
 
+.ba__empty,
 .ba__cg-empty {
   position: absolute;
   left: 50%;
@@ -603,6 +554,7 @@ function backToLanding(): void {
   backdrop-filter: blur(4px);
 }
 
+.ba__empty code,
 .ba__cg-empty code {
   font-family: var(--font-mono);
 }

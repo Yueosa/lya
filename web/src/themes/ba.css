@@ -184,19 +184,12 @@
 }
 
 /* 压在照片上的提示文字：中性遮罩，只为读得清 */
-[data-theme='ba'] .ba__tip,
+[data-theme='ba'] .ba__empty,
 [data-theme='ba'] .ba__cg-empty {
   background: rgba(30, 54, 82, 0.55);
   color: #ffffff;
 }
 
-[data-theme='ba'] .ba__dot {
-  background: rgba(255, 255, 255, 0.5);
-}
-
-[data-theme='ba'] .ba__dot--on {
-  background: #ffffff;
-}
 
 /* ── 轻拟物：极淡的笔记本横线 ─────────────────────────────── */
 
