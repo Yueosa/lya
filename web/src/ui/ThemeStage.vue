@@ -110,18 +110,48 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
   opacity: 1;
 }
 
-/* 按高度铺满、宽度溢出；平移距离由 --local-pan 给，见 useThemeStage 的说明 */
+/*
+ * 两种铺法，由 measure() 量完之后写 data-fit 决定：
+ *
+ * - `wide`：素材比窗口宽（按高度铺满之后还有富余）→ 高度撑满、宽度顺其自然，横向平移
+ * - `tall`：素材比窗口窄 → 宽度撑满、高度顺其自然，居中，没有可平移的余量
+ *
+ * 之前是 `min-width: 100%` 配 `object-fit: cover` 想一招通吃，结果 tall 那种情况下
+ * 元素被强行拉到窗口宽、cover 再裁着填满——那就是**画面被放大**的由来。
+ */
 .stage__media {
   position: absolute;
+  max-width: none;
+}
+
+.stage__media[data-fit='wide'] {
   top: 0;
   left: 0;
   height: 100%;
   width: auto;
-  min-width: 100%;
-  max-width: none;
-  object-fit: cover;
   animation: theme-stage-pan 52s linear infinite alternate;
+}
+
+.stage__media[data-fit='tall'] {
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: auto;
+  transform: translateY(-50%);
+}
+
+/*
+ * 只给看得见的那张开合成层。
+ *
+ * 五个记忆大厅同时挂 will-change 和平移动画，就是五层 1080p 以上的合成层一起抢显存
+ * ——**画面闪烁**就是这么来的。隐藏的那些既不该动，也不该占层。
+ */
+.stage__slide--on .stage__media {
   will-change: transform;
+}
+
+.stage__slide:not(.stage__slide--on) .stage__media {
+  animation-play-state: paused;
 }
 
 @keyframes theme-stage-pan {

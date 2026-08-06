@@ -127,76 +127,134 @@
 /* ── 大厅上色 ─────────────────────────────────────────── */
 
 /*
- * `BaShell.vue` 一个颜色都不写，全在这里。它只排布局：谁在哪、多大、怎么对齐。
+ * `BaShell.vue` 一个颜色都不写，全在这里。它只排布局。
  *
- * 深蓝面板 `#2c5f7c` 是这套大厅的骨架色——账号面板、信息胶囊、底栏都用它。它压在
- * 照片背景上，所以必须是实心的：半透明会让底下的画面把字搅乱。
+ * # 明暗分工
+ *
+ * 之前整套用深蓝实心面板，那是照示范里的占位色来的，而游戏不是这样：**底栏是浅色的**，
+ * 只有压在画面上的顶部 chrome 才用深色半透明——因为那一片要在任意背景上都读得清，而
+ * 底栏本来就有自己的底。全做成深蓝就又沉又闷。
+ *
+ * 深色只出现在两处压图的地方，且是半透明；其余一律浅底蓝字。`#3d566e` 那种深色只当
+ * 文字用，不当填充。
  */
 
-/*
- * 深蓝面板。取值不是挑的，是从 `#128AFA`（logo 生成器源码里的那个蓝）**按同色相推**
- * 出来的：色相 209°、饱和压到 70%、明度 20%。之前用的 `#2c5f7c` 色相 200° 且饱和很低，
- * 读起来是青灰不是蓝，跟字标不像一家。
- */
+/* 压在画面上的：半透明深蓝，够读就行，不要实心色块那么重 */
 [data-theme='ba'] .ba__account,
-[data-theme='ba'] .ba__badge,
-[data-theme='ba'] .ba__dock::before {
-  background: #0f3457;
+[data-theme='ba'] .ba__badge {
+  background: rgba(13, 43, 71, 0.58);
+  backdrop-filter: blur(6px);
 }
 
 [data-theme='ba'] .ba__account-name,
-[data-theme='ba'] .ba__badge p,
-[data-theme='ba'] .ba__card p,
-[data-theme='ba'] .ba__time {
+[data-theme='ba'] .ba__badge p {
   color: #ffffff;
 }
 
 [data-theme='ba'] .ba__account-state {
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.78);
 }
 
 [data-theme='ba'] .ba__lamp--busy {
   background: #7fd0ff;
 }
 
-/* 圆形图标位：白底蓝图，压在深蓝面板上层次才拉得开 */
-[data-theme='ba'] .ba__badge-icon,
-[data-theme='ba'] .ba__card-icon {
-  background: #ffffff;
-  color: #0f3457;
+/* 底栏：浅色。这是和之前最大的不同 */
+[data-theme='ba'] .ba__dock::before {
+  background: linear-gradient(180deg, rgba(247, 251, 255, 0.94), rgba(228, 240, 252, 0.97));
+  box-shadow: 0 -2px 14px rgba(13, 43, 71, 0.16);
 }
 
-/* 会话区那圈大圆用亮蓝原色：它是这一屏唯一的主行动，也是唯一该抢眼的地方 */
+[data-theme='ba'] .ba__card p,
+[data-theme='ba'] .ba__time {
+  color: #14406b;
+}
+
+/*
+ * 图标块用亮蓝原色配白图形。
+ *
+ * 浅底上再放白圆是看不见的；游戏里那排图标本身是彩色插画，我们只有单色线稿，所以让
+ * 圆本身成为颜色。`#128AFA` 是字标那个蓝，整屏就靠它串起来。
+ */
+[data-theme='ba'] .ba__card-icon {
+  background: #128afa;
+  color: #ffffff;
+  box-shadow: 0 3px 8px rgba(18, 138, 250, 0.38);
+}
+
+[data-theme='ba'] .ba__card:hover .ba__card-icon {
+  background: #3ba0ff;
+}
+
+/* 右上胶囊里的图标：压在半透明深蓝上，白圆蓝图才有层次 */
+[data-theme='ba'] .ba__badge-icon {
+  background: #ffffff;
+  color: #14406b;
+}
+
+/* 会话区那圈大圆：这一屏唯一的主行动，用最亮的那个蓝 */
 [data-theme='ba'] .ba__session-icon {
+  background: #128afa;
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(18, 138, 250, 0.45);
+}
+
+[data-theme='ba'] .ba__session p {
+  background: #128afa;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(18, 138, 250, 0.42);
+}
+
+/* 翻页箭头：粗、圆头，底下垫一层白，压在任何画面上都看得见 */
+[data-theme='ba'] .ba__side--prev {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 40' fill='none'%3E%3Cpath d='M16 8 L8 20 L16 32' stroke='%23ffffff' stroke-width='9.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.6'/%3E%3Cpath d='M16 8 L8 20 L16 32' stroke='%23128afa' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+[data-theme='ba'] .ba__side--next {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 40' fill='none'%3E%3Cpath d='M8 8 L16 20 L8 32' stroke='%23ffffff' stroke-width='9.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.6'/%3E%3Cpath d='M8 8 L16 20 L8 32' stroke='%23128afa' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* 压在照片上的提示文字 */
+[data-theme='ba'] .ba__empty,
+[data-theme='ba'] .ba__cg-empty {
+  background: rgba(13, 43, 71, 0.58);
+  color: #ffffff;
+}
+
+/* ── 聊天页：Momotalk 两栏 ─────────────────────────────── */
+
+[data-theme='ba'] .ba__roster {
+  background: var(--surface);
+}
+
+[data-theme='ba'] .ba__roster-head {
+  color: var(--text-faint);
+  border-bottom: var(--border-width) solid var(--border);
+}
+
+[data-theme='ba'] .ba__roster-new {
   background: #128afa;
   color: #ffffff;
 }
 
-[data-theme='ba'] .ba__session p {
-  background: #0f3457;
-  color: #ffffff;
-  box-shadow: 0 2px 6px rgba(14, 32, 54, 0.32);
+[data-theme='ba'] .ba__contact:hover {
+  background: rgba(18, 138, 250, 0.08);
 }
 
-/*
- * 翻页箭头。粗一倍、圆头圆角，开口也收窄——细长的 chevron 看着像个符号，
- * 粗短带圆头的才有分量、也才够可爱。白描边是为了压在任何画面上都看得见。
- */
-[data-theme='ba'] .ba__side--prev {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 40' fill='none'%3E%3Cpath d='M16 8 L8 20 L16 32' stroke='%23ffffff' stroke-width='9.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.55'/%3E%3Cpath d='M16 8 L8 20 L16 32' stroke='%23128afa' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+/* 当前这个：淡蓝底 + 左边一道蓝条，和会话区列表同一套语汇 */
+[data-theme='ba'] .ba__contact--on {
+  background: rgba(18, 138, 250, 0.14);
+  box-shadow: inset 3px 0 0 #128afa;
 }
 
-[data-theme='ba'] .ba__side--next {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 40' fill='none'%3E%3Cpath d='M8 8 L16 20 L8 32' stroke='%23ffffff' stroke-width='9.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.55'/%3E%3Cpath d='M8 8 L16 20 L8 32' stroke='%23128afa' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+[data-theme='ba'] .ba__contact-name {
+  color: var(--text);
 }
 
-/* 压在照片上的提示文字：中性遮罩，只为读得清 */
-[data-theme='ba'] .ba__empty,
-[data-theme='ba'] .ba__cg-empty {
-  background: rgba(30, 54, 82, 0.55);
-  color: #ffffff;
+[data-theme='ba'] .ba__contact-sub,
+[data-theme='ba'] .ba__roster-empty {
+  color: var(--text-muted);
 }
-
 
 /* ── 会话区：Momotalk 的联系人列表 ─────────────────────────── */
 

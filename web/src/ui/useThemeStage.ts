@@ -122,9 +122,13 @@ export function useThemeStage(options: ThemeStageOptions) {
     const w = el instanceof HTMLVideoElement ? el.videoWidth : el.naturalWidth
     const h = el instanceof HTMLVideoElement ? el.videoHeight : el.naturalHeight
     if (!w || !h) return
+
+    // 按高度铺满之后有多宽？比窗口宽才有得平移，比窗口窄就得换一种铺法，
+    // 否则拉宽 + 裁切 = 画面被放大
     const shown = (w / h) * window.innerHeight
-    const overflow = Math.max(0, shown - window.innerWidth)
-    el.style.setProperty('--local-pan', `-${Math.round(overflow)}px`)
+    const overflow = shown - window.innerWidth
+    el.dataset['fit'] = overflow > 1 ? 'wide' : 'tall'
+    el.style.setProperty('--local-pan', `-${Math.round(Math.max(0, overflow))}px`)
   }
 
   /** resize 之后重新量：窗口变宽，可平移的余量就变少。 */

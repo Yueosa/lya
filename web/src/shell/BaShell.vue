@@ -29,13 +29,18 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 
+import type { SessionMeta } from '../api/wire'
 import {
   archivedSessions,
   client,
+  createSession,
+  currentId,
   defaultModel,
+  openSession,
   running,
   sessions,
 } from '../app/useChat'
+import { fmtBubbleTime } from '../utils/dateFormat'
 import BaLogo from '../ui/BaLogo.vue'
 import ThemeStage from '../ui/ThemeStage.vue'
 import { useThemeStage } from '../ui/useThemeStage'
@@ -108,6 +113,30 @@ function backToBoot(): void {
 function backToLanding(): void {
   landing.value = 'lobby'
   emit('navigate', 'home')
+}
+
+/**
+ * 聊天页要不要摆成 Momotalk 的两栏。
+ *
+ * 左边联系人、右边对话——这是**排版**，所以归外壳管；聊天视图本身仍然只有一份实现，
+ * 消息树、HITL、分支那些不会被抄进来。
+ */
+const atChat = computed(() => props.view === 'chat')
+
+async function open(id: string): Promise<void> {
+  await openSession(id)
+  emit('navigate', 'chat')
+}
+
+async function startNew(): Promise<void> {
+  await createSession()
+  emit('navigate', 'chat')
+}
+
+/** 联系人卡的副标题。列表接口没有最后一句话，就不编，显示真有的东西。 */
+function subtitle(session: SessionMeta): string {
+  if (session.id === currentId.value) return running.value ? '正在输入…' : '正在对话'
+  return fmtBubbleTime(session.updated_at)
 }
 </script>
 
@@ -221,9 +250,39 @@ function backToLanding(): void {
         <button class="ba__back" type="button" @click="backToLanding">‹ 大厅</button>
         <BaLogo class="ba__logo--sm" left="lya" right="Archive" />
       </header>
-      <main class="ba__content">
-        <slot />
-      </main>
+
+      <!-- 聊天页摆成 Momotalk 的两栏：左联系人、右对话 -->
+      <div class="ba__body" :class="{ 'ba__body--talk': atChat }">
+        <aside v-if="atChat" class="ba__roster">
+          <div class="ba__roster-head">
+            <span>对话</span>
+            <button class="ba__roster-new" type="button" v-tip="'新对话'" @click="startNew">＋</button>
+          </div>
+          <div class="ba__roster-list">
+            <button
+              v-for="session in sessions"
+              :key="session.id"
+              class="ba__contact"
+              :class="{ 'ba__contact--on': session.id === currentId }"
+              type="button"
+              @click="open(session.id)"
+            >
+              <span class="ba__contact-face">
+                <img src="/icon.png" alt="" @error="($event.target as HTMLElement).style.visibility = 'hidden'" />
+              </span>
+              <span class="ba__contact-text">
+                <span class="ba__contact-name">{{ session.title || '未命名' }}</span>
+                <span class="ba__contact-sub">{{ subtitle(session) }}</span>
+              </span>
+            </button>
+            <p v-if="!sessions.length" class="ba__roster-empty">还没有对话</p>
+          </div>
+        </aside>
+
+        <main class="ba__content">
+          <slot />
+        </main>
+      </div>
     </template>
   </div>
 </template>
@@ -616,12 +675,121 @@ function backToLanding(): void {
   color: var(--accent);
 }
 
+.ba__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+}
+
 .ba__content {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* ── 聊天页：Momotalk 两栏 ─────────────────────── */
+
+.ba__roster {
+  width: var(--split-list-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: var(--border-width) solid var(--border);
+}
+
+.ba__roster-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.ba__roster-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--ctl-h-sm);
+  height: var(--ctl-h-sm);
+  border: none;
+  border-radius: 50%;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.ba__roster-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 10px;
+}
+
+/* 联系人卡：圆头像在左，名字与状态在右——Momotalk 的行就是这么排的 */
+.ba__contact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  margin-bottom: 3px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition);
+}
+
+.ba__contact-face {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+}
+
+.ba__contact-face img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ba__contact-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ba__contact-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.ba__contact-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-xs);
+}
+
+.ba__roster-empty {
+  margin: 10px;
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 720px) {
