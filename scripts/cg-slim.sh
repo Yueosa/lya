@@ -16,16 +16,6 @@
 #   ./cg-slim.sh              去音轨。无损、秒完（只是重新封装，不重新编码）
 #   ./cg-slim.sh --shrink     去音轨 + 重编码到 1080p / CRF 23。慢，但真的小
 #   ./cg-slim.sh --dry-run    只看不动
-#   ./cg-slim.sh --force      连处理过的也重做
-#
-# ## 增量
-#
-# 处理过的文件会被打一个 `comment=cg-slim v1 …` 的容器标记，下次直接跳过。用标记而
-# 不是记一份清单：标记跟着文件走，改名、挪目录都不会失效，也不会有「清单和现实对不
-# 上」这种事。
-#
-# 这不只是省时间——`--shrink` 跑第二遍是拿 CRF 23 的输出再编一次 CRF 23，**每过一遍
-# 画质掉一档**，而文件几乎不再变小。
 #
 # 目录默认 ~/.lya/theme/ba/cg，也可以当参数传，或者用 CG_DIR 环境变量。
 #
@@ -43,10 +33,6 @@ set -uo pipefail
 CG_DIR="${CG_DIR:-$HOME/.lya/theme/ba/cg}"
 MODE="strip"
 DRY=0
-FORCE=0
-# 处理过的标记。改这个版本号可以让所有文件重新过一遍
-TAG="cg-slim v1"
-
 # 临时文件的后缀，三处要用同一个：生成、排除、清理
 TMP_SUFFIX=".slim.tmp.mp4"
 
@@ -54,7 +40,6 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --shrink) MODE="shrink" ;;
     --dry-run) DRY=1 ;;
-    --force) FORCE=1 ;;
     -h|--help) sed -n '2,32p' "$0" | sed 's/^# \?//'; exit 0 ;;
     *) CG_DIR="$1" ;;
   esac
@@ -124,26 +109,6 @@ for file in "${files[@]}"; do
   before=$(stat -c%s "$file")
   base=$(basename "$file")
   has_audio=$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$file" 2>/dev/null || true)
-  mark=$(ffprobe -v error -show_entries format_tags=comment -of default=nw=1:nk=1 "$file" 2>/dev/null || true)
-
-  # 处理过就跳过。--shrink 重复跑不只是白花时间，还会一遍遍掉画质。
-  #
-  # 判断要**分模式**：两种模式都会去音轨，所以任何标记都够 strip 跳过；但 shrink
-  # 只认自己的标记——先跑过 strip 的文件还没重编码，不该被它的标记挡住。
-  done_already=0
-  if [ "$FORCE" = "0" ]; then
-    case "$MODE:$mark" in
-      "shrink:$TAG shrink" | "shrink:$TAG kept") done_already=1 ;;
-      "strip:$TAG"*) done_already=1 ;;
-    esac
-  fi
-  if [ "$done_already" = "1" ]; then
-    echo "[$n/${#files[@]}] 跳过（${mark}）  $base"
-    skipped=$((skipped + 1))
-    total_before=$((total_before + before))
-    total_after=$((total_after + before))
-    continue
-  fi
 
   if [ "$MODE" = "strip" ] && [ -z "$has_audio" ]; then
     echo "[$n/${#files[@]}] 跳过（本来就没音轨）  $base"
@@ -164,13 +129,10 @@ for file in "${files[@]}"; do
   current_tmp="$tmp"
   # -nostdin：不让 ffmpeg 抢标准输入，见文件头第 1 条
   if [ "$MODE" = "shrink" ]; then
-    ffmpeg -nostdin -v error -y -i "$file" "${SHRINK_ARGS[@]}" \
-      -metadata comment="$TAG shrink" "$tmp"
+    ffmpeg -nostdin -v error -y -i "$file" "${SHRINK_ARGS[@]}" "$tmp"
   else
-    # -c copy：流拷贝，不重新编码，所以是无损且几乎不花时间。
-    # -metadata 是容器层的，和 -c copy 不冲突
-    ffmpeg -nostdin -v error -y -i "$file" -c copy -an \
-      -metadata comment="$TAG strip" "$tmp"
+    # -c copy：流拷贝，不重新编码，所以是无损且几乎不花时间
+    ffmpeg -nostdin -v error -y -i "$file" -c copy -an "$tmp"
   fi
   status=$?
   current_tmp=""
@@ -191,16 +153,8 @@ for file in "${files[@]}"; do
     changed=$((changed + 1))
     printf '%s  (-%d%%)\n' "$(human "$after")" $(( (before - after) * 100 / before ))
   else
-    # 原件本来就压得比我们狠。给它盖个 kept 标记（只是重新封装，不重编码），
-    # 否则每次跑都要在它身上白花几分钟再得出同一个结论
     rm -f "$tmp"
-    if ffmpeg -nostdin -v error -y -i "$file" -c copy \
-        -metadata comment="$TAG kept" "$tmp" && [ -s "$tmp" ]; then
-      mv -f "$tmp" "$file"
-    else
-      rm -f "$tmp"
-    fi
-    echo "保留原件（处理后反而更大）"
+    echo "跳过（处理后反而更大）"
     skipped=$((skipped + 1))
     after=$before
   fi

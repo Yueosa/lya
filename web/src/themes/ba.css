@@ -42,7 +42,7 @@
   --border-accent-width: 3px;
 
   /* accent 压暗到 4.5:1 才配得上白字；亮蓝 #128AFA 留给 logo 与图形 */
-  --accent: #1c74c9;
+  --accent: #1269ba;
   --accent-soft: rgba(18, 138, 250, 0.12);
   --danger: #c9425c;
   --danger-soft: rgba(201, 66, 92, 0.12);
@@ -94,7 +94,7 @@
   --code-string: #1d7048;
   --code-number: #a1490d;
   --code-comment: #556676;
-  --code-function: #1c5fa8;
+  --code-function: #115ea7;
   --code-type: #6a3fb0;
   --code-variable: #3d566e;
 }
@@ -133,10 +133,15 @@
  * 照片背景上，所以必须是实心的：半透明会让底下的画面把字搅乱。
  */
 
+/*
+ * 深蓝面板。取值不是挑的，是从 `#128AFA`（logo 生成器源码里的那个蓝）**按同色相推**
+ * 出来的：色相 209°、饱和压到 70%、明度 20%。之前用的 `#2c5f7c` 色相 200° 且饱和很低，
+ * 读起来是青灰不是蓝，跟字标不像一家。
+ */
 [data-theme='ba'] .ba__account,
 [data-theme='ba'] .ba__badge,
 [data-theme='ba'] .ba__dock::before {
-  background: #2c5f7c;
+  background: #0f3457;
 }
 
 [data-theme='ba'] .ba__account-name,
@@ -156,31 +161,34 @@
 
 /* 圆形图标位：白底蓝图，压在深蓝面板上层次才拉得开 */
 [data-theme='ba'] .ba__badge-icon,
-[data-theme='ba'] .ba__card-icon,
-[data-theme='ba'] .ba__session-icon {
+[data-theme='ba'] .ba__card-icon {
   background: #ffffff;
-  color: #2c5f7c;
+  color: #0f3457;
 }
 
-/* 会话区那圈大圆用亮蓝，它是这一屏唯一的主行动 */
+/* 会话区那圈大圆用亮蓝原色：它是这一屏唯一的主行动，也是唯一该抢眼的地方 */
 [data-theme='ba'] .ba__session-icon {
   background: #128afa;
+  color: #ffffff;
 }
 
 [data-theme='ba'] .ba__session p {
-  color: #1a3a4a;
+  color: #0f3457;
   text-shadow:
     0 1px 0 rgba(255, 255, 255, 0.55),
     0 2px 6px rgba(0, 0, 0, 0.18);
 }
 
-/* 翻页箭头：开口比文字 < > 宽，看着才像游戏里那个 */
+/*
+ * 翻页箭头。粗一倍、圆头圆角，开口也收窄——细长的 chevron 看着像个符号，
+ * 粗短带圆头的才有分量、也才够可爱。白描边是为了压在任何画面上都看得见。
+ */
 [data-theme='ba'] .ba__side--prev {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 48' fill='none'%3E%3Cpath d='M17 7 L5 24 L17 41' stroke='%232c5f7c' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 40' fill='none'%3E%3Cpath d='M16 8 L8 20 L16 32' stroke='%23ffffff' stroke-width='9.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.55'/%3E%3Cpath d='M16 8 L8 20 L16 32' stroke='%23128afa' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 [data-theme='ba'] .ba__side--next {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 48' fill='none'%3E%3Cpath d='M7 7 L19 24 L7 41' stroke='%232c5f7c' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 40' fill='none'%3E%3Cpath d='M8 8 L16 20 L8 32' stroke='%23ffffff' stroke-width='9.5' stroke-linecap='round' stroke-linejoin='round' opacity='0.55'/%3E%3Cpath d='M8 8 L16 20 L8 32' stroke='%23128afa' stroke-width='6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 
 /* 压在照片上的提示文字：中性遮罩，只为读得清 */

@@ -9,37 +9,50 @@
 -->
 
 <script setup lang="ts">
-import { watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
 import type { StageItem } from './useThemeStage'
 
-const props = defineProps<{
-  items: StageItem[]
-  index: number
-  /** 量平移距离；由 `useThemeStage` 提供。 */
-  measure: (el: HTMLImageElement | HTMLVideoElement) => void
-}>()
+const props = withDefaults(
+  defineProps<{
+    items: StageItem[]
+    index: number
+    /** 量平移距离；由 `useThemeStage` 提供。 */
+    measure: (el: HTMLImageElement | HTMLVideoElement) => void
+    /** 这一层现在看得见吗。看不见就暂停解码，但**不卸载**，缓冲还在。 */
+    active?: boolean
+  }>(),
+  { active: true },
+)
+
+const root = ref<HTMLElement | null>(null)
 
 /**
- * 只让当前那张视频播。
+ * 只让「当前这张、且这一层看得见」的视频播。
  *
- * 不这么做的话，几个记忆大厅 CG 会同时解码——一个 1080p 视频解码就够吃掉一个核，
- * 三个并行会让整个界面掉帧，而用户只看得见一个。
+ * 两件事都要管：
+ *
+ * - 同层里几个 CG 同时解码，一个 1080p 就够吃掉一个核，而用户只看得见一张
+ * - 去内容页之后这一层整个看不见了，还在后台解码几十 MB 纯属白烧
+ *
+ * 关键是**暂停而不是卸载**：元素留在 DOM 里，缓冲和解码器状态都还在，切回来是
+ * 立刻接着播，不是从头下载。
  */
-watch(
-  () => props.index,
-  () => {
-    const videos = document.querySelectorAll<HTMLVideoElement>('video[data-theme-stage]')
-    videos.forEach((video, at) => {
-      if (at === props.index) void video.play().catch(() => {})
-      else video.pause()
-    })
-  },
-)
+function syncPlayback(): void {
+  const videos = root.value?.querySelectorAll<HTMLVideoElement>('video[data-theme-stage]')
+  videos?.forEach((video, at) => {
+    if (props.active && at === props.index) void video.play().catch(() => {})
+    else video.pause()
+  })
+}
+
+watch(() => [props.index, props.active, props.items.length], () => void nextTick(syncPlayback), {
+  immediate: true,
+})
 </script>
 
 <template>
-  <div class="stage">
+  <div ref="root" class="stage">
     <div
       v-for="(item, at) in items"
       :key="item.name"
@@ -56,7 +69,6 @@ watch(
         class="stage__media"
         :src="item.url"
         :poster="item.poster"
-        :autoplay="at === index"
         preload="metadata"
         loop
         muted

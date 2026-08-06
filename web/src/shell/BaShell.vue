@@ -110,10 +110,31 @@ function backToLanding(): void {
 
 <template>
   <div class="ba">
+    <!--
+      两个背景层挂在 v-if 之外，靠 v-show 控制可见。
+      放进 v-if 里的话，去内容页再回来会把 <video> 整个销毁重建——几十 MB 从头下载，
+      画面先黑一下再慢慢出来。这就是「从其他页面返回时 cg 出问题」的原因。
+      不可见时暂停解码，见 ThemeStage 的 active。
+    -->
+    <div v-show="atBoot" class="ba__layer" data-layer="boot">
+      <ThemeStage
+        :items="boot.items.value"
+        :index="boot.index.value"
+        :measure="boot.measure"
+        :active="atBoot"
+      />
+    </div>
+    <div v-show="atLobby" class="ba__layer" data-layer="cg">
+      <ThemeStage
+        :items="cg.items.value"
+        :index="cg.index.value"
+        :measure="cg.measure"
+        :active="atLobby"
+      />
+    </div>
+
     <!-- ── 加载页 ────────────────────────────────── -->
     <template v-if="atBoot">
-      <ThemeStage :items="boot.items.value" :index="boot.index.value" :measure="boot.measure" />
-
       <div class="ba__boot">
         <button class="ba__boot-brand" type="button" @click="enterLobby">
           <BaLogo class="ba__logo--big" left="lya" right="Archive" />
@@ -128,8 +149,6 @@ function backToLanding(): void {
 
     <!-- ── 大厅 ──────────────────────────────────── -->
     <template v-else-if="atLobby">
-      <ThemeStage :items="cg.items.value" :index="cg.index.value" :measure="cg.measure" />
-
       <!-- 左上：一块实心面板，头像跨两行 -->
       <div class="ba__account">
         <div class="ba__account-grid">
@@ -207,6 +226,13 @@ function backToLanding(): void {
 </template>
 
 <style scoped>
+/* 背景层：铺满、压在所有浮层下面 */
+.ba__layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
 .ba {
   position: relative;
   display: flex;
