@@ -124,14 +124,78 @@
   background: #128afa;
 }
 
+/* ── 大厅上色 ─────────────────────────────────────────── */
+
 /*
- * 大厅右下角那个按钮的深蓝渐变。
+ * `BaShell.vue` 一个颜色都不写，全在这里。它只排布局：谁在哪、多大、怎么对齐。
  *
- * 只有品牌色进这里；`BaShell` 里剩下的 rgba 是「UI 压在照片上要读得清」的中性遮罩，
- * 那是那套排版的固有需求而不是配色，留在组件里（McShell 也是这么做的）。
+ * 深蓝面板 `#2c5f7c` 是这套大厅的骨架色——账号面板、信息胶囊、底栏都用它。它压在
+ * 照片背景上，所以必须是实心的：半透明会让底下的画面把字搅乱。
  */
-[data-theme='ba'] .ba__biz {
-  background: linear-gradient(160deg, #2f86c8, #16406e);
+
+[data-theme='ba'] .ba__account,
+[data-theme='ba'] .ba__badge,
+[data-theme='ba'] .ba__dock::before {
+  background: #2c5f7c;
+}
+
+[data-theme='ba'] .ba__account-name,
+[data-theme='ba'] .ba__badge p,
+[data-theme='ba'] .ba__card p,
+[data-theme='ba'] .ba__time {
+  color: #ffffff;
+}
+
+[data-theme='ba'] .ba__account-state {
+  color: rgba(255, 255, 255, 0.75);
+}
+
+[data-theme='ba'] .ba__lamp--busy {
+  background: #7fd0ff;
+}
+
+/* 圆形图标位：白底蓝图，压在深蓝面板上层次才拉得开 */
+[data-theme='ba'] .ba__badge-icon,
+[data-theme='ba'] .ba__card-icon,
+[data-theme='ba'] .ba__session-icon {
+  background: #ffffff;
+  color: #2c5f7c;
+}
+
+/* 会话区那圈大圆用亮蓝，它是这一屏唯一的主行动 */
+[data-theme='ba'] .ba__session-icon {
+  background: #128afa;
+}
+
+[data-theme='ba'] .ba__session p {
+  color: #1a3a4a;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.55),
+    0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+/* 翻页箭头：开口比文字 < > 宽，看着才像游戏里那个 */
+[data-theme='ba'] .ba__side--prev {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 48' fill='none'%3E%3Cpath d='M17 7 L5 24 L17 41' stroke='%232c5f7c' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+[data-theme='ba'] .ba__side--next {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 48' fill='none'%3E%3Cpath d='M7 7 L19 24 L7 41' stroke='%232c5f7c' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+
+/* 压在照片上的提示文字：中性遮罩，只为读得清 */
+[data-theme='ba'] .ba__tip,
+[data-theme='ba'] .ba__cg-empty {
+  background: rgba(30, 54, 82, 0.55);
+  color: #ffffff;
+}
+
+[data-theme='ba'] .ba__dot {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+[data-theme='ba'] .ba__dot--on {
+  background: #ffffff;
 }
 
 /* ── 轻拟物：极淡的笔记本横线 ─────────────────────────────── */

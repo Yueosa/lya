@@ -55,22 +55,37 @@ fn mime_of(path: &Path) -> Option<&'static str> {
         .map(|(_, mime)| *mime)
 }
 
-/// 主题 id / 分类 / 文件名允许的字符。
+/// 主题 id 允许的字符。
 ///
-/// 不含 `/`、`\` 和 `.`，所以 `..` 和绝对路径都过不来。文件名那一段要留 `.` 给扩展名，
-/// 单独放宽。
-fn safe_segment(value: &str, allow_dot: bool) -> bool {
+/// 主题 id 是我们自己定的（`ba` / `mc` / `mtf`），限死没有代价。不含 `/`、`\`、`.`，
+/// 所以 `..` 和绝对路径都过不来。
+fn safe_theme(value: &str) -> bool {
     !value.is_empty()
-        && value.len() <= 128
+        && value.len() <= 64
         && value
             .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || (allow_dot && c == '.'))
-        && !value.contains("..")
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// 在目录里找叫这个名字的文件。
+///
+/// **文件名不做字符校验**。第一版那么写，结果把真实素材挡在门外——从游戏里拿的图叫
+/// `01 (3).png`，带空格和括号，直接 400。文件名是用户的，我们无权规定它长什么样。
+///
+/// 改成和目录里**真实存在的条目**逐个比对：能通过的必然是这个目录下的一个文件，
+/// `../` 之类根本构造不出来。这比字符白名单**同时更严也更宽**——既收任何合法文件名，
+/// 又不给穿越留缝。
+fn find_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+    std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .find(|entry| entry.file_name().to_str() == Some(name))
+        .map(|entry| entry.path())
 }
 
 /// `~/.lya/theme/{theme}/{kind}/`。
 fn kind_dir(theme: &str, kind: &str) -> Option<PathBuf> {
-    if !safe_segment(theme, false) || !KINDS.contains(&kind) {
+    if !safe_theme(theme) || !KINDS.contains(&kind) {
         return None;
     }
     let root = lya_base::data_root().ok()?;
@@ -181,19 +196,21 @@ pub async fn asset(
     let Some(dir) = kind_dir(&theme, &query.kind) else {
         return (StatusCode::BAD_REQUEST, "主题或分类不合法").into_response();
     };
-    if !safe_segment(&query.name, true) {
-        return (StatusCode::BAD_REQUEST, "文件名不合法").into_response();
-    }
-
-    // 先解析软链再比对：目录里放一个链接就能指到家目录外，光看字符串是拦不住的
-    let Ok(real) = std::fs::canonicalize(dir.join(&query.name)) else {
+    // 名字必须是目录里真实存在的一项——比字符校验严，且不挑文件名长什么样
+    let Some(path) = find_in_dir(&dir, &query.name) else {
         return (StatusCode::NOT_FOUND, "不存在").into_response();
     };
-    let Ok(real_dir) = std::fs::canonicalize(&dir) else {
-        return (StatusCode::NOT_FOUND, "素材目录不存在").into_response();
+
+    // 素材目录里放软链是合理用法（几十 MB 的 CG 未必想复制一份），所以允许它指到别处，
+    // 但不能出家目录——和本地图片端点同一条规矩
+    let (Ok(real), Some(home)) = (std::fs::canonicalize(&path), std::env::var_os("HOME")) else {
+        return (StatusCode::NOT_FOUND, "不存在").into_response();
     };
-    if !real.starts_with(&real_dir) {
-        return (StatusCode::FORBIDDEN, "只能读素材目录内的文件").into_response();
+    let Ok(real_home) = std::fs::canonicalize(PathBuf::from(home)) else {
+        return (StatusCode::INTERNAL_SERVER_ERROR, "家目录不可访问").into_response();
+    };
+    if !real.starts_with(&real_home) {
+        return (StatusCode::FORBIDDEN, "只能读家目录内的文件").into_response();
     }
     let Some(mime) = mime_of(&real) else {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, "不支持的格式").into_response();
@@ -207,19 +224,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn segments_reject_traversal_and_separators() {
-        assert!(safe_segment("ba", false));
-        assert!(safe_segment("01_rain.jpg", true));
-        // 不允许分隔符与父目录
-        assert!(!safe_segment("..", true));
-        assert!(!safe_segment("../etc", true));
-        assert!(!safe_segment("a/b", true));
-        assert!(!safe_segment("a\\b", true));
-        assert!(!safe_segment("", true));
-        // 主题那一段不留 `.`，否则 `.` 与 `..` 都要另外排除
-        assert!(!safe_segment("a.b", false));
-        // 藏在中间的 `..` 也不行
-        assert!(!safe_segment("a..b", true));
+    fn theme_segment_rejects_traversal() {
+        assert!(safe_theme("ba"));
+        assert!(safe_theme("my-theme_2"));
+        assert!(!safe_theme(".."));
+        assert!(!safe_theme("../etc"));
+        assert!(!safe_theme("a/b"));
+        assert!(!safe_theme("a.b"));
+        assert!(!safe_theme(""));
+    }
+
+    #[test]
+    fn lookup_takes_any_real_filename_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        // 真实素材就长这样：空格、括号、中文
+        for name in ["01 (3).png", "记忆大厅 2.mp4"] {
+            std::fs::write(dir.path().join(name), b"x").unwrap();
+            assert!(find_in_dir(dir.path(), name).is_some(), "{name} 该找得到");
+        }
+        // 目录里没有的一律找不到，穿越自然也构造不出来
+        assert!(find_in_dir(dir.path(), "..").is_none());
+        assert!(find_in_dir(dir.path(), "../../etc/passwd").is_none());
+        assert!(find_in_dir(dir.path(), "01 (4).png").is_none());
     }
 
     #[test]

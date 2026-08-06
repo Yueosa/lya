@@ -37,5 +37,6 @@ name = "wire"
 path = "examples/wire.rs"
 
 [dev-dependencies]
+tempfile = { workspace = true }
 lya-agent = { workspace = true }
 lya-session = { workspace = true }
