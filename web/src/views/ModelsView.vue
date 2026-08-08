@@ -2,17 +2,19 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import { errorText, type ModelInfo, type ProbeResult } from '../api/client'
-import type { ApiMode } from '../api/wire'
 import { client } from '../app/client'
 import { loadModels, models } from '../app/useChat'
+import {
+  formatContext,
+  gatewayLabel,
+  groupModelsByGateway,
+  modeCaps,
+  modeStackHint,
+} from '../model/gateways'
+import ListStatus from '../ui/ListStatus.vue'
 import ViewHead from '../ui/ViewHead.vue'
 import { toast } from '../ui/useToast'
-import { groupBy } from '../utils/groupBy'
-
-interface GatewayGroup {
-  baseUrl: string
-  models: ModelInfo[]
-}
+import { keepSelectedKey } from '../utils/keepSelection'
 
 const loading = ref(true)
 const selectedUrl = ref<string | null>(null)
@@ -29,12 +31,7 @@ onMounted(async () => {
   }
 })
 
-const modelGroups = computed((): GatewayGroup[] =>
-  groupBy(models.value, (m) => m.base_url).map(([baseUrl, items]) => ({
-    baseUrl,
-    models: items,
-  })),
-)
+const modelGroups = computed(() => groupModelsByGateway(models.value))
 
 const selected = computed(() =>
   modelGroups.value.find((group) => group.baseUrl === selectedUrl.value) ?? null,
@@ -43,49 +40,19 @@ const selected = computed(() =>
 watch(
   modelGroups,
   (groups) => {
-    if (!groups.length) {
-      selectedUrl.value = null
-      return
-    }
-    if (!selectedUrl.value || !groups.some((group) => group.baseUrl === selectedUrl.value)) {
-      selectedUrl.value = groups[0]!.baseUrl
-    }
+    selectedUrl.value = keepSelectedKey(
+      groups.map((group) => group.baseUrl),
+      selectedUrl.value,
+    )
   },
   { immediate: true },
 )
-
-function gatewayLabel(url: string): string {
-  try {
-    const parsed = new URL(url)
-    const path = parsed.pathname.replace(/\/$/, '')
-    return path && path !== '/' ? `${parsed.host}${path}` : parsed.host
-  } catch {
-    return url.length > 36 ? `${url.slice(0, 33)}…` : url
-  }
-}
-
-function modeCaps(model: ModelInfo, mode: ApiMode): string {
-  return model.modes[mode]?.capabilities.join(', ') ?? '—'
-}
-
-function modeStackHint(model: ModelInfo, mode: ApiMode): string {
-  if (model.modes[mode]) return modeCaps(model, mode)
-  return mode === 'responses' ? '未配置 modes.responses' : '未配置 modes.completions'
-}
-
-function formatContext(value: number | null | undefined): string {
-  if (value == null) return '—'
-  if (value >= 1_048_576 && value % 1_048_576 === 0) return `${value / 1_048_576}M`
-  if (value >= 1024 && value % 1024 === 0) return `${value / 1024}K`
-  return String(value)
-}
 
 function probeModelsText(baseUrl: string): string {
   const result = probeByUrl.value.get(baseUrl)
   if (!result?.ok || !result.models.length) return ''
   return result.models.join('\n')
 }
-
 
 async function probeGroup(baseUrl: string, items: ModelInfo[]): Promise<void> {
   const target = items.find((item) => !item.api_key_placeholder) ?? items[0]
@@ -116,8 +83,8 @@ function selectGroup(baseUrl: string): void {
 
     <div class="split-view__body">
       <aside class="split-view__list">
-        <p v-if="loading" class="split-view__hint">加载中…</p>
-        <div v-else class="split-view__list-scroll">
+        <ListStatus :loading="loading" />
+        <div v-if="!loading" class="split-view__list-scroll">
           <button
             v-for="group in modelGroups"
             :key="group.baseUrl"
@@ -128,7 +95,7 @@ function selectGroup(baseUrl: string): void {
             <span class="split-view__list-title">{{ gatewayLabel(group.baseUrl) }}</span>
             <span class="split-view__list-meta">{{ group.models.length }} 个 · {{ group.baseUrl }}</span>
           </button>
-          <p v-if="modelGroups.length === 0" class="split-view__hint">暂无模型，请检查 models.toml</p>
+          <ListStatus :empty="modelGroups.length === 0" empty-text="暂无模型，请检查 models.toml" />
         </div>
       </aside>
 

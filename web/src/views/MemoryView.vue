@@ -12,6 +12,7 @@ import {
   searchMemories,
   updateMemory,
 } from '../app/useMemories'
+import ListStatus from '../ui/ListStatus.vue'
 import { confirmAsync, prompt } from '../ui/useDialog'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
@@ -157,9 +158,13 @@ function parseTags(text: string): string[] {
         <div class="split-view__list-scroll">
           <!-- 读取失败就地说明，不弹提示：这一栏本来就是空的，位置正好用来说为什么，
                弹窗几秒就飘走了，回头看到空列表也不知道是没有还是没读到 -->
-          <p v-if="loadError" class="page__error">{{ loadError }}</p>
-          <p v-else-if="loading" class="split-view__hint">加载中…</p>
-          <template v-if="hits">
+          <ListStatus
+            :error="loadError"
+            :loading="loading"
+            :empty="!loading && !loadError && (hits ? hits.length === 0 : items.length === 0)"
+            empty-text="暂无记忆"
+          />
+          <template v-if="!loadError && !loading && hits">
             <button
               v-for="hit in hits"
               :key="hit.id"
@@ -171,7 +176,7 @@ function parseTags(text: string): string[] {
               <span class="split-view__list-meta">命中 · {{ fieldLabel(hit.matched_in) }}</span>
             </button>
           </template>
-          <template v-else>
+          <template v-else-if="!loadError && !loading">
             <button
               v-for="memory in items"
               :key="memory.id"
@@ -183,12 +188,6 @@ function parseTags(text: string): string[] {
               <span v-if="memory.tags.length" class="split-view__list-meta">{{ memory.tags.slice(0, 3).join(' · ') }}</span>
             </button>
           </template>
-          <p
-            v-if="!loading && !loadError && (hits ? hits.length === 0 : items.length === 0)"
-            class="split-view__hint"
-          >
-            暂无记忆
-          </p>
         </div>
       </aside>
 

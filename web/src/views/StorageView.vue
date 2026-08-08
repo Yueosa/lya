@@ -10,6 +10,7 @@ import { onMounted, ref } from 'vue'
 
 import { errorText, type UsageReport } from '../api/client'
 import { client } from '../app/client'
+import ListStatus from '../ui/ListStatus.vue'
 import StorageBreakdown from '../ui/StorageBreakdown.vue'
 import ViewHead from '../ui/ViewHead.vue'
 
@@ -38,10 +39,9 @@ async function load(): Promise<void> {
     <ViewHead title="存储" />
 
     <div class="page__body">
-      <p v-if="loading" class="split-view__hint">正在扫描…</p>
-      <p v-else-if="loadError" class="page__error">{{ loadError }}</p>
+      <ListStatus :loading="loading" :error="loadError" loading-text="正在扫描…" />
 
-      <section v-else-if="report" class="page__pane">
+      <section v-if="!loading && !loadError && report" class="page__pane">
         <p class="page__hint">
           数据目录：<code>{{ report.root }}</code>
         </p>

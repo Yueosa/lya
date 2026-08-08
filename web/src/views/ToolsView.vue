@@ -4,7 +4,9 @@ import { computed, onMounted, ref, watch } from 'vue'
 import type { ActionInfo, ToolInfo } from '../api/client'
 import { catalog, ensureCatalog } from '../app/useCatalog'
 import { configState, ensureConfig } from '../app/useConfig'
+import ListStatus from '../ui/ListStatus.vue'
 import ViewHead from '../ui/ViewHead.vue'
+import { keepSelectedItem } from '../utils/keepSelection'
 import { readGlobalToolsMode, toolLimits } from '../utils/toolLimits'
 import { schemaFields } from '../utils/schemaFields'
 import MarkdownBody from './MarkdownBody.vue'
@@ -42,13 +44,7 @@ const selectedLimits = computed(() =>
 watch(
   items,
   (list) => {
-    if (!list.length) {
-      selected.value = null
-      return
-    }
-    if (!selected.value || !list.some((item) => item.name === selected.value!.name)) {
-      selected.value = list[0]!
-    }
+    selected.value = keepSelectedItem(list, selected.value, (item) => item.name)
   },
   { immediate: true },
 )
@@ -92,8 +88,8 @@ function globalStatusLabel(name: string): string {
           </button>
         </div>
 
-        <p v-if="loading" class="split-view__hint">加载中…</p>
-        <div v-else class="split-view__list-scroll">
+        <ListStatus :loading="loading" />
+        <div v-if="!loading" class="split-view__list-scroll">
           <button
             v-for="item in items"
             :key="item.name"
@@ -104,7 +100,7 @@ function globalStatusLabel(name: string): string {
             <span class="split-view__list-title">{{ item.raw_name }}</span>
             <span class="split-view__list-meta">{{ item.name }}</span>
           </button>
-          <p v-if="items.length === 0" class="split-view__hint">暂无条目</p>
+          <ListStatus :empty="items.length === 0" empty-text="暂无条目" />
         </div>
       </aside>
 

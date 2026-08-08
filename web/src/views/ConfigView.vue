@@ -6,6 +6,7 @@ import { client } from '../app/client'
 import { catalog, ensureCatalog } from '../app/useCatalog'
 import { configState, ensureConfig, reloadConfig } from '../app/useConfig'
 import { models, refreshRuntimeDefaults } from '../app/useChat'
+import ListStatus from '../ui/ListStatus.vue'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
 import RawToml from '../ui/RawToml.vue'
@@ -178,10 +179,13 @@ watch(tab, (id) => {
       </aside>
 
       <main class="split-view__main">
-        <p v-if="loadError" class="page__error">{{ loadError }}</p>
-        <p v-else-if="!configState.config.value" class="split-view__hint">正在读取…</p>
+        <ListStatus
+          :error="loadError"
+          :loading="!loadError && !configState.config.value"
+          loading-text="正在读取…"
+        />
 
-        <Transition v-else name="lya-split" mode="out-in">
+        <Transition v-if="!loadError && configState.config.value" name="lya-split" mode="out-in">
           <section v-if="tab === 'runtime'" key="runtime" class="page__pane">
           <p class="page__hint">
             写入 <code>runtime.toml</code>
