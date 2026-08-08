@@ -6,6 +6,7 @@ import { currentId, deleteMessage, loadTree, readOnly, switchToBranch } from '..
 import {
   callArguments,
   defaultTreeFilters,
+  layoutTree,
   nodeIcon,
   nodePreview,
   nodeStatusTag,
@@ -90,101 +91,10 @@ async function refresh(): Promise<void> {
   scrollToActive()
 }
 
-interface Placed {
-  record: MessageRecord
-  x: number
-  y: number
-  onPath: boolean
-  isLeaf: boolean
-}
+/** 尺寸得和下面的 CSS 对得上，所以由这一侧持有，见 model 里 TreeMetrics 的说明。 */
+const METRICS = { nodeW: NODE_W, nodeH: NODE_H, gapX: GAP_X, gapY: GAP_Y, pad: PAD }
 
-interface Edge {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-  onPath: boolean
-}
-
-const layout = computed(() => {
-  const visibleNodesList = [...nodes.value].sort((a, b) => a.sort_key - b.sort_key)
-  const byId = new Map(visibleNodesList.map((node) => [node.id, node]))
-  const children = new Map<number | null, MessageRecord[]>()
-  for (const node of visibleNodesList) {
-    const list = children.get(node.parent_id) ?? []
-    list.push(node)
-    children.set(node.parent_id, list)
-  }
-
-  const onPath = new Set<number>()
-  let cursor = activeLeaf.value
-  while (cursor !== null) {
-    onPath.add(cursor)
-    cursor = byId.get(cursor)?.parent_id ?? null
-  }
-
-  const leafIds = new Set<number>()
-  for (const node of visibleNodesList) {
-    if ((children.get(node.id) ?? []).length === 0) leafIds.add(node.id)
-  }
-
-  const centers = new Map<number, number>()
-  const depths = new Map<number, number>()
-  let cursorX = 0
-
-  const place = (id: number, depth: number): number => {
-    depths.set(id, depth)
-    const kids = children.get(id) ?? []
-    if (kids.length === 0) {
-      const center = cursorX + NODE_W / 2
-      cursorX += NODE_W + GAP_X
-      centers.set(id, center)
-      return center
-    }
-    const spans = kids.map((kid) => place(kid.id, depth + 1))
-    const center = (spans[0]! + spans.at(-1)!) / 2
-    centers.set(id, center)
-    return center
-  }
-
-  for (const root of children.get(null) ?? []) place(root.id, 0)
-
-  const placed: Placed[] = visibleNodesList
-    .filter((node) => centers.has(node.id))
-    .map((node) => ({
-      record: node,
-      x: centers.get(node.id)! - NODE_W / 2 + PAD,
-      y: PAD + depths.get(node.id)! * (NODE_H + GAP_Y),
-      onPath: onPath.has(node.id),
-      isLeaf: leafIds.has(node.id),
-    }))
-
-  const placedIds = new Set(placed.map((p) => p.record.id))
-  const edges: Edge[] = []
-  for (const item of placed) {
-    let parent = item.record.parent_id
-    while (parent !== null && !placedIds.has(parent)) {
-      parent = byId.get(parent)?.parent_id ?? null
-    }
-    if (parent === null) continue
-    const from = placed.find((c) => c.record.id === parent)
-    if (!from) continue
-    edges.push({
-      x1: from.x + NODE_W / 2,
-      y1: from.y + NODE_H,
-      x2: item.x + NODE_W / 2,
-      y2: item.y,
-      onPath: item.onPath && from.onPath,
-    })
-  }
-
-  return {
-    placed,
-    edges,
-    w: Math.max(...placed.map((i) => i.x + NODE_W), NODE_W) + PAD,
-    h: Math.max(...placed.map((i) => i.y + NODE_H), NODE_H) + PAD,
-  }
-})
+const layout = computed(() => layoutTree(nodes.value, activeLeaf.value, METRICS))
 
 const pickedPlaced = computed(() =>
   picked.value ? layout.value.placed.find((item) => item.record.id === picked.value!.id) : null,
