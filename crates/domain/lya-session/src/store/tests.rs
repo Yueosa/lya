@@ -25,6 +25,51 @@ use lya_base::Mode;
     }
 
     #[test]
+    fn adopt_default_persona_only_fills_the_empty_ones() {
+        /*
+          人设改成会话级之前建的会话是「留空 = 每轮读全局」，于是改一次默认人设会把它们的
+          性格一起换掉，而聊天记录还是旧性格写的。这个方法给它们补上各自的一份。
+
+          补的时候不能碰已经有自己人设的那些——那才是用户明确挑过的，覆盖掉就是把用户的
+          设置抹了。
+        */
+        let (_dir, store) = store();
+        let blank = new_session(&store);
+        let chosen = new_session(&store);
+        store.set_persona(&chosen, Some("我自己挑的")).unwrap();
+
+        assert_eq!(store.adopt_default_persona("默认那份").unwrap(), 1);
+        assert_eq!(
+            store.get_session(&blank).unwrap().unwrap().persona.as_deref(),
+            Some("默认那份")
+        );
+        assert_eq!(
+            store.get_session(&chosen).unwrap().unwrap().persona.as_deref(),
+            Some("我自己挑的"),
+            "用户自己挑过的不能被覆盖"
+        );
+    }
+
+    #[test]
+    fn adopting_default_persona_is_idempotent_and_quiet() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+        let before = store.get_session(&id).unwrap().unwrap().updated_at;
+
+        assert_eq!(store.adopt_default_persona("默认那份").unwrap(), 1);
+        // 每次启动都会跑一遍，补完之后必须是 0 条，否则日志里天天多一行
+        assert_eq!(store.adopt_default_persona("又改了默认").unwrap(), 0);
+        assert_eq!(
+            store.get_session(&id).unwrap().unwrap().persona.as_deref(),
+            Some("默认那份"),
+            "第二次不该再动它——那就又变成跟着默认人设漂了"
+        );
+
+        // 这是补数据不是用户改了什么，碰 updated_at 会让全部会话一起窜到列表最前面
+        assert_eq!(store.get_session(&id).unwrap().unwrap().updated_at, before);
+    }
+
+    #[test]
     fn session_roundtrip() {
         let (_dir, store) = store();
         let id = new_session(&store);

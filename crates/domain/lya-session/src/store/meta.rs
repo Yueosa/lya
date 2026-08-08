@@ -228,6 +228,29 @@ impl SessionStore {
         })
     }
 
+    /// 给还没有自己人设的会话补上一份，返回补了几个。
+    ///
+    /// 人设**从前**是「会话留空就每轮读全局」，于是改一次默认人设会把每一段正在进行的对话
+    /// 都换掉性格，而聊天记录还是旧性格写的——模型下一轮得同时扮演两个人。现在会话在创建时
+    /// 就抄一份（见 `lya-api` 的 `create`），这个方法只管把改之前建的那些会话补齐。
+    ///
+    /// 补的是**调用时的默认人设正文**：那几段对话是在这个值下进行的（至少最近一次是），
+    /// 冻在这儿最接近它们已有的语气。真实历史无从恢复，这是能拿到的最好近似。
+    ///
+    /// 幂等：补完就没有 NULL 了，之后每次启动都是 0 条。不做成 SQL 迁移是因为要补的值在
+    /// 配置文件里，SQL 读不到。
+    ///
+    /// 不动 `updated_at`：这是补数据，不是用户改了什么，碰它会让全部会话一起窜到列表最前面。
+    pub fn adopt_default_persona(&self, persona: &str) -> Result<usize, SessionError> {
+        self.db.write(|conn| {
+            let n = conn.execute(
+                "UPDATE sessions SET persona = ?1 WHERE persona IS NULL",
+                params![persona],
+            )?;
+            Ok(n)
+        })
+    }
+
     /// 会话字段更新的公共外壳：先确认会话存在，再执行具体 UPDATE。
     fn set_field(
         &self,

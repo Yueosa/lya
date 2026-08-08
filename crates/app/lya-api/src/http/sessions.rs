@@ -44,6 +44,12 @@ pub struct CreateBody {
 }
 
 /// 新建会话。
+///
+/// **人设在这里抄一份进会话，之后就不再跟着默认人设变了。**
+///
+/// 「默认人设」的意思正是「新会话从这儿起步」，不是「所有会话都读它」。后者会让改一次
+/// 默认人设把每一段正在进行的对话都换掉性格——而聊天记录还是旧性格写的，模型下一轮得
+/// 同时扮演两个人。想改某段对话的人设，走那个会话自己的设置。
 pub async fn create(
     State(hub): Hub,
     Json(body): Json<CreateBody>,
@@ -64,11 +70,17 @@ pub async fn create(
     )
     .map_err(invalid_config)?;
 
+    // 取的是「此刻默认人设解析出来的正文」：配置里写了就用它，没写就是内置那段。
+    // 抄正文而不是留空，是为了让这个会话从此完全自洽——将来改进内置默认，老会话也不会动
+    let settings = hub.agent().settings();
+    let persona = settings.prompt.global_persona_body().to_string();
+
     let meta = hub.agent().sessions().create_session(CreateSession {
         title: body.title,
         work_mode: body.work_mode.unwrap_or_default(),
         model_id: body.model_id,
         api_mode: Some(api_mode.as_str().into()),
+        persona: Some(persona),
         ..Default::default()
     })?;
     Ok((StatusCode::CREATED, Json(meta)))

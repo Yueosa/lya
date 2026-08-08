@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import type { ApiMode, Mode } from '../../api/wire'
 import {
-  client,
   defaultModel,
   loadModels,
   meta,
@@ -21,8 +20,6 @@ import Picker from '../../ui/Picker.vue'
 import type { PickerOption } from '../../ui/Picker.vue'
 import { toast } from '../../ui/useToast'
 
-const globalPersona = ref<string | null>(null)
-const loading = ref(true)
 const editingPersona = ref(false)
 const draftPersona = ref('')
 
@@ -32,18 +29,8 @@ const MODES: { id: Mode; label: string; icon: IconKey }[] = [
   { id: 'agent', label: '代理', icon: 'modeAgent' },
 ]
 
-onMounted(async () => {
-  loading.value = true
-  void loadModels()
-  try {
-    const cfg = await client.config()
-    globalPersona.value = cfg.persona ?? null
-  } catch {
-    globalPersona.value = null
-  } finally {
-    loading.value = false
-  }
-})
+// 不用再读全局配置了：人设是会话级的，这一屏要显示的东西全在 meta 里
+onMounted(() => void loadModels())
 
 watch(
   () => meta.value?.persona,
@@ -94,31 +81,27 @@ const modelLabel = computed(() => {
   return defaultModel.value?.name ?? '默认模型'
 })
 
-const personaSource = computed(() => {
-  if (meta.value?.persona) return '会话'
-  if (globalPersona.value) return '全局'
-  return '内置默认'
-})
+/*
+  人设是这个会话自己的一份。
 
-const effectivePersona = computed(() => {
-  if (meta.value?.persona) return meta.value.persona
-  if (globalPersona.value) return globalPersona.value
-  return '（未单独配置，使用 lya 内置默认人设）'
-})
+  「设置」里那份叫**默认人设**，作用只是新会话建起来时从它抄一份进来——不是所有会话每轮
+  都去读它。反过来做的话，改一次默认人设会把每段正在进行的对话都换掉性格，而上面几十条
+  聊天记录还是旧性格写的，模型下一轮得同时扮演两个人。所以这一屏不再有「跟随全局」这个
+  状态，也不需要去读全局配置。
+
+  留空是明确的一种选择：这个会话不要人设段。
+*/
+const personaEmpty = computed(() => !meta.value?.persona?.trim())
 
 function startEditPersona(): void {
-  // 当前跟着全局走时，把全局那份正文预填进去。这样「编辑 → 保存」一次点击就等于
-  // 把此刻的人设钉死在这个会话上，之后再改全局也不会牵动它——想要「这段对话里她
-  // 不会变人」的人，不必自己去别处把正文抄过来。
-  // 内置默认没有正文可填，留空即可：留空本来就是「跟随」的意思。
-  draftPersona.value = meta.value?.persona ?? globalPersona.value ?? ''
+  draftPersona.value = meta.value?.persona ?? ''
   editingPersona.value = true
 }
 
 async function savePersona(): Promise<void> {
   if (readOnly.value) return
-  const text = draftPersona.value.trim()
-  const ok = await setPersona(text || null)
+  // 传空串而不是 null：null 在后端是「回退到默认人设」的意思，那正是要避免的
+  const ok = await setPersona(draftPersona.value.trim())
   if (!ok) return
   editingPersona.value = false
   toast('人设已保存', 'success')
@@ -127,10 +110,8 @@ async function savePersona(): Promise<void> {
 
 <template>
   <div class="session-tab">
-    <p v-if="loading" class="session-tab__hint">加载中…</p>
-    <template v-else>
-      <section class="session-tab__section">
-        <h3 class="session-tab__title">工作模式</h3>
+    <section class="session-tab__section">
+      <h3 class="session-tab__title">工作模式</h3>
         <div class="seg" role="tablist">
           <button
             v-for="item in MODES"
@@ -176,7 +157,7 @@ async function savePersona(): Promise<void> {
 
       <section class="session-tab__section">
         <div class="session-tab__head-row">
-          <h3 class="session-tab__title">人设 · {{ personaSource }}</h3>
+          <h3 class="session-tab__title">人设</h3>
           <button v-if="!readOnly && !editingPersona" class="btn btn--sm" @click="startEditPersona">
             编辑
           </button>
@@ -186,18 +167,19 @@ async function savePersona(): Promise<void> {
           v-model="draftPersona"
           class="input session-tab__edit"
           rows="6"
-          placeholder="留空则使用全局/默认人设"
+          placeholder="留空则这段对话不带人设"
         />
-        <pre v-else class="session-tab__pre">{{ effectivePersona }}</pre>
+        <pre v-else-if="!personaEmpty" class="session-tab__pre">{{ meta?.persona }}</pre>
+        <p v-else class="session-tab__lead">（这段对话不带人设）</p>
         <div v-if="editingPersona" class="session-tab__actions">
           <button class="btn btn--sm btn--primary" @click="savePersona">保存</button>
           <button class="btn btn--sm" @click="editingPersona = false">取消</button>
         </div>
-        <p v-if="!editingPersona && personaSource !== '会话'" class="session-tab__meta">
-          当前未设置会话专属人设，生效的是{{ personaSource === '全局' ? '全局配置' : '内置默认' }}。
+        <!-- 说清这份是这段对话自己的：改「设置 → 人设」不会动它，那边只管新会话 -->
+        <p v-if="!editingPersona" class="session-tab__meta">
+          只属于这段对话。改默认人设不会影响它，那份只用在新建的会话上。
         </p>
       </section>
-    </template>
   </div>
 </template>
 

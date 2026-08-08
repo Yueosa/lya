@@ -742,31 +742,48 @@ async fn system_prompt_is_byte_stable_across_rounds() {
 }
 
 #[tokio::test]
-async fn persona_change_takes_effect_on_the_next_turn() {
-    // 这个 bug 真出过：人设装配时按值拷进 agent，之后改 persona.toml 没人动那份拷贝。
-    // 界面读磁盘所以显示的是新的，模型读进程内存还是旧的，两个真相来源只更新了一个。
+async fn default_persona_change_does_not_touch_existing_sessions() {
+    /*
+      人设是会话级的，「默认人设」只是新会话的起点。
+
+      反过来做（会话留空、每轮去读全局）曾经是这里的实现，那样改一次默认人设就会把每一段
+      正在进行的对话都换掉性格——而上面几十条聊天记录还是旧性格写的，模型下一轮得同时扮演
+      两个人，答出来的东西两头都不像。
+
+      而且这条不能靠「改配置要重启」来兜：那个挡板已经没了（配置现在立刻生效），本来也不该
+      靠它——重启之后照样会串。所以真正的边界是这里。
+    */
     let fx = fixture(vec![Turn::Text("一".into()), Turn::Text("二".into())]);
+    // 真实会话在创建时就抄了一份进来，见 lya-api 的 create
+    fx.sessions
+        .set_persona(&fx.session_id, Some("我是阿罗娜，说话轻快。"))
+        .unwrap();
 
     fx.say("第一句");
     fx.run().await;
 
+    // 用户在这中间改了默认人设
     let mut next = (*fx.agent.settings()).clone();
-    next.prompt = PromptBuilder::new().with_persona("我是普拉娜。");
+    next.prompt = PromptBuilder::new().with_persona("我是普拉娜，说话冷静。");
     fx.agent.apply_settings(next).unwrap();
 
     fx.say("第二句");
     fx.run().await;
 
     let seen = fx.backend.seen.lock().unwrap();
-    assert!(
-        seen[0][0].content.contains("语气自然平实"),
-        "第一轮该是内置默认人设"
-    );
-    assert!(seen[1][0].content.contains("我是普拉娜。"), "改完要立刻生效");
-    assert!(
-        !seen[1][0].content.contains("语气自然平实"),
-        "新人设是覆盖，不是追加"
-    );
+    assert_eq!(seen.len(), 2);
+    for (i, system) in seen.iter().enumerate() {
+        assert!(
+            system[0].content.contains("我是阿罗娜"),
+            "第 {} 轮该还是这个会话自己那份人设",
+            i + 1
+        );
+        assert!(
+            !system[0].content.contains("普拉娜"),
+            "第 {} 轮混进了改后的默认人设：一段对话中途换性格，模型会两头都不像",
+            i + 1
+        );
+    }
 }
 
 #[tokio::test]

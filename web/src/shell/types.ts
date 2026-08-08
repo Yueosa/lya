@@ -64,7 +64,8 @@ export const NAV_ITEMS: { view: View; label: string; icon: NavIconKey }[] = [
   { view: 'tools', label: '工具', icon: 'tools' },
   { view: 'models', label: '模型', icon: 'models' },
   { view: 'theme', label: '外观', icon: 'theme' },
-  { view: 'persona', label: '人设', icon: 'user' },
+  // 叫「默认人设」而不是「人设」：它只是新会话的起点，已有会话各自留着自己的一份
+  { view: 'persona', label: '默认人设', icon: 'user' },
   { view: 'config', label: '设置', icon: 'config' },
   { view: 'storage', label: '存储', icon: 'storage' },
 ]
