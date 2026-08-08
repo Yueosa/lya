@@ -24,7 +24,8 @@ import {
   sessions,
   sessionsLoading,
 } from '../app/useChat'
-import { useArchiveDock } from '../shell/useArchiveDock'
+import ArchiveDock from '../shell/ArchiveDock.vue'
+import { keepSelectedKey } from '../utils/keepSelection'
 
 const emit = defineEmits<{ opened: [] }>()
 
@@ -41,7 +42,6 @@ const byRecent = (a: SessionMeta, b: SessionMeta): number =>
   new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
 
 const activeSessions = computed(() => [...sessions.value].sort(byRecent))
-const archive = useArchiveDock()
 
 /** 选中项可以来自任意一批，所以查找和空态判断都看合起来的这份。 */
 const allSessions = computed(() => [...activeSessions.value, ...archivedSessions.value])
@@ -53,12 +53,11 @@ const selected = computed(
 watch(
   [allSessions, currentId],
   () => {
-    if (selectedId.value && allSessions.value.some((s) => s.id === selectedId.value)) return
-    if (currentId.value && allSessions.value.some((s) => s.id === currentId.value)) {
-      selectedId.value = currentId.value
-      return
-    }
-    selectedId.value = allSessions.value[0]?.id ?? null
+    selectedId.value = keepSelectedKey(
+      allSessions.value.map((s) => s.id),
+      selectedId.value,
+      currentId.value,
+    )
   },
   { immediate: true },
 )
@@ -151,41 +150,28 @@ function onSelected(
       </ul>
 
       <!-- 归档钉在列表底部，收起来只占一行 -->
-      <div
-        v-if="archive.count.value"
-        class="sessions__archive"
-        :class="{ 'sessions__archive--open': archive.open.value }"
-      >
-        <button
-          class="sessions__archive-head"
-          type="button"
-          :aria-expanded="archive.open.value"
-          @click="archive.open.value = !archive.open.value"
-        >
-          <span class="sessions__archive-label">归档对话</span>
-          <span class="sessions__archive-count">{{ archive.count.value }}</span>
-          <span class="sessions__archive-chevron">›</span>
-        </button>
-
-        <ul v-if="archive.open.value" class="sessions__list sessions__list--archived">
-          <li v-for="session in archive.items.value" :key="session.id">
-            <button
-              type="button"
-              class="sessions__row sessions__row--archived"
-              :class="{ 'sessions__row--on': session.id === selectedId }"
-              @click="select(session)"
-              @dblclick="enter()"
-            >
-              <img class="sessions__icon" src="/icon.png" alt="" />
-              <span class="sessions__info">
-                <span class="sessions__name">{{ session.title || '未命名会话' }}</span>
-                <span class="sessions__meta">{{ subtitle(session) }}</span>
-              </span>
-              <span v-if="session.id === currentId" class="sessions__mark">当前</span>
-            </button>
-          </li>
-        </ul>
-      </div>
+      <ArchiveDock class="sessions__archive" hide-when-empty :empty-text="null">
+        <template #default="{ items }">
+          <ul class="sessions__list sessions__list--archived">
+            <li v-for="session in items" :key="session.id">
+              <button
+                type="button"
+                class="sessions__row sessions__row--archived"
+                :class="{ 'sessions__row--on': session.id === selectedId }"
+                @click="select(session)"
+                @dblclick="enter()"
+              >
+                <img class="sessions__icon" src="/icon.png" alt="" />
+                <span class="sessions__info">
+                  <span class="sessions__name">{{ session.title || '未命名会话' }}</span>
+                  <span class="sessions__meta">{{ subtitle(session) }}</span>
+                </span>
+                <span v-if="session.id === currentId" class="sessions__mark">当前</span>
+              </button>
+            </li>
+          </ul>
+        </template>
+      </ArchiveDock>
     </div>
 
     <div class="sessions__actions">
@@ -260,55 +246,6 @@ function onSelected(
   text-align: center;
   color: var(--text-muted);
   font-size: var(--text-sm);
-}
-
-/* ── 归档抽屉 ─────────────────────────────────── */
-
-.sessions__archive {
-  flex-shrink: 0;
-  border-top: var(--border-width) solid var(--border);
-}
-
-.sessions__archive-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 12px;
-  border: none;
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-align: left;
-  cursor: pointer;
-}
-
-.sessions__archive-head:hover {
-  color: var(--accent);
-}
-
-.sessions__archive-label {
-  flex: 1;
-}
-
-.sessions__archive-count {
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--surface-active);
-  font-weight: 700;
-}
-
-.sessions__archive-chevron {
-  display: inline-block;
-  font-size: 15px;
-  line-height: 1;
-  transition: transform var(--transition);
-}
-
-.sessions__archive--open .sessions__archive-chevron {
-  transform: rotate(90deg);
 }
 
 /* 归档项压暗一档：点得开，但一眼看得出不是在用的那批 */

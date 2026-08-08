@@ -314,21 +314,21 @@
   color: var(--text-muted);
 }
 
-/* 归档抽屉：栏底一条，收起时几乎不占地方 */
-[data-theme='ba'] .ba__archive {
+/* 归档抽屉：栏底一条，收起时几乎不占地方（类名在共用的 ArchiveDock 上） */
+[data-theme='ba'] .ba__archive.archive-dock {
   border-top: var(--border-width) solid var(--border);
   background: var(--bg-sunken);
 }
 
-[data-theme='ba'] .ba__archive-head {
+[data-theme='ba'] .ba__archive .archive-dock__head {
   color: var(--text-muted);
 }
 
-[data-theme='ba'] .ba__archive-head:hover {
+[data-theme='ba'] .ba__archive .archive-dock__head:hover {
   color: var(--accent);
 }
 
-[data-theme='ba'] .ba__archive-count {
+[data-theme='ba'] .ba__archive .archive-dock__count {
   background: var(--local-ba-sky);
   color: var(--local-ba-ink);
 }

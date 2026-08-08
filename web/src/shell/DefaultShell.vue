@@ -8,7 +8,7 @@ import { computed, watch } from 'vue'
 import { createSession, currentId, openSession, sessions } from '../app/useChat'
 import { setSidebarCollapsed, sidebarCollapsed } from '../app/useShell'
 import Icon from '../ui/Icon.vue'
-import { useArchiveDock } from './useArchiveDock'
+import ArchiveDock from './ArchiveDock.vue'
 import { NAV_ITEMS, type ShellProps, type View } from './types'
 import { NAV_ICONS } from './icons'
 import { openSessionMenu } from './sessionMenu'
@@ -18,15 +18,10 @@ const emit = defineEmits<{ navigate: [view: View] }>()
 
 const collapsed = sidebarCollapsed
 
-const {
-  open: showArchived,
-  count: archiveCount,
-  viewing: viewingArchived,
-  items: archivedSessions,
-} = useArchiveDock()
-
 const activeCount = computed(() => sessions.value.length)
-const viewingActive = computed(() => currentId.value !== null && !viewingArchived.value)
+const viewingActive = computed(
+  () => currentId.value !== null && sessions.value.some((s) => s.id === currentId.value),
+)
 
 /** 首页聚焦大 logo，进入时自动收起侧栏（含首次访问）。 */
 watch(
@@ -113,30 +108,16 @@ async function open(id: string): Promise<void> {
         </div>
       </div>
 
-      <div
-        class="shell__archive-dock"
-        :class="{
-          'shell__archive-dock--open': showArchived,
-          'shell__archive-dock--active': viewingArchived,
-          'shell__archive-dock--has': archiveCount > 0,
-        }"
-      >
-        <button
-          class="shell__archive-toggle"
-          type="button"
-          :aria-expanded="showArchived"
-          @click="showArchived = !showArchived"
-        >
+      <ArchiveDock>
+        <template #icon>
           <span class="shell__section-icon" v-html="NAV_ICONS.archive" />
-          <span class="shell__section-label">归档对话</span>
-          <span v-if="archiveCount" class="shell__section-badge">{{ archiveCount }}</span>
-          <span class="shell__chevron" :class="{ 'shell__chevron--open': showArchived }">
-            <Icon name="chevronRight" size="sm" />
-          </span>
-        </button>
-        <div v-if="showArchived" class="shell__archive-list">
+        </template>
+        <template #chevron>
+          <Icon name="chevronRight" size="sm" />
+        </template>
+        <template #default="{ items }">
           <button
-            v-for="session in archivedSessions"
+            v-for="session in items"
             :key="session.id"
             class="shell__item shell__item--archived"
             :class="{ 'shell__item--on': session.id === currentId && view === 'chat' }"
@@ -146,9 +127,8 @@ async function open(id: string): Promise<void> {
           >
             {{ session.title || '未命名' }}
           </button>
-          <p v-if="archivedSessions.length === 0" class="shell__empty">暂无归档</p>
-        </div>
-      </div>
+        </template>
+      </ArchiveDock>
     </aside>
 
     <main class="shell__main">
@@ -407,17 +387,6 @@ async function open(id: string): Promise<void> {
   background: color-mix(in srgb, var(--info) 24%, var(--surface));
 }
 
-.shell__chevron {
-  display: inline-block;
-  flex-shrink: 0;
-  color: var(--text-faint);
-  transition: transform 0.15s ease;
-}
-
-.shell__chevron--open {
-  transform: rotate(90deg);
-}
-
 .shell__list {
   flex: 1;
   min-height: 0;
@@ -428,61 +397,53 @@ async function open(id: string): Promise<void> {
   gap: 2px;
 }
 
-.shell__archive-dock {
-  flex-shrink: 0;
-  border-top: 2px solid color-mix(in srgb, var(--accent) 28%, transparent);
+/* 主题钩在共用的 archive-dock 上：默认外壳比 SessionsView / BA 更重一点描边 */
+:deep(.archive-dock) {
+  border-top-width: 2px;
+  border-top-color: color-mix(in srgb, var(--accent) 28%, transparent);
   background: color-mix(in srgb, var(--surface) 55%, var(--bg-sunken));
 }
 
-.shell__archive-dock--has {
+:deep(.archive-dock--has) {
   border-top-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
-.shell__archive-dock--active {
+:deep(.archive-dock--active) {
   border-top-color: var(--accent);
   background: color-mix(in srgb, var(--accent-soft) 45%, var(--bg-sunken));
 }
 
-.shell__archive-dock--open.shell__archive-dock--has {
+:deep(.archive-dock--open.archive-dock--has) {
   box-shadow: 0 -4px 14px color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.shell__archive-toggle {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
+:deep(.archive-dock__head) {
   padding: 11px 14px;
-  border: none;
-  background: transparent;
   color: var(--text);
-  font: inherit;
   font-size: var(--text-sm);
-  cursor: pointer;
-  text-align: left;
-  transition: background var(--transition), color var(--transition);
+  font-weight: 400;
 }
 
-.shell__archive-toggle:hover {
+:deep(.archive-dock__head:hover) {
   background: var(--surface-hover);
+  color: var(--text);
 }
 
-.shell__archive-dock--active .shell__archive-toggle {
+:deep(.archive-dock--active .archive-dock__head) {
   font-weight: 600;
 }
 
-.shell__archive-dock .shell__section-badge {
+:deep(.archive-dock__count) {
   background: color-mix(in srgb, var(--accent) 22%, var(--surface));
   color: var(--accent);
 }
 
-.shell__archive-dock--has .shell__section-badge {
+:deep(.archive-dock--has .archive-dock__count) {
   background: color-mix(in srgb, var(--accent) 28%, var(--surface));
 }
 
-.shell__archive-list {
+:deep(.archive-dock__list) {
   max-height: min(38vh, 220px);
-  overflow-y: auto;
   padding: 0 10px 10px;
   display: flex;
   flex-direction: column;

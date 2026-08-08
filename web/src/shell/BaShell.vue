@@ -52,7 +52,7 @@ import ThemeStage from '../ui/ThemeStage.vue'
 import { useThemeStage } from '../ui/useThemeStage'
 import { NAV_ICONS } from './icons'
 import { openSessionMenu } from './sessionMenu'
-import { useArchiveDock } from './useArchiveDock'
+import ArchiveDock from './ArchiveDock.vue'
 import { NAV_ITEMS, type ShellProps, type View } from './types'
 
 const props = defineProps<ShellProps>()
@@ -149,9 +149,6 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
  * 消息树、HITL、分支那些不会被抄进来。
  */
 const atChat = computed(() => props.view === 'chat')
-
-/** 归档抽屉，和默认外壳共用一套状态（含展开与否的记忆）。 */
-const archive = useArchiveDock()
 
 async function open(id: string): Promise<void> {
   await openSession(id)
@@ -367,16 +364,13 @@ function subtitle(session: SessionMeta): string {
             分不出来；而这套外壳之前干脆没遍历 archivedSessions，归档过的对话在这里
             是**完全看不到**的。
           -->
-          <div class="ba__archive" :class="{ 'ba__archive--open': archive.open.value }">
-            <button class="ba__archive-head" type="button" @click="archive.open.value = !archive.open.value">
+          <ArchiveDock class="ba__archive" label="归档">
+            <template #icon>
               <span class="ba__archive-icon" v-html="NAV_ICONS.archive" />
-              <span class="ba__archive-label">归档</span>
-              <span v-if="archive.count.value" class="ba__archive-count">{{ archive.count.value }}</span>
-              <span class="ba__archive-chevron">›</span>
-            </button>
-            <div v-if="archive.open.value" class="ba__archive-list">
+            </template>
+            <template #default="{ items }">
               <button
-                v-for="session in archive.items.value"
+                v-for="session in items"
                 :key="session.id"
                 class="ba__contact ba__contact--archived"
                 :class="{ 'ba__contact--on': session.id === currentId }"
@@ -392,9 +386,8 @@ function subtitle(session: SessionMeta): string {
                   <span class="ba__contact-sub">{{ subtitle(session) }}</span>
                 </span>
               </button>
-              <p v-if="!archive.count.value" class="ba__roster-empty">暂无归档</p>
-            </div>
-          </div>
+            </template>
+          </ArchiveDock>
         </aside>
 
         <main class="ba__content">
@@ -918,31 +911,19 @@ function subtitle(session: SessionMeta): string {
   font-size: var(--text-xs);
 }
 
-/* ── 联系人栏底部的归档抽屉 ───────────────────── */
+/* ── 联系人栏底部的归档抽屉（壳在 ArchiveDock，这里只调 BA 这一档） ─ */
 
-.ba__archive {
-  flex-shrink: 0;
+:deep(.ba__archive.archive-dock) {
   /* 展开时最多吃掉一半高度，剩下的还给上面那列活跃对话 */
   max-height: 50%;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
 }
 
-.ba__archive-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  width: 100%;
+:deep(.ba__archive .archive-dock__head) {
   padding: 10px 14px;
-  border: none;
-  background: transparent;
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-align: left;
-  cursor: pointer;
+}
+
+:deep(.ba__archive .archive-dock__list) {
+  padding: 0 8px 8px;
 }
 
 .ba__archive-icon {
@@ -953,35 +934,6 @@ function subtitle(session: SessionMeta): string {
 .ba__archive-icon :deep(svg) {
   width: 15px;
   height: 15px;
-}
-
-.ba__archive-label {
-  flex: 1;
-}
-
-.ba__archive-count {
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  font-size: var(--text-xs);
-  font-weight: 700;
-}
-
-.ba__archive-chevron {
-  display: inline-block;
-  font-size: 15px;
-  line-height: 1;
-  transition: transform var(--transition);
-}
-
-.ba__archive--open .ba__archive-chevron {
-  transform: rotate(90deg);
-}
-
-.ba__archive-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 0 8px 8px;
 }
 
 @media (max-width: 720px) {

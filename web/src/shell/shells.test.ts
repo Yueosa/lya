@@ -92,11 +92,12 @@ describe('外壳导航完整性', () => {
  * 谁就得同时用上归档抽屉。
  */
 describe('列了会话的地方都列了归档', () => {
-  it('遍历 sessions 的文件都用了 useArchiveDock', () => {
-    // 不写死文件名单：新外壳一样会遍历会话，也一样会漏掉归档
+  it('遍历 sessions 的文件都挂了归档抽屉', () => {
+    // 不写死文件名单：新外壳一样会遍历会话，也一样会漏掉归档。
+    // 抽屉本体是 ArchiveDock（内部调 useArchiveDock）；旧写法直接调 composable 也算数。
     const offenders = sourcesIn('shell', 'views')
       .filter(({ src }) => /v-for="[^"]*\bin (?:active)?[sS]essions\b/.test(src))
-      .filter(({ src }) => !/useArchiveDock/.test(src))
+      .filter(({ src }) => !/ArchiveDock|useArchiveDock/.test(src))
       .map(({ path }) => path)
 
     expect(offenders, '这些地方列了会话却没列归档，归档会在这里凭空消失').toEqual([])
