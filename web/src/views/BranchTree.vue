@@ -190,8 +190,15 @@ const pickedPlaced = computed(() =>
   picked.value ? layout.value.placed.find((item) => item.record.id === picked.value!.id) : null,
 )
 
+/**
+ * 切换分支是回看，不是写入，所以归档会话照样能切。
+ *
+ * 归档的约定是「只能回看不能再写」——而一条分叉出去的支线也是这段对话的一部分，
+ * 挡住切换等于把归档里的一半内容变成看不到的。气泡下面那个「‹ 2/3 ›」一直是
+ * 放行的，这里跟着放行才对得上。删除是另一回事，见 `canDeletePicked`。
+ */
 const canSwitchPicked = computed(() => {
-  if (!picked.value || readOnly.value) return false
+  if (!picked.value) return false
   if (picked.value.id === activeLeaf.value) return false
   return layout.value.placed.some((item) => item.record.id === picked.value!.id)
 })

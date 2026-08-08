@@ -77,18 +77,28 @@ impl SessionStore {
     /// 切换当前分支到某个叶节点。
     ///
     /// 目标必须是叶（没有子节点）；想从中间节点开新分支请用 [`SessionStore::fork_at`]。
+    ///
+    /// 归档会话也允许切换：支线同样是这段对话的一部分，挡住就等于把归档里的一半
+    /// 内容变成看不到的。但这只是挪一下回看位置，不该让它显示成「刚更新过」，
+    /// 所以归档时保留原本的 `updated_at`。
     pub fn switch_leaf(&self, session_id: &str, leaf_msg_id: i64) -> Result<(), SessionError> {
         self.db.write(|conn| {
-            ensure_session(conn, session_id)?;
+            let meta = load_session(conn, session_id)?
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
             load_message(conn, session_id, leaf_msg_id)?;
             if has_children(conn, leaf_msg_id)? {
                 return Err(SessionError::Invalid(format!(
                     "message {leaf_msg_id} is not a leaf; use fork_at to branch from it"
                 )));
             }
+            let updated_at = if meta.status == SessionStatus::Archived {
+                meta.updated_at
+            } else {
+                Utc::now()
+            };
             conn.execute(
                 "UPDATE sessions SET active_leaf_id = ?1, updated_at = ?2 WHERE id = ?3",
-                params![leaf_msg_id, Utc::now().to_rfc3339(), session_id],
+                params![leaf_msg_id, updated_at.to_rfc3339(), session_id],
             )?;
             Ok(())
         })
@@ -97,13 +107,22 @@ impl SessionStore {
     /// 把 `active_leaf` 指到任意节点（`None` 表示回到空根），之后 `append` 即从此分叉。
     ///
     /// 「编辑并重发」= `fork_at(父节点)` 再 `append(新内容)`：旧分支原样保留。
+    ///
+    /// 已归档的会话一律拒绝。它虽然只挪指针，却总是「分叉后再写」的前半步：
+    /// 后半步撞上只读失败时，指针已经退回到父节点了，那段对话从此显示成截断的
+    /// ——内容还在库里，界面上却再也走不回去。要挡就得挡在这里。
+    /// 想在归档里换分支看请用 [`SessionStore::switch_leaf`]，那个是纯回看。
     pub fn fork_at(
         &self,
         session_id: &str,
         parent_msg_id: Option<i64>,
     ) -> Result<(), SessionError> {
         self.db.write(|conn| {
-            ensure_session(conn, session_id)?;
+            let meta = load_session(conn, session_id)?
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+            if meta.status == SessionStatus::Archived {
+                return Err(SessionError::Archived(session_id.to_string()));
+            }
             if let Some(pid) = parent_msg_id {
                 load_message(conn, session_id, pid)?;
             }
@@ -118,10 +137,16 @@ impl SessionStore {
     /// 删除一个叶节点；若它正是当前 leaf，指针回退到父节点。
     ///
     /// 只允许删叶子，否则会把子树变成孤儿。
+    ///
+    /// 已归档的会话一律拒绝。归档承诺的是「只能回看」，而这个口会真的抹掉内容——
+    /// 界面藏掉删除按钮只挡得住走界面的人，守在这里才算数。
     pub fn delete_leaf(&self, session_id: &str, msg_id: i64) -> Result<(), SessionError> {
         self.db.write(|conn| {
             let meta = load_session(conn, session_id)?
                 .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+            if meta.status == SessionStatus::Archived {
+                return Err(SessionError::Archived(session_id.to_string()));
+            }
             let msg = load_message(conn, session_id, msg_id)?;
             if has_children(conn, msg_id)? {
                 return Err(SessionError::NotLeaf(msg_id));

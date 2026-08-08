@@ -68,9 +68,66 @@ use lya_base::Mode;
             .unwrap_err();
         assert!(matches!(err, SessionError::Archived(_)));
 
+        // 删除同理——它会真的抹掉内容，只靠界面藏按钮不算数
+        let leaf = store.list_leaves(&id).unwrap()[0];
+        let err = store.delete_leaf(&id, leaf).unwrap_err();
+        assert!(matches!(err, SessionError::Archived(_)));
+        assert_eq!(store.list_messages(&id).unwrap().len(), 1);
+
+        // 分叉是「改写后重发」的前半步。放它过去的话，后半步撞上只读失败时
+        // 指针已经退回去了，这段归档从此显示成截断的
+        let err = store.fork_at(&id, None).unwrap_err();
+        assert!(matches!(err, SessionError::Archived(_)));
+        assert_eq!(store.get_session(&id).unwrap().unwrap().active_leaf_id, Some(leaf));
+
         // 但回看不受影响
         assert_eq!(store.path_to_active_leaf(&id).unwrap().len(), 1);
         assert_eq!(store.get_session(&id).unwrap().unwrap().status, SessionStatus::Archived);
+    }
+
+    #[test]
+    fn archived_sessions_can_still_switch_branches() {
+        let (_dir, store) = store();
+        let id = new_session(&store);
+
+        let u1 = store
+            .append(&id, MessagePayload::user_text("hi"), false)
+            .unwrap();
+        let a1 = store
+            .append(
+                &id,
+                MessagePayload::assistant_text("first", MessageStatus::Complete),
+                false,
+            )
+            .unwrap();
+        store.fork_at(&id, Some(u1.id)).unwrap();
+        store
+            .append(
+                &id,
+                MessagePayload::assistant_text("second", MessageStatus::Complete),
+                false,
+            )
+            .unwrap();
+
+        store.archive_session(&id).unwrap();
+        let before = store.get_session(&id).unwrap().unwrap().updated_at;
+
+        // 支线也是这段对话的一部分，挡住切换等于把归档里的一半内容变成看不到的
+        store.switch_leaf(&id, a1.id).unwrap();
+        let meta = store.get_session(&id).unwrap().unwrap();
+        assert_eq!(meta.active_leaf_id, Some(a1.id));
+        assert_eq!(
+            store
+                .path_to_active_leaf(&id)
+                .unwrap()
+                .iter()
+                .map(|m| m.id)
+                .collect::<Vec<_>>(),
+            vec![u1.id, a1.id]
+        );
+
+        // 只是挪了回看位置，不该让归档显示成「刚更新过」而窜到列表最前面
+        assert_eq!(meta.updated_at, before);
     }
 
     #[test]
