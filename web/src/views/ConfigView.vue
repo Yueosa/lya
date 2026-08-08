@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { ConfigView as Config, ToolInfo } from '../api/client'
+import { errorText, type ConfigView as Config, type ToolInfo } from '../api/client'
 import { client, models, refreshRuntimeDefaults } from '../app/useChat'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
@@ -68,7 +68,7 @@ async function load(): Promise<void> {
     catalogTools.value = toolList
     readForm(data.runtime)
   } catch (error) {
-    const msg = errMsg(error)
+    const msg = errorText(error)
     loadError.value = msg.includes('[tables]')
       ? `${msg}\n\n请编辑 ~/.lya/runtime.toml，删除 [tables] 整段后重试。`
       : msg
@@ -76,9 +76,6 @@ async function load(): Promise<void> {
   }
 }
 
-function errMsg(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 function readForm(runtime: Record<string, unknown>): void {
   const agent = (runtime['agent'] ?? {}) as Record<string, unknown>
@@ -184,7 +181,7 @@ async function saveRuntime(): Promise<void> {
     await refreshRuntimeDefaults()
     toast('已保存并生效', 'success')
   } catch (error) {
-    toast(`保存失败：${errMsg(error)}`, 'error')
+    toast(`保存失败：${errorText(error)}`, 'error')
   } finally {
     saving.value = false
   }
@@ -195,7 +192,7 @@ async function loadRaw(file: RawFile): Promise<void> {
   try {
     rawText.value = await client.rawConfig(file)
   } catch (error) {
-    rawText.value = `读取失败：${errMsg(error)}`
+    rawText.value = `读取失败：${errorText(error)}`
   }
 }
 

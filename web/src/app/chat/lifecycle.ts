@@ -1,6 +1,6 @@
 import { forgetScrollPosition } from '../../views/chat/useChatScroll'
 import { forgetSessionPrefs } from '../usePrefs'
-import { report } from './errors'
+import { report } from '../errors'
 import { closeSession } from './subscription'
 import { client } from './client'
 import { archivedSessions, currentId, sessions, state } from './state'

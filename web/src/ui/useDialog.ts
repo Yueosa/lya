@@ -16,6 +16,8 @@
 
 import { reactive, readonly } from 'vue'
 
+import { errorText } from '../api/client'
+
 /** 确认框参数。 */
 export interface ConfirmOptions {
   title: string
@@ -147,7 +149,7 @@ export async function accept(): Promise<void> {
     } catch (error) {
       // 留在弹窗里报错，用户不用重新走一遍才能重试
       state.busy = false
-      state.error = error instanceof Error ? error.message : String(error)
+      state.error = errorText(error)
       return
     }
     state.busy = false

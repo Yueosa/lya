@@ -2,7 +2,7 @@ import { computed } from 'vue'
 
 import type { PatchSession } from '../../api/client'
 import type { ApiMode, Mode } from '../../api/wire'
-import { report } from './errors'
+import { report } from '../errors'
 import { refreshSnapshot } from './snapshot'
 import { meta } from './subscription'
 import { client } from './client'

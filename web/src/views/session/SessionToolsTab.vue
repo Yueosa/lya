@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
+import { report } from '../../app/errors'
 import { client, currentId, loadTools, meta, readOnly, toggleTool, tools } from '../../app/useChat'
 import { toast } from '../../ui/useToast'
 
@@ -26,7 +27,7 @@ async function resetToGlobalDefault(): Promise<void> {
     await loadTools()
     toast('已恢复为全局默认', 'success')
   } catch (error) {
-    toast(`恢复失败：${error instanceof Error ? error.message : String(error)}`, 'error')
+    report(error, '恢复')
   } finally {
     resetting.value = false
   }

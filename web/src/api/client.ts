@@ -34,6 +34,29 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 把一个抛出来的东西说成一句能给用户看的话。
+ *
+ * 全应用只有这一处这么干。原先有两套，各自坏一头：
+ *
+ * - `String(error)` 会把 `Error: ` 这个前缀带进用户读的那句话（「连接被拒绝」变成
+ *   「Error: 连接被拒绝」）。
+ * - `error.message` 会把 [`ApiError`] 的状态码丢掉，于是 404 和 500 读起来一模一样——
+ *   而那是两件事：一个是这东西不在了，一个是服务端炸了。用户能不能自己解决，全看这个数。
+ *
+ * 放在这儿是因为它认识的正是这个 client 抛出来的东西，跟 [`ApiError`] 待在一起最顺;
+ * 要弹提示而不只是取字的，用 `app/errors.ts` 的 `report`。
+ */
+export function errorText(error: unknown): string {
+  if (error instanceof ApiError) {
+    // 状态码留着，正文可能是空的（后端返回空 body 时）
+    return error.message ? `${error.status} ${error.message}` : `HTTP ${error.status}`
+  }
+  if (error instanceof Error && error.message) return error.message
+  // 抛出来的不是 Error（字符串、对象、undefined 都见过），只能有什么说什么
+  return String(error)
+}
+
 /** 前端启动握手。 */
 export interface Bootstrap {
   image_token: string

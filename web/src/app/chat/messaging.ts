@@ -1,4 +1,4 @@
-import { report } from './errors'
+import { report } from '../errors'
 import { client } from './client'
 import { currentId } from './state'
 

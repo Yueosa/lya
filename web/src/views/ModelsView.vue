@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import type { ModelInfo, ProbeResult } from '../api/client'
+import { errorText, type ModelInfo, type ProbeResult } from '../api/client'
 import type { ApiMode } from '../api/wire'
 import { client, loadModels, models } from '../app/useChat'
 import ViewHead from '../ui/ViewHead.vue'
@@ -85,9 +85,6 @@ function probeModelsText(baseUrl: string): string {
   return result.models.join('\n')
 }
 
-function errMsg(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 async function probeGroup(baseUrl: string, items: ModelInfo[]): Promise<void> {
   const target = items.find((item) => !item.api_key_placeholder) ?? items[0]
@@ -100,7 +97,7 @@ async function probeGroup(baseUrl: string, items: ModelInfo[]): Promise<void> {
     probeByUrl.value = new Map(probeByUrl.value).set(baseUrl, {
       ok: false,
       models: [],
-      error: errMsg(error),
+      error: errorText(error),
     })
   } finally {
     probingUrl.value = null

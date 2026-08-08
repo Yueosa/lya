@@ -1,7 +1,7 @@
 import type { CreateSession } from '../../api/client'
 import { toast } from '../../ui/useToast'
 import { client } from './client'
-import { report } from './errors'
+import { report } from '../errors'
 import {
   archivedSessions,
   defaultWorkMode,

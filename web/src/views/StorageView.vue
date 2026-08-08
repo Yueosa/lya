@@ -8,7 +8,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import type { UsageReport } from '../api/client'
+import { errorText, type UsageReport } from '../api/client'
 import { client } from '../app/useChat'
 import StorageBreakdown from '../ui/StorageBreakdown.vue'
 import ViewHead from '../ui/ViewHead.vue'
@@ -26,7 +26,7 @@ async function load(): Promise<void> {
     report.value = await client.storageStats()
   } catch (error) {
     report.value = null
-    loadError.value = error instanceof Error ? error.message : String(error)
+    loadError.value = errorText(error)
   } finally {
     loading.value = false
   }

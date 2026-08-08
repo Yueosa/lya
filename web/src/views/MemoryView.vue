@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 
+import { report } from '../app/errors'
 import { client } from '../app/useChat'
 import type { Memory, MemoryHit } from '../api/client'
 import { confirmAsync, prompt } from '../ui/useDialog'
@@ -75,7 +76,7 @@ async function create(): Promise<void> {
     select(created)
     editing.value = true
   } catch (error) {
-    toast(`新建失败：${error instanceof Error ? error.message : error}`, 'error')
+    report(error, '新建')
   }
 }
 
@@ -113,7 +114,7 @@ async function save(): Promise<void> {
     editing.value = false
     toast('已保存', 'success')
   } catch (error) {
-    toast(`保存失败：${error instanceof Error ? error.message : error}`, 'error')
+    report(error, '保存')
   }
 }
 

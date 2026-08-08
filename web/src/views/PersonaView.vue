@@ -7,6 +7,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
+import { errorText } from '../api/client'
 import { client } from '../app/useChat'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
@@ -18,16 +19,13 @@ const saving = ref(false)
 
 onMounted(load)
 
-function errMsg(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
 
 async function load(): Promise<void> {
   loadError.value = ''
   try {
     persona.value = (await client.config()).persona ?? ''
   } catch (error) {
-    loadError.value = errMsg(error)
+    loadError.value = errorText(error)
     toast(`读取人设失败：${loadError.value}`, 'error')
   } finally {
     loading.value = false
@@ -40,7 +38,7 @@ async function save(): Promise<void> {
     await client.writePersona(persona.value)
     toast('人设已保存', 'success')
   } catch (error) {
-    toast(`保存失败：${errMsg(error)}`, 'error')
+    toast(`保存失败：${errorText(error)}`, 'error')
   } finally {
     saving.value = false
   }
