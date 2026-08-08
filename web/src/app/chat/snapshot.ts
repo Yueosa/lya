@@ -1,6 +1,6 @@
 import type { MessageRecord } from '../../api/wire'
 import { applySnapshot } from '../../store/session'
-import { client } from './client'
+import { client } from '../client'
 import { currentId, state, tree } from './state'
 
 /**

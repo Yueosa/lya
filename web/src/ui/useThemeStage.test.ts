@@ -27,7 +27,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 const listed = vi.fn()
 
-vi.mock('../app/chat/client', () => ({ client: { themeAssets: () => listed() } }))
+vi.mock('../app/client', () => ({ client: { themeAssets: () => listed() } }))
 vi.mock('../app/chat/state', () => {
   return { imageBootstrap: { value: { token: 't', home: '/home/x' } } }
 })

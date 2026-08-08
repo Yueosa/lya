@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 
-import { errorText, type ConfigView as Config, type ToolInfo } from '../api/client'
-import { client, models, refreshRuntimeDefaults } from '../app/useChat'
+import { errorText } from '../api/client'
+import { client } from '../app/client'
+import { catalog, ensureCatalog } from '../app/useCatalog'
+import { configState, ensureConfig, reloadConfig } from '../app/useConfig'
+import { models, refreshRuntimeDefaults } from '../app/useChat'
 import Picker from '../ui/Picker.vue'
 import type { PickerOption } from '../ui/Picker.vue'
 import RawToml from '../ui/RawToml.vue'
@@ -26,7 +29,6 @@ const TABS: { id: Tab; label: string }[] = [
 const RAW_FILES: RawFile[] = ['core', 'runtime', 'models', 'persona']
 
 const tab = ref<Tab>('runtime')
-const config = ref<Config | null>(null)
 const loadError = ref('')
 const saving = ref(false)
 const rawName = ref<RawFile>('runtime')
@@ -54,7 +56,8 @@ const form = ref({
   retainAudioWeb: true,
 })
 
-const catalogTools = ref<ToolInfo[]>([])
+// 全局工具目录，和工具页共用一份
+const catalogTools = catalog.tools
 const globalMode = ref<GlobalToolsMode>('all')
 const globalEnabled = ref<Set<string>>(new Set())
 
@@ -62,18 +65,19 @@ onMounted(load)
 
 async function load(): Promise<void> {
   loadError.value = ''
-  try {
-    const [data, toolList] = await Promise.all([client.config(), client.tools()])
-    config.value = data
-    catalogTools.value = toolList
-    readForm(data.runtime)
-  } catch (error) {
-    const msg = errorText(error)
+  // 配置和工具目录都是共享的，别处读过就不会再发一次请求
+  await Promise.all([ensureConfig(), ensureCatalog()])
+
+  const msg = configState.error.value || catalog.error.value
+  if (msg) {
     loadError.value = msg.includes('[tables]')
       ? `${msg}\n\n请编辑 ~/.lya/runtime.toml，删除 [tables] 整段后重试。`
       : msg
     toast(`读取配置失败：${msg}`, 'error')
+    return
   }
+  const data = configState.config.value
+  if (data) readForm(data.runtime)
 }
 
 
@@ -178,6 +182,10 @@ async function saveRuntime(): Promise<void> {
       },
     })) as Record<string, unknown>
     readForm(applied)
+    // 共享的那份也得跟上，否则工具页还显示保存前的全局启用名单。
+    // 后端保存后会广播 config_changed，那条也会触发重取——这里不等它，是为了让
+    // 「点了保存，别处立刻是新的」不依赖 SSE 是否连着
+    void reloadConfig()
     await refreshRuntimeDefaults()
     toast('已保存并生效', 'success')
   } catch (error) {
@@ -244,7 +252,7 @@ watch(tab, (id) => {
 
       <main class="split-view__main">
         <p v-if="loadError" class="page__error">{{ loadError }}</p>
-        <p v-else-if="!config" class="split-view__hint">正在读取…</p>
+        <p v-else-if="!configState.config.value" class="split-view__hint">正在读取…</p>
 
         <Transition v-else name="lya-split" mode="out-in">
           <section v-if="tab === 'runtime'" key="runtime" class="page__pane">

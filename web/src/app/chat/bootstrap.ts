@@ -2,7 +2,7 @@ import { computed } from 'vue'
 
 import type { ImageContext } from '../../model/markdown'
 import { toast } from '../../ui/useToast'
-import { client } from './client'
+import { client } from '../client'
 import { currentId, defaultModel, defaultWorkMode, defaultApiMode, imageBootstrap } from './state'
 
 /** Markdown 渲染用的图片上下文（含当前会话 id）。 */

@@ -2,7 +2,7 @@ import type { SessionTree } from '../../api/wire'
 import { applySnapshot } from '../../store/session'
 import { report } from '../errors'
 import { refreshSnapshot, refreshTree, setTree } from './snapshot'
-import { client } from './client'
+import { client } from '../client'
 import { currentId, state, tree } from './state'
 
 /** 换个答法重答上一轮。 */

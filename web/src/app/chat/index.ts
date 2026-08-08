@@ -4,7 +4,7 @@
  * `useChat.ts` 从此 re-export，保持现有 import 路径不变。
  */
 
-export { client } from './client'
+export { client } from '../client'
 export {
   archivedSessions,
   currentId,

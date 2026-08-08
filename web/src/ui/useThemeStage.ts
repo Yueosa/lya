@@ -16,7 +16,7 @@
 
 import { computed, onUnmounted, ref, shallowRef, watch } from 'vue'
 
-import { client } from '../app/chat/client'
+import { client } from '../app/client'
 import { imageBootstrap } from '../app/chat/state'
 import { readLocal, writeLocal } from '../utils/storage'
 

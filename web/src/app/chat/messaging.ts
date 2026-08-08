@@ -1,5 +1,5 @@
 import { report } from '../errors'
-import { client } from './client'
+import { client } from '../client'
 import { currentId } from './state'
 
 /** 发一条消息。 */

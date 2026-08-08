@@ -2,55 +2,37 @@
 import { computed, onMounted, ref, watch } from 'vue'
 
 import type { ActionInfo, ToolInfo } from '../api/client'
-import { client } from '../app/useChat'
+import { catalog, ensureCatalog } from '../app/useCatalog'
+import { configState, ensureConfig } from '../app/useConfig'
 import ViewHead from '../ui/ViewHead.vue'
-import { toast } from '../ui/useToast'
 import { readGlobalToolsMode, toolLimits } from '../utils/toolLimits'
 import { schemaFields } from '../utils/schemaFields'
 import MarkdownBody from './MarkdownBody.vue'
 
 type CatalogItem = ToolInfo | ActionInfo
 
-const tools = ref<ToolInfo[]>([])
-const actions = ref<ActionInfo[]>([])
 const tab = ref<'tools' | 'actions'>('tools')
-const loading = ref(true)
 const selected = ref<CatalogItem | null>(null)
 
-const globalMode = ref<'all' | 'none' | 'custom'>('all')
-const globalEnabled = ref<Set<string>>(new Set())
+// 目录和配置都是共享的，这一屏只是取来看：请求发不发由那两个模块决定，
+// 别处已经读过就不会再发一次
+onMounted(() => {
+  void ensureCatalog()
+  void ensureConfig()
+})
 
-onMounted(load)
+const loading = computed(() => catalog.loading.value || configState.loading.value)
 
-async function load(): Promise<void> {
-  loading.value = true
-  try {
-    const [toolList, actionList, config] = await Promise.all([
-      client.tools(),
-      client.actions(),
-      client.config(),
-    ])
-    tools.value = toolList
-    actions.value = actionList
-    const { mode, enabled } = readGlobalToolsMode(config.runtime)
-    globalMode.value = mode
-    globalEnabled.value = new Set(enabled)
-  } catch {
-    toast('读取工具列表失败', 'error')
-  } finally {
-    loading.value = false
-  }
-}
-
-const sortedTools = computed(() =>
-  [...tools.value].sort((a, b) => a.raw_name.localeCompare(b.raw_name, 'zh-CN')),
-)
-const sortedActions = computed(() =>
-  [...actions.value].sort((a, b) => a.raw_name.localeCompare(b.raw_name, 'zh-CN')),
-)
+/** 全局启用名单：读的是共享配置，所以在设置页改完这里跟着变。 */
+const globalTools = computed(() => {
+  const runtime = configState.runtime.value
+  return runtime ? readGlobalToolsMode(runtime) : { mode: 'all' as const, enabled: [] }
+})
+const globalMode = computed(() => globalTools.value.mode)
+const globalEnabled = computed(() => new Set(globalTools.value.enabled))
 
 const items = computed((): CatalogItem[] =>
-  tab.value === 'tools' ? sortedTools.value : sortedActions.value,
+  tab.value === 'tools' ? catalog.tools.value : catalog.actions.value,
 )
 
 const selectedLimits = computed(() =>
@@ -99,14 +81,14 @@ function globalStatusLabel(name: string): string {
             :class="{ 'btn--primary': tab === 'tools' }"
             @click="tab = 'tools'"
           >
-            工具 · {{ sortedTools.length }}
+            工具 · {{ catalog.tools.value.length }}
           </button>
           <button
             class="btn btn--sm"
             :class="{ 'btn--primary': tab === 'actions' }"
             @click="tab = 'actions'"
           >
-            动作 · {{ sortedActions.length }}
+            动作 · {{ catalog.actions.value.length }}
           </button>
         </div>
 

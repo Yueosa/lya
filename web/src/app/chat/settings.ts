@@ -5,7 +5,7 @@ import type { ApiMode, Mode } from '../../api/wire'
 import { report } from '../errors'
 import { refreshSnapshot } from './snapshot'
 import { meta } from './subscription'
-import { client } from './client'
+import { client } from '../client'
 import { currentId, models, state, tools } from './state'
 import { modelIdForNewSession } from './modelPick'
 

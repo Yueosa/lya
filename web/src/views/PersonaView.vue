@@ -13,34 +13,30 @@
 import { onMounted, ref } from 'vue'
 
 import { errorText } from '../api/client'
-import { client } from '../app/useChat'
+import { client } from '../app/client'
+import { configState, ensureConfig, reloadConfig } from '../app/useConfig'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
 
+/** 编辑中的正文。共享的那份是只读的，这里改的是草稿。 */
 const persona = ref('')
-const loading = ref(true)
-const loadError = ref('')
 const saving = ref(false)
 
-onMounted(load)
+const loading = configState.loading
+const loadError = configState.error
 
-
-async function load(): Promise<void> {
-  loadError.value = ''
-  try {
-    persona.value = (await client.config()).persona ?? ''
-  } catch (error) {
-    loadError.value = errorText(error)
-    toast(`读取人设失败：${loadError.value}`, 'error')
-  } finally {
-    loading.value = false
-  }
-}
+onMounted(async () => {
+  await ensureConfig()
+  persona.value = configState.defaultPersona.value
+  if (loadError.value) toast(`读取人设失败：${loadError.value}`, 'error')
+})
 
 async function save(): Promise<void> {
   saving.value = true
   try {
     await client.writePersona(persona.value)
+    // 共享的那份跟上，别处（比如设置页的原文视图）就不会显示保存前的正文
+    void reloadConfig()
     toast('人设已保存', 'success')
   } catch (error) {
     toast(`保存失败：${errorText(error)}`, 'error')

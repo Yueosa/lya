@@ -35,6 +35,7 @@ import {
   refreshSessions,
   sessions,
 } from './useChat'
+import { onConfigChanged } from './useConfig'
 import { savedSession, setView, view } from './useNav'
 import { setupLightbox } from '../ui/lightbox'
 
@@ -116,6 +117,9 @@ onMounted(() => {
   const stop = client.subscribeGlobal((kind) => {
     if (kind === 'sessions_changed') void refreshSessions()
     if (kind === 'config_changed') {
+      // 共享的那份配置也得跟上。少了这一句，界面各屏读的还是各自挂载时那一刻的快照——
+      // 后端早就在广播了，前端只是没人把它接到配置上
+      onConfigChanged()
       void loadModels()
       void refreshRuntimeDefaults()
     }

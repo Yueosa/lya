@@ -10,7 +10,7 @@ import { report } from '../errors'
 import { loadTools } from './settings'
 import { refreshTree } from './snapshot'
 import { round, startClock, stopClock } from './turn'
-import { client } from './client'
+import { client } from '../client'
 import {
   currentId,
   focusedHitlId,
