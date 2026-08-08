@@ -17,10 +17,23 @@ struct Envelope {
     payload: Value,
 }
 
+/// 把内嵌的图标落到磁盘上——`notify-send` 只认路径，不收字节。
+///
+/// 每次启动都重写。之前这里是 `if !path.exists() { write }`，而路径是 `/tmp` 下的固定
+/// 名字，于是**换过的图标永远不生效**：上一版的图一直躺在那儿，直到用户重启机器清了
+/// tmp 才换掉。图标从方的改成圆的那次就正好会踩上——界面里圆了，通知里还是方的，而且
+/// 查起来根本想不到是这儿。
+///
+/// 先写临时文件再 rename：同一个文件系统上 rename 是原子的，另一个 lya 实例就不会读到
+/// 写了一半的图。
 static ICON_PATH: LazyLock<PathBuf> = LazyLock::new(|| {
-    let path = std::env::temp_dir().join("lya-tray-icon.png");
-    if !path.exists() {
-        let _ = std::fs::write(&path, include_bytes!("../../../../web/public/icon.png"));
+    let dir = std::env::temp_dir();
+    let path = dir.join("lya-tray-icon.png");
+    let staging = dir.join(format!("lya-tray-icon.{}.png", std::process::id()));
+    if std::fs::write(&staging, include_bytes!("../../../../web/public/icon.png")).is_ok()
+        && std::fs::rename(&staging, &path).is_err()
+    {
+        let _ = std::fs::remove_file(&staging);
     }
     path
 });
