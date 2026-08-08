@@ -12,11 +12,12 @@ import RawToml from '../ui/RawToml.vue'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
 import {
-  buildToolsEnabledPayload,
-  readGlobalToolsMode,
-  type GlobalToolsMode,
-} from '../utils/toolLimits'
-import { bytesToMegabytes, megabytesToBytes } from '../utils/formatBytes'
+  RUNTIME_FORM_DEFAULTS,
+  readRuntimeForm,
+  runtimeFormPayload,
+  type RuntimeForm,
+} from '../model/runtimeForm'
+import { type GlobalToolsMode } from '../utils/toolLimits'
 
 type Tab = 'runtime' | 'raw'
 type RawFile = 'core' | 'runtime' | 'models' | 'persona'
@@ -34,27 +35,8 @@ const saving = ref(false)
 const rawName = ref<RawFile>('runtime')
 const rawText = ref('')
 
-const form = ref({
-  maxToolRounds: 32,
-  maxParallelTools: 3,
-  maxConsecutiveToolFailures: 16,
-  defaultWorkMode: 'agent',
-  defaultApiMode: 'completions',
-  defaultModel: '',
-  maxIndexEntries: 100,
-  maxIndexChars: 4000,
-  indexSummaryChars: 120,
-  shellConfirm: 'unknown',
-  maxImageMb: 32,
-  retainLocal: true,
-  retainWeb: true,
-  maxVideoMb: 512,
-  retainVideoLocal: true,
-  retainVideoWeb: true,
-  maxAudioMb: 128,
-  retainAudioLocal: true,
-  retainAudioWeb: true,
-})
+// 默认值来自 model，别在这儿再抄一份——抄的那份和读取时的 fallback 迟早会对不上
+const form = ref<RuntimeForm>({ ...RUNTIME_FORM_DEFAULTS })
 
 // 全局工具目录，和工具页共用一份
 const catalogTools = catalog.tools
@@ -81,39 +63,12 @@ async function load(): Promise<void> {
 }
 
 
+/** 把读到的 runtime.toml 铺进表单。映射本体在 model/runtimeForm.ts。 */
 function readForm(runtime: Record<string, unknown>): void {
-  const agent = (runtime['agent'] ?? {}) as Record<string, unknown>
-  const memory = (runtime['memory'] ?? {}) as Record<string, unknown>
-  const shell = (runtime['shell'] ?? {}) as Record<string, unknown>
-  const media = (runtime['media'] ?? {}) as Record<string, unknown>
-  const image = (media['image'] ?? {}) as Record<string, unknown>
-  const video = (media['video'] ?? {}) as Record<string, unknown>
-  const audio = (media['audio'] ?? {}) as Record<string, unknown>
-  const { mode, enabled } = readGlobalToolsMode(runtime)
-  globalMode.value = mode
-  globalEnabled.value = new Set(enabled)
-  form.value = {
-    maxToolRounds: Number(agent['max_tool_rounds'] ?? 32),
-    maxParallelTools: Number(agent['max_parallel_tools'] ?? 3),
-    maxConsecutiveToolFailures: Number(agent['max_consecutive_tool_failures'] ?? 16),
-    defaultWorkMode: String(agent['default_work_mode'] ?? 'agent'),
-    defaultApiMode: agent['default_api_mode'] === 'responses' ? 'responses' : 'completions',
-    // 没配就是空串，对应「跟随清单第一条」；保存时会写回 null 把这个键删掉
-    defaultModel: String(agent['default_model'] ?? ''),
-    maxIndexEntries: Number(memory['max_index_entries'] ?? 100),
-    maxIndexChars: Number(memory['max_index_chars'] ?? 4000),
-    indexSummaryChars: Number(memory['index_summary_chars'] ?? 120),
-    shellConfirm: String(shell['confirm'] ?? 'unknown'),
-    maxImageMb: bytesToMegabytes(Number(image['max_bytes'] ?? 32 * 1024 * 1024)),
-    retainLocal: image['retain_local'] !== false,
-    retainWeb: image['retain_web'] !== false,
-    maxVideoMb: bytesToMegabytes(Number(video['max_bytes'] ?? 512 * 1024 * 1024)),
-    retainVideoLocal: video['retain_local'] !== false,
-    retainVideoWeb: video['retain_web'] !== false,
-    maxAudioMb: bytesToMegabytes(Number(audio['max_bytes'] ?? 128 * 1024 * 1024)),
-    retainAudioLocal: audio['retain_local'] !== false,
-    retainAudioWeb: audio['retain_web'] !== false,
-  }
+  const state = readRuntimeForm(runtime)
+  form.value = state.form
+  globalMode.value = state.toolsMode
+  globalEnabled.value = state.toolsEnabled
 }
 
 function setGlobalMode(mode: GlobalToolsMode): void {
@@ -146,41 +101,13 @@ function toggleGlobalTool(name: string, checked: boolean): void {
 async function saveRuntime(): Promise<void> {
   saving.value = true
   try {
-    const applied = (await client.writeRuntime({
-      agent: {
-        max_tool_rounds: form.value.maxToolRounds,
-        max_parallel_tools: form.value.maxParallelTools,
-        max_consecutive_tool_failures: form.value.maxConsecutiveToolFailures,
-        default_work_mode: form.value.defaultWorkMode,
-        default_api_mode: form.value.defaultApiMode,
-        // null 会让后端删掉这个键；空串是非法 id，会被启动校验拦下来
-        default_model: form.value.defaultModel || null,
-      },
-      tools: buildToolsEnabledPayload(globalMode.value, globalEnabled.value),
-      memory: {
-        max_index_entries: form.value.maxIndexEntries,
-        max_index_chars: form.value.maxIndexChars,
-        index_summary_chars: form.value.indexSummaryChars,
-      },
-      shell: { confirm: form.value.shellConfirm },
-      media: {
-        image: {
-          max_bytes: megabytesToBytes(form.value.maxImageMb),
-          retain_local: form.value.retainLocal,
-          retain_web: form.value.retainWeb,
-        },
-        video: {
-          max_bytes: megabytesToBytes(form.value.maxVideoMb),
-          retain_local: form.value.retainVideoLocal,
-          retain_web: form.value.retainVideoWeb,
-        },
-        audio: {
-          max_bytes: megabytesToBytes(form.value.maxAudioMb),
-          retain_local: form.value.retainAudioLocal,
-          retain_web: form.value.retainAudioWeb,
-        },
-      },
-    })) as Record<string, unknown>
+    const applied = (await client.writeRuntime(
+      runtimeFormPayload({
+        form: form.value,
+        toolsMode: globalMode.value,
+        toolsEnabled: globalEnabled.value,
+      }),
+    )) as Record<string, unknown>
     readForm(applied)
     // 共享的那份也得跟上，否则工具页还显示保存前的全局启用名单。
     // 后端保存后会广播 config_changed，那条也会触发重取——这里不等它，是为了让
