@@ -19,9 +19,12 @@ const READONLY: &[&str] = &[
 ];
 
 /// `git` 下只读的子命令。
+///
+/// 不含 `config`：`git config name value` 会写配置，整类放进白名单等于默许改仓库。
+/// 读配置走 [`git_config_is_readonly`] 单独认。
 const GIT_READONLY: &[&str] = &[
     "status", "log", "diff", "show", "branch", "remote", "blame", "shortlog", "describe",
-    "rev-parse", "ls-files", "config",
+    "rev-parse", "ls-files",
 ];
 
 /// `cargo` 下只读的子命令。`build` / `test` 会跑构建脚本，不算。
@@ -164,12 +167,69 @@ fn is_readonly(name: &str, args: &[String], segment: &Segment) -> bool {
         return false;
     }
     match name {
-        "git" => args.first().is_some_and(|sub| GIT_READONLY.contains(&sub.as_str())),
+        "git" => match args.first().map(String::as_str) {
+            Some("config") => git_config_is_readonly(args),
+            Some(sub) => GIT_READONLY.contains(&sub),
+            None => false,
+        },
         "cargo" => args.first().is_some_and(|sub| CARGO_READONLY.contains(&sub.as_str())),
         // sed -i 是原地改写
         "sed" => !args.iter().any(|arg| arg == "-i" || arg.starts_with("-i")),
+        // find 默认只读，但这些动作会删文件或跑子命令
+        "find" | "fd" => !find_mutates(args),
+        // sort -o / --output 会写文件
+        "sort" => !sort_writes(args),
         name => READONLY.contains(&name),
     }
+}
+
+/// `git config` 只有明确的读取形态才算只读。
+///
+/// `git config user.name alice` 没有 `--get` 也会写入，不能靠「只有一个参数」猜。
+fn git_config_is_readonly(args: &[String]) -> bool {
+    // args[0] 是 "config"
+    args.iter().skip(1).any(|arg| {
+        matches!(
+            arg.as_str(),
+            "--get"
+                | "--get-all"
+                | "--get-regexp"
+                | "--get-color"
+                | "--get-colorbool"
+                | "--list"
+                | "-l"
+                | "--show-origin"
+                | "--show-scope"
+        )
+    })
+}
+
+/// `find` / `fd` 会改动文件系统或执行外部命令的选项。
+fn find_mutates(args: &[String]) -> bool {
+    args.iter().any(|arg| {
+        matches!(
+            arg.as_str(),
+            "-delete"
+                | "-exec"
+                | "-execdir"
+                | "-ok"
+                | "-okdir"
+                | "-fprint"
+                | "-fprintf"
+                | "-fls"
+                // fd 的执行形态
+                | "-x"
+                | "--exec"
+                | "-X"
+                | "--exec-batch"
+        ) || arg.starts_with("-fprintf")
+            || arg.starts_with("-fprint")
+    })
+}
+
+/// `sort` 把结果写进文件而不是 stdout。
+fn sort_writes(args: &[String]) -> bool {
+    args.iter().any(|arg| arg == "-o" || arg == "--output" || arg.starts_with("--output="))
 }
 
 /// 有没有风险，有的话说清楚是什么。
@@ -222,6 +282,13 @@ fn risk_of(name: &str, args: &[String], segment: &Segment) -> Option<String> {
         "git" if args.first().is_some_and(|s| s == "push") && (has("--force") || has("-f")) => {
             Some("强制推送，会覆盖远端历史".into())
         }
+        "git" if args.first().is_some_and(|s| s == "config") && !git_config_is_readonly(args) => {
+            Some("写入 git 配置".into())
+        }
+        "find" | "fd" if find_mutates(args) => {
+            Some("查找过程中会删除文件或执行其它命令".into())
+        }
+        "sort" if sort_writes(args) => Some("把排序结果写入文件".into()),
         "apt" | "apt-get" | "dnf" | "yum"
             if args
                 .first()
@@ -295,6 +362,14 @@ mod tests {
         assert!(!judge_one("sed -i s/a/b/ f.txt").readonly, "-i 是原地改写");
         assert!(judge_one("sed s/a/b/ f.txt").readonly);
         assert!(!judge_one("mkdir tmp").readonly, "表外命令一律当作会改动");
+        // 这几条曾经整类放进只读白名单，等于默许改盘
+        assert!(!judge_one("git config user.name alice").readonly);
+        assert!(judge_one("git config --get user.name").readonly);
+        assert!(judge_one("git config --list").readonly);
+        assert!(!judge_one("find . -delete").readonly);
+        assert!(judge_one("find . -name '*.rs'").readonly);
+        assert!(!judge_one("sort -o out.txt in.txt").readonly);
+        assert!(judge_one("sort in.txt").readonly);
     }
 
     #[test]
