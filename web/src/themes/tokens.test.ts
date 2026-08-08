@@ -45,7 +45,11 @@ describe('token 契约', () => {
 
   it.each(THEMES.map((theme) => theme.id))('%s 没有定义契约外的 token', (id) => {
     const defined = [...definedIn(`${id}.css`)]
-    const extra = defined.filter((name) => !TOKEN_NAMES.includes(name))
+    // `--local-` 是约定好的自留地：主题拿它记自己的调色板（比如「阿罗娜那支蓝」），
+    // 再让契约内的 token 指过去。这条规矩要拦的是**拼错的 token 名**，不是这个
+    const extra = defined.filter(
+      (name) => !TOKEN_NAMES.includes(name) && !name.startsWith(LOCAL_PREFIX),
+    )
     // 多出来的多半是拼错了名字——它定义了但没人用，而真正要的那个还是空的
     expect(extra, `${id} 定义了清单外的变量，是不是拼错了`).toEqual([])
   })
@@ -93,6 +97,22 @@ describe('token 契约', () => {
     // 上一版就是这么漏的：气泡渐变里写死了 #1a1b26 和 #9d7cd8，
     // 换成浅色主题时那两处会突兀地留在深色
     expect(offenders, '这些文件里有写死的颜色').toEqual([])
+  })
+
+  it('没有主题把头像改回方的', () => {
+    // 头像是圆的，这条不归主题管：它代表「说话的那一方」，不是一张插图。之前只有
+    // 蔚蓝档案改成了圆，同一个头像在不同主题下是两种形状，看着像两个不同的东西
+    const offenders: string[] = []
+    for (const theme of THEMES) {
+      const css = readFileSync(join(THEME_DIR, `${theme.id}.css`), 'utf8')
+      for (const rule of css.match(/[^{}]*\{[^}]*\}/g) ?? []) {
+        const [selector = '', body = ''] = rule.split('{')
+        if (!/\.chat__avatar\b|\.sessions__icon\b/.test(selector)) continue
+        const radius = /border-radius:\s*([^;]+)/.exec(body)?.[1]?.trim()
+        if (radius && radius !== '50%') offenders.push(`${theme.id}: ${selector.trim()} → ${radius}`)
+      }
+    }
+    expect(offenders, '头像一律圆形，主题不要覆盖 border-radius').toEqual([])
   })
 
   it('每个 token 都写了用途说明', () => {

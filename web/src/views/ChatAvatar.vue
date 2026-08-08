@@ -31,11 +31,18 @@ const label = computed(() => (props.role === 'user' ? '用户' : 'lya'))
   flex-shrink: 0;
 }
 
+/*
+ * 头像一律是圆的，不分主题。
+ *
+ * 圆角矩形是「一张图片」，圆形才读作「一个人」——聊天界面里这一格代表的是说话的
+ * 那一方，不是插图。这条不留给各套皮自己决定：之前只有蔚蓝档案改成了圆，于是同一个
+ * 头像在不同主题下是两种形状，看着像两个不同的东西。
+ */
 .chat__avatar {
   width: 40px;
   height: 40px;
   margin-top: 2px;
-  border-radius: 10px;
+  border-radius: 50%;
   object-fit: cover;
   flex-shrink: 0;
   border: var(--border-width) solid var(--border);

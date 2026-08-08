@@ -14,6 +14,9 @@
  * 一遍，看它到底能去哪。**
  */
 
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 
@@ -73,5 +76,72 @@ describe('外壳导航完整性', () => {
     const reachable = await reachableViews(id)
     const missing = NAV_ITEMS.filter((item) => !reachable.has(item.view)).map((item) => item.label)
     expect(missing, `${id} 用的外壳到不了这些去处`).toEqual([])
+  })
+})
+
+/**
+ * 有会话列表的地方，就得有归档。
+ *
+ * 归档会话在蔚蓝档案那套皮下**完全看不到**——联系人栏只遍历了 `sessions`，
+ * 归档过的对话就此从界面上消失，只能换个主题才找得回来。会话列表视图那边则是另一种
+ * 漏法：两批揉成一列，归档只在副标题末尾多三个字，等于没标。
+ *
+ * 两处的共同点是「列了会话却没列归档」，所以这里直接问源码：谁遍历了 `sessions`，
+ * 谁就得同时用上归档抽屉。
+ */
+describe('列了会话的地方都列了归档', () => {
+  it('遍历 sessions 的文件都用了 useArchiveDock', () => {
+    // 不写死文件名单：新外壳一样会遍历会话，也一样会漏掉归档
+    const offenders: string[] = []
+    for (const dir of ['shell', 'views']) {
+      for (const path of listSources(resolve(process.cwd(), 'src', dir))) {
+        const src = readFileSync(path, 'utf8')
+        if (!/v-for="[^"]*\bin (?:active)?[sS]essions\b/.test(src)) continue
+        if (/useArchiveDock/.test(src)) continue
+        offenders.push(path.slice(path.indexOf('/src/') + 1))
+      }
+    }
+    expect(offenders, '这些地方列了会话却没列归档，归档会在这里凭空消失').toEqual([])
+  })
+})
+
+function listSources(dir: string, out: string[] = []): string[] {
+  for (const entry of readdirSync(dir)) {
+    const path = resolve(dir, entry)
+    if (statSync(path).isDirectory()) listSources(path, out)
+    else if (/\.(vue|ts)$/.test(entry) && !entry.endsWith('.test.ts')) out.push(path)
+  }
+  return out
+}
+
+/**
+ * 装视图的那一格要自己定位。
+ *
+ * `App.vue` 的加载遮罩是 `position: absolute; inset: 0`，就挂在视图旁边。外壳如果没给
+ * 它一个定位祖先，遮罩会一路往上找到外壳根节点，于是「换个会话」变成用近乎不透明的底色
+ * 盖住**整屏**再放开——蔚蓝档案那套连联系人栏一起被盖，看着就是整页重载了一遍。
+ *
+ * 只能读源码来问：happy-dom 不跑真实 CSS，`getComputedStyle` 拿不到 scoped 样式的结果。
+ */
+describe('外壳给视图留了定位上下文', () => {
+  const SHELLS = ['DefaultShell', 'McShell', 'BaShell']
+
+  it.each(SHELLS)('%s', (name) => {
+    // import.meta.url 在这套 vitest 环境里是被改写过的虚拟路径，用工作目录找
+    const src = readFileSync(resolve(process.cwd(), `src/shell/${name}.vue`), 'utf8')
+
+    const holder = /class="([^"]*)"[^>]*>\s*<slot\s*\/>/.exec(src)
+    expect(holder, `${name} 里找不到包着 <slot /> 的元素`).not.toBeNull()
+
+    const classes = (holder?.[1] ?? '').split(/\s+/).filter(Boolean)
+    const positioned = classes.some((cls) => {
+      const rule = new RegExp(`\\.${cls}\\s*\\{[^}]*\\}`).exec(src)
+      return rule ? /position:\s*relative/.test(rule[0]) : false
+    })
+
+    expect(
+      positioned,
+      `${name} 包着 <slot /> 的 .${classes.join('/.')} 没有 position: relative，加载遮罩会盖满整个外壳`,
+    ).toBe(true)
   })
 })

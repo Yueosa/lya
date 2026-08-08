@@ -9,7 +9,7 @@
 -->
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 
 import type { StageItem } from './useThemeStage'
 
@@ -49,6 +49,89 @@ function syncPlayback(): void {
 watch(() => [props.index, props.active, props.items.length], () => void nextTick(syncPlayback), {
   immediate: true,
 })
+
+/* ── 底部进度条 ─────────────────────────────────────────
+ *
+ * 刚进大厅时那个几十 MB 的 CG 还在下，屏幕上要么是 poster 要么是空的，而界面看上去
+ * 已经好了——人不知道是在加载还是坏了。给一条会走的线。
+ */
+
+/** 0–1；`null` 表示进度不可知，条子改走来回扫的样子。 */
+const pct = ref<number | null>(0)
+const showBar = ref(false)
+
+/** 延迟登场的定时器；秒开的素材不该闪一下进度条。 */
+let arming = 0
+/** 走满之后淡出的定时器。 */
+let fading = 0
+
+function currentMedia(): HTMLImageElement | HTMLVideoElement | null {
+  const all = root.value?.querySelectorAll<HTMLImageElement | HTMLVideoElement>('[data-theme-stage]')
+  return all?.[props.index] ?? null
+}
+
+/**
+ * 离「能播」还有多远，1 表示到了。
+ *
+ * 视频不按下载字节算：一个几十 MB 的 CG 缓冲到百分之几就能开播，拿 `buffered/duration`
+ * 当进度，条子会卡在 5% 然后突然消失。`readyState` 才是这件事的刻度——0 什么都没有、
+ * 1 有元数据、2 有当前帧、3 能一直播下去。短素材可能反过来，缓冲比状态跑得快，所以两者
+ * 取大的那个。
+ *
+ * 图片没有等价的刻度：`complete` 只有是和否，中间量不到。所以返回 `null`，让条子走
+ * 不确定的那种。
+ */
+function readiness(el: HTMLImageElement | HTMLVideoElement): number | null {
+  if (el.tagName === 'IMG') {
+    const img = el as HTMLImageElement
+    return img.complete && img.naturalWidth > 0 ? 1 : null
+  }
+  const video = el as HTMLVideoElement
+  const stage = Math.min(video.readyState, 3) / 3
+  const buffered =
+    video.duration > 0 && video.buffered.length > 0
+      ? video.buffered.end(video.buffered.length - 1) / video.duration
+      : 0
+  return Math.min(Math.max(stage, buffered), 1)
+}
+
+function refresh(): void {
+  const el = currentMedia()
+  const at = props.active && el ? readiness(el) : 1
+
+  if (at === 1) {
+    window.clearTimeout(arming)
+    arming = 0
+    if (!showBar.value) return
+    // 先走满再退场，不然会在半路凭空消失
+    pct.value = 1
+    window.clearTimeout(fading)
+    fading = window.setTimeout(() => (showBar.value = false), 420)
+    return
+  }
+
+  window.clearTimeout(fading)
+  fading = 0
+  pct.value = at
+
+  if (showBar.value || arming) return
+  arming = window.setTimeout(() => {
+    arming = 0
+    const now = currentMedia()
+    if (props.active && now && readiness(now) !== 1) showBar.value = true
+  }, 150)
+}
+
+// 换张图、或这一层重新可见时，事件可能早就发过了（缓存命中就一个都不发），
+// 所以直接照元素当下的状态重算一遍
+watch(() => [props.index, props.active, props.items.length], () => void nextTick(refresh), {
+  immediate: true,
+})
+
+onUnmounted(() => {
+  window.clearTimeout(arming)
+  window.clearTimeout(fading)
+})
 </script>
 
 <template>
@@ -62,6 +145,10 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
       <!--
         记忆大厅一个几十 MB，首帧要等好一会儿。`poster` 是创意工坊条目自带的预览图，
         几百 KB，先顶上去，视频就位了浏览器自己换掉——不给的话这段时间是一片空白。
+
+        `preload` 只在**这一层看得见、且是当前那张**时才给 auto。少了 `active` 这个
+        条件，加载页刚打开就会去全量缓冲大厅的那个几十 MB 视频，而用户此刻在看的是
+        加载图——整个应用的资源加载都被它拖慢，为的是一屏还没打开的东西。
       -->
       <video
         v-if="item.media === 'video'"
@@ -69,11 +156,15 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
         class="stage__media"
         :src="item.url"
         :poster="item.poster"
-        preload="metadata"
+        :preload="active && at === index ? 'auto' : 'metadata'"
         loop
         muted
         playsinline
-        @loadedmetadata="measure($event.target as HTMLVideoElement)"
+        @loadedmetadata="measure($event.target as HTMLVideoElement), refresh()"
+        @progress="refresh"
+        @loadeddata="refresh"
+        @canplay="refresh"
+        @waiting="refresh"
       />
       <img
         v-else
@@ -82,12 +173,22 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
         :src="item.url"
         alt=""
         decoding="async"
-        @load="measure($event.target as HTMLImageElement)"
+        @load="measure($event.target as HTMLImageElement), refresh()"
       />
     </div>
 
     <!-- 顶底压暗：浮层上的字要在任何画面上都读得清 -->
     <div class="stage__scrim" aria-hidden="true" />
+
+    <!-- 素材还没就位时贴在最底下的一条线；颜色由主题给 -->
+    <div
+      v-if="showBar"
+      class="stage__bar"
+      :class="{ 'stage__bar--wait': pct === null, 'stage__bar--done': pct === 1 }"
+      aria-hidden="true"
+    >
+      <div class="stage__fill" :style="pct === null ? undefined : { transform: `scaleX(${pct})` }" />
+    </div>
   </div>
 </template>
 
@@ -141,6 +242,19 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
 }
 
 /*
+ * 不平移的那一层：居中铺满，多出来的两边裁掉。
+ *
+ * 视频不跟着横移——它本身每帧都在变，再叠一个位移就要每帧重新合成一整屏 1080p，
+ * 这就是记忆大厅「莫名其妙地横向移动而且非常卡」的由来。
+ */
+.stage__media[data-fit='center'] {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/*
  * 只给看得见的那张开合成层。
  *
  * 五个记忆大厅同时挂 will-change 和平移动画，就是五层 1080p 以上的合成层一起抢显存
@@ -172,6 +286,50 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
     linear-gradient(0deg, rgba(14, 32, 54, 0.45) 0%, transparent 24%);
 }
 
+/* ── 底部进度条 ───────────────────────────────── */
+
+.stage__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 5px;
+  overflow: hidden;
+  background: rgba(9, 26, 44, 0.34);
+  transition: opacity var(--duration-normal) ease;
+}
+
+.stage__bar--done {
+  opacity: 0;
+}
+
+/* 用 scaleX 而不是 width：宽度每帧都要重排，缩放只在合成层上走 */
+.stage__fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  background: var(--accent);
+  transition: transform 240ms ease;
+}
+
+/* 图片量不到中间进度，就别假装知道——来回扫，只表示「在忙」 */
+.stage__bar--wait .stage__fill {
+  width: 30%;
+  transform: none;
+  transition: none;
+  animation: theme-stage-wait 1.1s ease-in-out infinite;
+}
+
+@keyframes theme-stage-wait {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(333%);
+  }
+}
+
 /* 素材是内容不是装饰，减少动效时保留画面但停下平移与淡入 */
 @media (prefers-reduced-motion: reduce) {
   .stage__media {
@@ -180,6 +338,13 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
 
   .stage__slide {
     transition: none;
+  }
+
+  /* 来回扫的那条改成静止的一段，仍然表示「在忙」，但不动 */
+  .stage__bar--wait .stage__fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
   }
 }
 </style>

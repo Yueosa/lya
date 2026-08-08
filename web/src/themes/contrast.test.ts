@@ -15,12 +15,25 @@ import { describe, expect, it } from 'vitest'
 
 import { THEMES } from './index'
 
-/** 从主题文件里读一个 token 的值。 */
-function tokenValue(themeId: string, name: string): string {
+/**
+ * 从主题文件里读一个 token 的值，一路解到真正的色值为止。
+ *
+ * 主题会把自己的调色板记在 `--local-*` 上，再让契约内的 token 指过去
+ * （`--accent: var(--local-ba-blue-deep)`）。不跟着解的话这里拿到的是
+ * 「var(...)」这串字符，算出 NaN——测试照样会红，但报的是「NaN:1」，
+ * 看不出是配色不合格还是取值没取到，白白多花一轮排查。
+ */
+function tokenValue(themeId: string, name: string, seen: string[] = []): string {
   const css = readFileSync(join(import.meta.dirname, `${themeId}.css`), 'utf8')
   const match = css.match(new RegExp(`--${name}\\s*:\\s*([^;]+);`))
   if (!match) throw new Error(`${themeId} 没有定义 --${name}`)
-  return match[1]!.trim()
+  const value = match[1]!.trim()
+
+  const ref = /^var\(\s*--([\w-]+)\s*\)$/.exec(value)
+  if (!ref) return value
+  const target = ref[1]!
+  if (seen.includes(target)) throw new Error(`${themeId} 的 --${name} 绕成了环：${seen.join(' → ')}`)
+  return tokenValue(themeId, target, [...seen, name])
 }
 
 /** 十六进制转 0–1 的三个通道。 */

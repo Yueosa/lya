@@ -46,6 +46,30 @@ export interface ThemeStageOptions {
    * 记而不是下标：加删素材之后下标会指到别的东西上，名字不会。
    */
   remember?: boolean
+  /**
+   * 每次进来打乱顺序。
+   *
+   * 加载图是一屏「随便给你看点什么」，固定顺序意味着每次开应用都是同一张开场；
+   * 记忆大厅相反，那是用户自己挑的，不能动。
+   */
+  shuffle?: boolean
+  /**
+   * 缓慢横移。
+   *
+   * 加载页要这个：一张静止的图配上字标就是张壁纸，动起来才像在读盘。视频不要——
+   * 它自己就在动，再叠一层每帧重合成的位移只会又卡又晕。
+   */
+  pan?: boolean
+}
+
+/** 原地无关的洗牌；只在加载图上用，不改调用方拿到的原数组。 */
+function shuffled<T>(list: T[]): T[] {
+  const out = [...list]
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[out[i], out[j]] = [out[j] as T, out[i] as T]
+  }
+  return out
 }
 
 export function useThemeStage(options: ThemeStageOptions) {
@@ -92,13 +116,14 @@ export function useThemeStage(options: ThemeStageOptions) {
     try {
       const list = await client.themeAssets(options.theme, options.kind)
       dir.value = list.dir
-      items.value = list.assets.map((asset) => ({
+      const mapped = list.assets.map((asset) => ({
         name: asset.name,
         media: asset.media,
         url: urlOf(asset.name),
         title: asset.title ?? asset.name,
         ...(asset.poster ? { poster: urlOf(asset.poster) } : {}),
       }))
+      items.value = options.shuffle ? shuffled(mapped) : mapped
       // 恢复上次挑的那张。素材可能已经被删掉，找不到就回到第一张
       const saved = options.remember ? readLocal(pickKey) : null
       const at = saved ? items.value.findIndex((item) => item.name === saved) : -1
@@ -119,6 +144,12 @@ export function useThemeStage(options: ThemeStageOptions) {
    * 窗口 resize 时也要再来一遍。
    */
   function measure(el: HTMLImageElement | HTMLVideoElement): void {
+    // 不平移的那一层直接居中铺满，没有「溢出多少」可言
+    if (options.pan === false) {
+      el.dataset['fit'] = 'center'
+      return
+    }
+
     const w = el instanceof HTMLVideoElement ? el.videoWidth : el.naturalWidth
     const h = el instanceof HTMLVideoElement ? el.videoHeight : el.naturalHeight
     if (!w || !h) return
