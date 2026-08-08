@@ -130,6 +130,7 @@ pub async fn write_runtime(
 
     // 立刻回读：既验证写出去的东西还解析得通，也拿到生效后的值
     let config = load()?;
+    apply(&hub)?;
     hub.broadcast_global("config_changed", json!({ "file": "runtime" }));
     Ok(Json(config.runtime))
 }
@@ -148,8 +149,18 @@ pub async fn write_persona(
 ) -> Result<StatusCode, ApiError> {
     let dir = lya_config::data_root().map_err(invalid)?;
     lya_config::write_persona(&dir, &body.text).map_err(invalid)?;
+    apply(&hub)?;
     hub.broadcast_global("config_changed", json!({ "file": "persona" }));
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// 把刚写进文件的配置推给运行中的组件。
+///
+/// 少了这一步，界面读磁盘（立刻是新的）、模型读进程内存（还是启动那一刻的），
+/// 于是「改完人设显示已生效，模型却还用旧的」——两个真相来源只更新了一个。
+fn apply(hub: &SessionHub<LlmClient>) -> Result<(), ApiError> {
+    hub.reload_config()
+        .map_err(|err| ApiError::from(HubError::Invalid(format!("配置已写入，但重新加载失败：{err}"))))
 }
 
 /// 取某个配置文件的原文，供「高级编辑」直接看 TOML。

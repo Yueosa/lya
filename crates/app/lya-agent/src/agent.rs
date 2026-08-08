@@ -13,7 +13,7 @@ use lya_llm::{
 };
 use lya_prompt::RESPONSES_NATIVE_SEARCH;
 use lya_memory::MemoryStore;
-use lya_base::Mode;
+use lya_base::{Live, Mode};
 use lya_prompt::{PromptBuilder, PromptInput};
 use lya_session::{
     ConfirmStepBlock, HitlBlock, MessageKind, MessagePayload, MessageRole, MessageStatus,
@@ -60,24 +60,61 @@ pub struct AgentParts<B: ChatBackend> {
     pub default_enabled_tools: Option<Vec<String>>,
 }
 
+/// 默认模型必须真的指得到一个端点。
+fn check_default_model(
+    endpoints: &BTreeMap<String, LlmEndpoint>,
+    default_model: &str,
+) -> Result<(), AgentError> {
+    if endpoints.contains_key(default_model) {
+        return Ok(());
+    }
+    Err(AgentError::Invalid(format!(
+        "默认模型 {:?} 不在端点列表里；现有：{:?}",
+        default_model,
+        endpoints.keys().collect::<Vec<_>>()
+    )))
+}
+
+/// agent 里那些**来自配置、因此会在运行时被改**的值。
+///
+/// 单独成一族是为了能整体换：它们原先是 [`Agent`] 上的独立字段，装配时拷一份进来
+/// 就再没人动过，于是用户在界面上改完 `runtime.toml` / `persona.toml`，要重启才生效
+/// （而界面读的是磁盘，显示的已经是新值，两边对不上更难查）。
+///
+/// 换的时候是**整族一起换**，[`Agent::run_turn`] 在轮次开头取一次快照用到底。
+/// 所以一轮之内这些值绝不会变；改配置影响的是**下一轮**。
+#[derive(Debug, Clone)]
+pub struct TurnSettings {
+    /// 默认模型 id，必须在端点列表里。
+    pub default_model: String,
+    /// 提示词组装器（持有全局人设）。
+    pub prompt: PromptBuilder,
+    /// 单轮内 LLM 与工具最多来回几次。
+    pub max_tool_rounds: u32,
+    /// 同一条 assistant 消息里 tool_calls 数量上限。
+    pub max_parallel_tools: u32,
+    /// 连续多少次工具调用全失败就中止本轮；`0` 表示不启用。
+    pub max_consecutive_tool_failures: u32,
+    /// 会话没自定义工具列表时用的默认值；`None` 表示启用全部。
+    pub default_enabled_tools: Option<Vec<String>>,
+}
+
 /// 一轮对话的驱动器。
 ///
 /// **自身无状态**：每次 [`Agent::run_turn`] 都从消息树读当前状态。HITL 挂起
 /// 不在内存里留任何东西——表单发出去本轮就正常结束了，用户什么时候答复都行，
 /// 进程重启也能接上。
+///
+/// 唯一的例外是 [`TurnSettings`]，它是配置的镜像而不是对话状态；见
+/// [`Agent::apply_settings`]。
 pub struct Agent<B: ChatBackend> {
     backend: B,
     endpoints: BTreeMap<String, LlmEndpoint>,
-    default_model: String,
     sessions: Arc<SessionStore>,
     memory: Arc<MemoryStore>,
     tools: Arc<ToolRegistry>,
     actions: Arc<ActionRegistry>,
-    prompt: PromptBuilder,
-    max_tool_rounds: u32,
-    max_parallel_tools: u32,
-    max_consecutive_tool_failures: u32,
-    default_enabled_tools: Option<Vec<String>>,
+    settings: Live<TurnSettings>,
 }
 
 impl<B: ChatBackend> Agent<B> {
@@ -96,26 +133,23 @@ impl<B: ChatBackend> Agent<B> {
             .into_iter()
             .map(|endpoint| (endpoint.id.clone(), endpoint))
             .collect();
-        if !endpoints.contains_key(&parts.default_model) {
-            return Err(AgentError::Invalid(format!(
-                "默认模型 {:?} 不在端点列表里；现有：{:?}",
-                parts.default_model,
-                endpoints.keys().collect::<Vec<_>>()
-            )));
-        }
-        Ok(Self {
-            backend: parts.backend,
-            endpoints,
+        let settings = TurnSettings {
             default_model: parts.default_model,
-            sessions: parts.sessions,
-            memory: parts.memory,
-            tools: parts.tools,
-            actions: parts.actions,
             prompt: parts.prompt,
             max_tool_rounds: parts.max_tool_rounds,
             max_parallel_tools: parts.max_parallel_tools,
             max_consecutive_tool_failures: parts.max_consecutive_tool_failures,
             default_enabled_tools: parts.default_enabled_tools,
+        };
+        check_default_model(&endpoints, &settings.default_model)?;
+        Ok(Self {
+            backend: parts.backend,
+            endpoints,
+            sessions: parts.sessions,
+            memory: parts.memory,
+            tools: parts.tools,
+            actions: parts.actions,
+            settings: Live::new(settings),
         })
     }
 
@@ -129,6 +163,22 @@ impl<B: ChatBackend> Agent<B> {
         &self.actions
     }
 
+    /// 当前设置的快照。
+    pub fn settings(&self) -> Arc<TurnSettings> {
+        self.settings.get()
+    }
+
+    /// 换一份设置；配置文件改动后由装配处调用。
+    ///
+    /// `default_model` 不在端点列表里就整族拒绝、维持原样。端点来自 `models.toml`
+    /// 而它没有写接口，所以进程活着的时候端点是固定的，能变的只有指哪一个——
+    /// 让它指空会把 [`Agent::run_turn`] 变成必然失败，宁可在这里挡下。
+    pub fn apply_settings(&self, next: TurnSettings) -> Result<(), AgentError> {
+        check_default_model(&self.endpoints, &next.default_model)?;
+        self.settings.set(next);
+        Ok(())
+    }
+
     /// 会话实际生效的工具名单。
     ///
     /// 会话没自定义（`None`）时**跟随全局默认**，而不是一律「全部启用」——
@@ -138,23 +188,25 @@ impl<B: ChatBackend> Agent<B> {
         session
             .enabled_tools
             .clone()
-            .or_else(|| self.default_enabled_tools.clone())
+            .or_else(|| self.settings.get().default_enabled_tools.clone())
     }
 
     /// 取出会话该用的端点。
     ///
     /// 会话指名了一个已经不存在的模型时**报错而不是悄悄退回默认**——静默换成
     /// 另一个模型（可能更贵、能力也不同）比直接说清楚更让人困惑。
-    fn endpoint_for(&self, model_id: Option<&str>) -> Result<&LlmEndpoint, String> {
-        match model_id {
-            None => Ok(&self.endpoints[&self.default_model]),
-            Some(id) => self.endpoints.get(id).ok_or_else(|| {
-                format!(
-                    "会话指定的模型 {id:?} 不在配置里；请重新选一个。现有：{:?}",
-                    self.endpoints.keys().collect::<Vec<_>>()
-                )
-            }),
-        }
+    fn endpoint_for(
+        &self,
+        model_id: Option<&str>,
+        default_model: &str,
+    ) -> Result<&LlmEndpoint, String> {
+        let id = model_id.unwrap_or(default_model);
+        self.endpoints.get(id).ok_or_else(|| {
+            format!(
+                "会话指定的模型 {id:?} 不在配置里；请重新选一个。现有：{:?}",
+                self.endpoints.keys().collect::<Vec<_>>()
+            )
+        })
     }
 
     /// 会话仓储。
@@ -205,6 +257,10 @@ impl<B: ChatBackend> Agent<B> {
                 return;
             }
 
+            // 整轮就认这一份：中途改配置不会让同一轮的前半段和后半段按两套上限跑，
+            // 那种不一致比「改了要等下一轮」难查得多。
+            let settings = self.settings.get();
+
             let mut round = 0u32;
             // 连续失败计数跨轮累计，任一次调用成功就清零。检查放在轮次开头：
             // 上一轮刚失败完就在这里收，不用再白跑一次 LLM。
@@ -215,12 +271,12 @@ impl<B: ChatBackend> Agent<B> {
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::Cancelled };
                     return;
                 }
-                if round >= self.max_tool_rounds {
+                if round >= settings.max_tool_rounds {
                     yield AgentEvent::TurnEnd { reason: TurnEndReason::MaxRounds };
                     return;
                 }
-                if self.max_consecutive_tool_failures > 0
-                    && consecutive_failures >= self.max_consecutive_tool_failures
+                if settings.max_consecutive_tool_failures > 0
+                    && consecutive_failures >= settings.max_consecutive_tool_failures
                 {
                     yield AgentEvent::TurnEnd {
                         reason: TurnEndReason::ToolFailureLoop {
@@ -246,14 +302,20 @@ impl<B: ChatBackend> Agent<B> {
                     }
                 };
 
-                // 会话没自定义就跟随全局默认
-                let enabled = self.effective_tools(&meta);
+                // 会话没自定义就跟随全局默认。这里读本轮快照而不是 effective_tools()，
+                // 免得中途改配置让同一轮的两次装配拿到不同的工具集
+                let enabled = meta
+                    .enabled_tools
+                    .clone()
+                    .or_else(|| settings.default_enabled_tools.clone());
                 let enabled: Option<Vec<&str>> = enabled
                     .as_ref()
                     .map(|names| names.iter().map(String::as_str).collect());
                 let api_mode =
                     ApiMode::parse(&meta.api_mode).unwrap_or(ApiMode::Completions);
-                let endpoint = match self.endpoint_for(meta.model_id.as_deref()) {
+                let endpoint = match self
+                    .endpoint_for(meta.model_id.as_deref(), &settings.default_model)
+                {
                     Ok(endpoint) => endpoint,
                     Err(msg) => {
                         yield AgentEvent::TurnEnd {
@@ -289,7 +351,7 @@ impl<B: ChatBackend> Agent<B> {
                     input = input.with_extra(RESPONSES_NATIVE_SEARCH);
                 }
                 input.persona = meta.persona.clone();
-                let system = self.prompt.build(&input);
+                let system = settings.prompt.build(&input);
 
                 let path = bail!(self.sessions.path_to_active_leaf(&session_id));
                 let request = match api_mode {
@@ -473,7 +535,7 @@ impl<B: ChatBackend> Agent<B> {
                         .collect(),
                 };
 
-                if calls.len() as u32 > self.max_parallel_tools {
+                if calls.len() as u32 > settings.max_parallel_tools {
                     for call in calls {
                         let kind = call_kind(&call.name, &self.actions);
                         yield AgentEvent::CallStarted {
@@ -484,7 +546,7 @@ impl<B: ChatBackend> Agent<B> {
                         let msg = format!(
                             "本批 {} 个工具调用超过上限 max_parallel_tools={}，整组未执行。请拆成更小的批次。",
                             calls.len(),
-                            self.max_parallel_tools
+                            settings.max_parallel_tools
                         );
                         let record = bail!(self.sessions.append(
                             &session_id,

@@ -25,7 +25,7 @@ use crate::registry::ToolRegistry;
 pub fn register_builtins(
     registry: &mut ToolRegistry,
     http: HttpClient,
-    shell_confirm: shell::ConfirmPolicy,
+    shell_confirm: impl Into<lya_base::Live<shell::ConfirmPolicy>>,
     self_port: web::SelfPort,
 ) -> Result<(), ToolError> {
     registry.register(Arc::new(local::FileReadTool::new()))?;

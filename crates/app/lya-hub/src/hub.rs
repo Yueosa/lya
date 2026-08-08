@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures_util::StreamExt;
 use lya_agent::{Agent, AgentError, AgentEvent, CallKind, CancelToken, ChatBackend};
@@ -23,6 +23,9 @@ use tokio::sync::broadcast;
 
 use crate::event::{self, Envelope, Scope};
 use lya_tool::tools::web::SelfPort;
+
+/// 配置重载钩子的类型。
+type ReloadFn = Box<dyn Fn() -> Result<(), String> + Send + Sync>;
 
 /// 广播通道容量。订阅者落后超过这么多条就会收到 `Lagged`，
 /// 届时重发一次快照即可对齐。
@@ -172,6 +175,8 @@ struct SessionChannel {
 /// 这样轮次串行、取消、缓冲这些逻辑不必联网也能验。
 pub struct SessionHub<B: ChatBackend = LlmClient> {
     agent: Arc<Agent<B>>,
+    /// 配置重载钩子，由装配处安装；见 [`SessionHub::set_reload`]。
+    reload: OnceLock<ReloadFn>,
     /// 共享出站客户端，供探测模型可用性之类的杂事使用。
     http: HttpClient,
     /// 每个会话一个通道；外层锁只在增删会话时争用，
@@ -192,6 +197,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         let (global, _) = broadcast::channel(BROADCAST_CAPACITY);
         Arc::new(Self {
             agent,
+            reload: OnceLock::new(),
             http,
             channels: Mutex::new(HashMap::new()),
             global,
@@ -204,6 +210,25 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 共享 HTTP 客户端。
     pub fn http(&self) -> &HttpClient {
         &self.http
+    }
+
+    /// 安装配置重载钩子。只认第一次，重复调用会被忽略。
+    ///
+    /// hub 故意**不认识配置**：真正「读文件、推给各个组件」的逻辑写在装配处
+    /// （`lya-core`），那里本来就依赖全部 crate。这里只留一个按钮，好让 HTTP 层
+    /// 在写完配置文件后按一下，不必为此把 `lya-config` 拖进 hub 的依赖里。
+    pub fn set_reload(&self, reload: impl Fn() -> Result<(), String> + Send + Sync + 'static) {
+        let _ = self.reload.set(Box::new(reload));
+    }
+
+    /// 重新读配置并推给运行中的组件。
+    ///
+    /// 没装钩子时是空操作——测试里的 hub 不接配置，不该因此报错。
+    pub fn reload_config(&self) -> Result<(), String> {
+        match self.reload.get() {
+            Some(reload) => reload(),
+            None => Ok(()),
+        }
     }
 
     /// 本地图片端点的令牌。

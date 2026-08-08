@@ -8,6 +8,7 @@ description = "lya 长期记忆：跨会话笔记的仓储与常驻索引"
 
 [dependencies]
 chrono = { workspace = true }
+lya-base = { workspace = true }
 lya-db = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }

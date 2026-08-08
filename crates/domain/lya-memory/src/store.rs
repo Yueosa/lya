@@ -9,6 +9,8 @@ use chrono::{DateTime, Utc};
 use lya_db::Db;
 use rusqlite::{Connection, OptionalExtension, params};
 
+use lya_base::Live;
+
 use crate::error::MemoryError;
 use crate::index::{IndexBudget, render_index};
 use crate::types::{MatchField, Memory, MemoryHit, MemoryLimits, MemoryPatch, NewMemory};
@@ -20,7 +22,10 @@ pub struct MemoryStore {
     /// 写入长度上限。
     limits: MemoryLimits,
     /// 常驻索引的体积上限。
-    budget: IndexBudget,
+    ///
+    /// 可热替换：它直接决定每轮 system prompt 里索引段有多长，用户在界面上调完
+    /// 该立刻看到效果。
+    budget: Live<IndexBudget>,
 }
 
 impl MemoryStore {
@@ -29,7 +34,7 @@ impl MemoryStore {
         Self {
             db: Arc::new(db),
             limits: MemoryLimits::default(),
-            budget: IndexBudget::default(),
+            budget: Live::default(),
         }
     }
 
@@ -38,7 +43,7 @@ impl MemoryStore {
         Self {
             db,
             limits: MemoryLimits::default(),
-            budget: IndexBudget::default(),
+            budget: Live::default(),
         }
     }
 
@@ -63,9 +68,16 @@ impl MemoryStore {
     }
 
     /// 覆盖常驻索引的体积上限。
-    pub fn with_budget(mut self, budget: IndexBudget) -> Self {
-        self.budget = budget;
+    ///
+    /// 收 `impl Into<Live<_>>`：装配处传共享句柄以便热替换，测试传个定值就行。
+    pub fn with_budget(mut self, budget: impl Into<Live<IndexBudget>>) -> Self {
+        self.budget = budget.into();
         self
+    }
+
+    /// 常驻索引预算的共享句柄，供装配处在配置变更时推新值。
+    pub fn budget_handle(&self) -> Live<IndexBudget> {
+        self.budget.clone()
     }
 
     /// 建表（全库 schema 由 `lya-db` 持有）。
@@ -279,7 +291,7 @@ impl MemoryStore {
 
     /// 渲染常驻索引段落，直接塞进 `lya_prompt::PromptInput::memory_section`。
     pub fn index_section(&self) -> Result<String, MemoryError> {
-        Ok(render_index(&self.list()?, &self.budget))
+        Ok(render_index(&self.list()?, &self.budget.get()))
     }
 
     /// 校验并规整一次写入的全部字段。

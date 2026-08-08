@@ -742,6 +742,110 @@ async fn system_prompt_is_byte_stable_across_rounds() {
 }
 
 #[tokio::test]
+async fn persona_change_takes_effect_on_the_next_turn() {
+    // 这个 bug 真出过：人设装配时按值拷进 agent，之后改 persona.toml 没人动那份拷贝。
+    // 界面读磁盘所以显示的是新的，模型读进程内存还是旧的，两个真相来源只更新了一个。
+    let fx = fixture(vec![Turn::Text("一".into()), Turn::Text("二".into())]);
+
+    fx.say("第一句");
+    fx.run().await;
+
+    let mut next = (*fx.agent.settings()).clone();
+    next.prompt = PromptBuilder::new().with_persona("我是普拉娜。");
+    fx.agent.apply_settings(next).unwrap();
+
+    fx.say("第二句");
+    fx.run().await;
+
+    let seen = fx.backend.seen.lock().unwrap();
+    assert!(
+        seen[0][0].content.contains("语气自然平实"),
+        "第一轮该是内置默认人设"
+    );
+    assert!(seen[1][0].content.contains("我是普拉娜。"), "改完要立刻生效");
+    assert!(
+        !seen[1][0].content.contains("语气自然平实"),
+        "新人设是覆盖，不是追加"
+    );
+}
+
+#[tokio::test]
+async fn default_tools_change_takes_effect_on_the_next_turn() {
+    // 工具开关同理：会话没自定义时跟随全局默认，那个默认也得是活的
+    let fx = fixture(vec![Turn::Text("一".into()), Turn::Text("二".into())]);
+
+    fx.say("第一句");
+    fx.run().await;
+    assert!(fx.backend.last_tool_names().contains(&"echo".to_string()));
+
+    let mut next = (*fx.agent.settings()).clone();
+    next.default_enabled_tools = Some(vec![]);
+    fx.agent.apply_settings(next).unwrap();
+
+    fx.say("第二句");
+    fx.run().await;
+    assert!(
+        !fx.backend.last_tool_names().contains(&"echo".to_string()),
+        "全局关掉之后，没自定义过的会话下一轮就不该再看见它"
+    );
+}
+
+#[tokio::test]
+async fn settings_are_frozen_for_the_duration_of_a_turn() {
+    // 轮次开头取一次快照用到底。若有人把 settings.get() 挪进循环里，这一轮就会
+    // 在中途换上限、当场以 MaxRounds 收场——前半段按一套规则、后半段按另一套，
+    // 那种不一致比「改了要等下一轮」难查得多。
+    let fx = fixture(vec![
+        Turn::Call {
+            text: String::new(),
+            call_id: "c1".into(),
+            name: "echo".into(),
+            arguments: r#"{"text":"x"}"#.into(),
+        },
+        Turn::Text("好了".into()),
+    ]);
+    fx.say("跑一下");
+
+    // run_turn 和 apply_settings 都只借 &self，所以能在消费事件的同一个循环里改
+    let stream = fx.agent.run_turn(fx.session_id.clone(), CancelToken::new());
+    futures_util::pin_mut!(stream);
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        if matches!(event, AgentEvent::RoundStarted { round: 1 }) {
+            let mut next = (*fx.agent.settings()).clone();
+            next.max_tool_rounds = 1;
+            fx.agent.apply_settings(next).unwrap();
+        }
+        events.push(event);
+    }
+
+    assert_eq!(fx.backend.rounds(), 2, "本轮该按开跑时的上限跑完");
+    assert!(
+        matches!(
+            events.last(),
+            Some(AgentEvent::TurnEnd { reason: TurnEndReason::Completed })
+        ),
+        "不该在中途被新上限掐断：{:?}",
+        events.last()
+    );
+}
+
+#[test]
+fn apply_settings_rejects_a_default_model_that_points_nowhere() {
+    // 端点来自 models.toml，进程活着的时候是固定的；让 default_model 指空
+    // 会把之后每一轮都变成必然失败，宁可在换的时候就挡下来
+    let fx = fixture(vec![Turn::Text("好".into())]);
+
+    let mut next = (*fx.agent.settings()).clone();
+    next.default_model = "不存在的模型".into();
+    let err = fx.agent.apply_settings(next).unwrap_err();
+    assert!(matches!(err, lya_agent::AgentError::Invalid(_)), "{err:?}");
+
+    // 拒绝之后必须维持原样，不能留下半生效的状态
+    assert_eq!(fx.agent.settings().default_model, "default");
+}
+
+#[tokio::test]
 async fn memory_written_this_turn_shows_up_next_round() {
     let fx = fixture(vec![
         Turn::Call {

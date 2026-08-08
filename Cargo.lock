@@ -1259,6 +1259,7 @@ dependencies = [
  "lya-action",
  "lya-agent",
  "lya-api",
+ "lya-base",
  "lya-config",
  "lya-db",
  "lya-http",
@@ -1355,6 +1356,7 @@ name = "lya-memory"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "lya-base",
  "lya-db",
  "rusqlite",
  "serde",

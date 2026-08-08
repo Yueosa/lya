@@ -10,7 +10,7 @@ use crate::confirm::{ConfirmRequest, ConfirmStep};
 use crate::context::ToolCtx;
 use crate::limits::bash::{MAX_CAPTURE_BYTES, MAX_REPORT_CHARS, MAX_TIMEOUT_SECS};
 use crate::meta::{ToolMeta, ToolResult};
-use lya_base::Permission;
+use lya_base::{Live, Permission};
 use crate::tools::local::path::resolve_path;
 use crate::tools::shell::parse::{parse, ParsedCommand};
 use crate::tools::shell::rules::{judge, pipeline_risks};
@@ -40,7 +40,10 @@ pub struct BashTool {
     /// 用法说明。
     prompt_hint: String,
     /// 确认策略。
-    policy: ConfirmPolicy,
+    ///
+    /// 可热替换：这是安全档位，用户在界面上调紧之后必须**立刻**生效，
+    /// 不能等到下次重启——那期间执行的命令按的还是旧的、更松的那档。
+    policy: Live<ConfirmPolicy>,
 }
 
 impl Default for BashTool {
@@ -51,7 +54,10 @@ impl Default for BashTool {
 
 impl BashTool {
     /// 按给定策略构造。
-    pub fn new(policy: ConfirmPolicy) -> Self {
+    ///
+    /// 收 `impl Into<Live<_>>`：装配处传共享句柄以便热替换，测试传个定值就行。
+    pub fn new(policy: impl Into<Live<ConfirmPolicy>>) -> Self {
+        let policy = policy.into();
         Self {
             meta: ToolMeta::new(
                 "bash",
@@ -120,7 +126,7 @@ impl BashTool {
 
     /// 按策略判断这条命令要不要确认。
     fn needs_confirm(&self, parsed: &ParsedCommand, risky: bool, all_readonly: bool) -> bool {
-        match self.policy {
+        match *self.policy.get() {
             ConfirmPolicy::Always => true,
             // 看不懂一律确认——解析失败正是最该拦的情况
             ConfirmPolicy::Unknown => !parsed.understood || !all_readonly,

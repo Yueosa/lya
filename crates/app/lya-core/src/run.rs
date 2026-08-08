@@ -7,12 +7,13 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::Duration;
 
 use lya_action::{ActionRegistry, register_builtins as register_actions};
-use lya_agent::{Agent, AgentParts};
+use lya_agent::{Agent, AgentParts, TurnSettings};
 use lya_config::Config;
 use lya_db::Db;
 use lya_http::{HttpClient, HttpConfig};
 use lya_llm::{LlmClient, LlmEndpoint};
-use lya_memory::MemoryStore;
+use lya_base::Live;
+use lya_memory::{IndexBudget, MemoryStore};
 use lya_prompt::PromptBuilder;
 use lya_session::SessionStore;
 use lya_tool::tools::web::SelfPort;
@@ -145,7 +146,12 @@ async fn serve(
         Ok(n) => eprintln!("清理了 {n} 条上次没写完的消息"),
         Err(err) => eprintln!("清理残留失败：{err}"),
     }
-    let memory = Arc::new(MemoryStore::with_db(db));
+    // 这三个句柄是「配置改了立刻生效」的全部着力点：装配处留一份，
+    // 下面的 reload 钩子往里推新值，持有方下次读就拿到新的
+    let budget = Live::new(index_budget(&config.runtime.memory));
+    let confirm = Live::new(shell_policy(config.runtime.shell.confirm));
+
+    let memory = Arc::new(MemoryStore::with_db(db).with_budget(budget.clone()));
 
     let self_port: SelfPort = Arc::new(AtomicU16::new(0));
 
@@ -153,40 +159,47 @@ async fn serve(
     register_tools(
         &mut tools,
         http.clone(),
-        shell_policy(config.runtime.shell.confirm),
+        confirm.clone(),
         Arc::clone(&self_port),
     )?;
     let mut actions = ActionRegistry::new();
     register_actions(&mut actions, Arc::clone(&memory))?;
 
-    let mut prompt = PromptBuilder::new();
-    if let Some(persona) = &config.persona {
-        prompt = prompt.with_persona(persona.clone());
-    }
-
-    let endpoints = llm_endpoints_from_config(&config);
-    let default_model = config
-        .default_model()
-        .expect("check_ready 已确认有模型")
-        .id
-        .clone();
-
+    let settings = turn_settings(&config)?;
     let agent = Arc::new(Agent::new(AgentParts {
         backend: LlmClient::new(http.clone()),
-        endpoints,
-        default_model,
+        endpoints: llm_endpoints_from_config(&config),
+        default_model: settings.default_model.clone(),
         sessions,
         memory,
         tools: Arc::new(tools),
         actions: Arc::new(actions),
-        prompt,
-        max_tool_rounds: config.runtime.agent.max_tool_rounds,
-        max_consecutive_tool_failures: config.runtime.agent.max_consecutive_tool_failures,
-        max_parallel_tools: config.runtime.agent.max_parallel_tools,
-        default_enabled_tools: config.runtime.tools.enabled.clone(),
+        prompt: settings.prompt.clone(),
+        max_tool_rounds: settings.max_tool_rounds,
+        max_consecutive_tool_failures: settings.max_consecutive_tool_failures,
+        max_parallel_tools: settings.max_parallel_tools,
+        default_enabled_tools: settings.default_enabled_tools.clone(),
     })?);
 
-    let hub = SessionHub::new(agent, http, Arc::clone(&self_port));
+    let hub = SessionHub::new(Arc::clone(&agent), http, Arc::clone(&self_port));
+
+    // 配置写入后由 HTTP 层按这个按钮。放在这里是因为「读配置」和「认识每个组件」
+    // 只有装配处同时具备——hub 不该为了重载而去依赖 lya-config
+    let reload_dir = dir.clone();
+    hub.set_reload(move || {
+        let config = Config::load_from(&reload_dir).map_err(|err| err.to_string())?;
+        // 先算出全部新值再逐个推：中途因为某个值不合法而失败的话，
+        // 前面几个已经生效、后面几个还是旧的，那种半生效状态最难查
+        let settings = turn_settings(&config).map_err(|err| err.to_string())?;
+        let next_budget = index_budget(&config.runtime.memory);
+        let next_confirm = shell_policy(config.runtime.shell.confirm);
+
+        agent.apply_settings(settings).map_err(|err| err.to_string())?;
+        budget.set(next_budget);
+        confirm.set(next_confirm);
+        Ok(())
+    });
+
     let app = router(hub);
 
     let mut listener = None;
@@ -257,4 +270,38 @@ fn shell_policy(confirm: lya_config::ShellConfirm) -> lya_tool::tools::shell::Co
         ShellConfirm::Unknown => ConfirmPolicy::Unknown,
         ShellConfirm::Risky => ConfirmPolicy::Risky,
     }
+}
+
+fn index_budget(memory: &lya_config::MemorySettings) -> IndexBudget {
+    IndexBudget {
+        max_entries: memory.max_index_entries,
+        max_chars: memory.max_index_chars,
+        summary_chars: memory.index_summary_chars,
+    }
+}
+
+/// 由配置推出 agent 的每轮设置。
+///
+/// 启动装配与后续重载**都走这里**。两条路各写一份映射，迟早会长出「重启之后的
+/// 行为和刚改完配置时不一样」这种没人想查的 bug。
+fn turn_settings(config: &Config) -> Result<TurnSettings, RunError> {
+    let mut prompt = PromptBuilder::new();
+    // 空人设在 Config 里已经被规整成 None，这里不必再判一次空串：
+    // 那会走成 `with_persona("")`，语义是「本轮完全不要人设段」，不是「用内置默认」
+    if let Some(persona) = &config.persona {
+        prompt = prompt.with_persona(persona.clone());
+    }
+    let default_model = config
+        .default_model()
+        .ok_or_else(|| RunError::NotReady("models.toml 里没有任何模型".into()))?
+        .id
+        .clone();
+    Ok(TurnSettings {
+        default_model,
+        prompt,
+        max_tool_rounds: config.runtime.agent.max_tool_rounds,
+        max_parallel_tools: config.runtime.agent.max_parallel_tools,
+        max_consecutive_tool_failures: config.runtime.agent.max_consecutive_tool_failures,
+        default_enabled_tools: config.runtime.tools.enabled.clone(),
+    })
 }

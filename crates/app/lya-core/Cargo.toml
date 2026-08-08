@@ -10,6 +10,7 @@ description = "lya 启动层：配置、数据库、Agent、Hub、HTTP 监听"
 axum = { workspace = true }
 lya-action = { workspace = true }
 lya-agent = { workspace = true }
+lya-base = { workspace = true }
 lya-api = { workspace = true }
 lya-config = { workspace = true }
 lya-db = { workspace = true }
