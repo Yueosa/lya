@@ -30,6 +30,15 @@ import { currentId, hydrating, running, timeline } from '../../app/useChat'
 import { prefs } from '../../app/usePrefs'
 import { sessionEnterMotionMs } from '../../ui/useMotion'
 
+/**
+ * 进会话时先只挂时间线尾部这么多条，落位后再揭开全文。
+ *
+ * 量过：500 条 × 约 800 字时 `buildTimeline` 单次约 0.2ms，不是瓶颈；贵的是 DOM——
+ * 每条消息底下可能有代码块顶栏、公式、图表宿主。虚拟列表能再削一截，但要和贴底
+ * 跟随、入场动画、分支跳转、图片撑高后的 ResizeObserver 归位缠在一起，收益暂时
+ * 盖不过复杂度。尾部窗口已经把「打开长会话」的首屏节点数压住了；真要上虚拟滚动，
+ * 先再量一次「展开全文后」的节点数和滚动帧时，再动刀。
+ */
 const INITIAL_TAIL = 48
 
 /** 离底多少像素以内算「精确贴着底」。用于百分比显示和位置记忆。 */

@@ -1,3 +1,15 @@
+/*
+  聊天页布局（.chat__*）。
+
+  和 ui/ui.css 的界线：
+  - 这里只放 ChatView 这一屏的骨架——顶栏、时间线滚区、输入条、侧栏开合。
+  - 气泡本体（.bubble）、按钮、表单、split-view、分页原件在 ui.css；主题会针对那些
+    类名加规则，它们是主题的公开接口，不能搬进本文件。
+  - Markdown 正文样式跟 MarkdownBody.vue 走，不在这两份里。
+
+  只允许 var(--...)，写死的颜色会被 token 契约测试拦下来。
+ */
+
 .chat {
   display: flex;
   height: 100%;
