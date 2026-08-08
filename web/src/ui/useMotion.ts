@@ -1,12 +1,12 @@
 /**
- * 动效开关：MTF 启用；MC token 时长为 0；系统「减少动效」时关闭。
+ * 动效开关：MTF / BA 启用；MC token 时长为 0；系统「减少动效」时关闭。
  */
 
 import { computed } from 'vue'
 
 import { themeId } from '../themes'
 
-const MOTION_THEMES = new Set(['mtf'])
+const MOTION_THEMES = new Set(['mtf', 'ba'])
 
 function prefersReducedMotion(): boolean {
   try {

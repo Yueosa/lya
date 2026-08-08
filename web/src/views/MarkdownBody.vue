@@ -17,7 +17,6 @@ import {
   createEnhanceSession,
   enhanceMarkdown,
   redrawDiagrams,
-  renderDiagrams,
 } from '../ui/markdownEnhance'
 
 const props = withDefaults(
@@ -38,9 +37,17 @@ const props = withDefaults(
      * 图表在这期间**一律不画**，只以代码块的样子待着，见 ui/markdownEnhance。
      */
     streaming?: boolean
+    /**
+     * 会话刚切入、气泡还在进场时先别动公式/图表。
+     * 异步换 DOM 会跟消息滑入抢布局，看起来像整屏在抖。
+     */
+    deferHeavy?: boolean
   }>(),
-  { variant: 'default', raw: false, streaming: false },
+  { variant: 'default', raw: false, streaming: false, deferHeavy: false },
 )
+
+/** 流式或进场期间：数学/图表都先按代码块待着 */
+const softHold = computed(() => props.streaming || props.deferHeavy)
 
 const root = ref<HTMLElement | null>(null)
 // 原文模式下连解析都不做：省一趟无用功，也让这条路上不存在任何 v-html
@@ -64,7 +71,7 @@ watch(
     await nextTick()
     if (root.value && session.generation === mine) {
       await enhanceMarkdown(root.value, session, {
-        streaming: props.streaming,
+        streaming: softHold.value,
         theme: themeId.value,
       })
     }
@@ -74,35 +81,28 @@ watch(
 
 // 图表的配色是渲染时烤进 SVG 的，换主题不重画就会留着上一套颜色
 watch(themeId, async () => {
-  if (props.raw || !root.value) return
+  if (props.raw || !root.value || softHold.value) return
   session.generation += 1
   await redrawDiagrams(root.value, session, themeId.value)
 })
 
 /*
-  说完了，这才是图表被画出来的那一下。
+  softHold 松开后才画公式/图表。
 
-  流式期间 renderDiagrams 一概不动手（理由见 ui/markdownEnhance），所以这个 watcher
-  不是补漏而是正路。而且非它不可：收尾那一刻正文往往已经不再变了，光盯着 html
-  是等不到这一下的。
-
-  先 nextTick 再动手：收尾常常伴着一次正文替换（运行缓冲换成落库的那条消息），那会
-  重新走一遍 v-html。不等它落地就画，画完立刻被整段 DOM 覆盖掉，白画一次。
+  流式收尾、会话进场结束都可能正文已经不再变，光盯 html 等不到这一下；
+  所以显式在 hold→false 时再跑一轮 enhance。
 */
-watch(
-  () => props.streaming,
-  async (now, before) => {
-    if (props.raw || now || !before || !root.value) return
-    const mine = ++session.generation
-    await nextTick()
-    if (root.value && session.generation === mine) {
-      await renderDiagrams(root.value, session, mine, {
-        streaming: false,
-        theme: themeId.value,
-      })
-    }
-  },
-)
+watch(softHold, async (now, before) => {
+  if (props.raw || now || !before || !root.value) return
+  const mine = ++session.generation
+  await nextTick()
+  if (root.value && session.generation === mine) {
+    await enhanceMarkdown(root.value, session, {
+      streaming: false,
+      theme: themeId.value,
+    })
+  }
+})
 </script>
 
 <template>

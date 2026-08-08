@@ -5,7 +5,7 @@
   DOM 上、靠 opacity 交替，是为了让切换真的能交叠淡入——只留当前一张的话，换的瞬间会
   是「消失再出现」。
 
-  代价是多张视频会同时解码，所以视频只在当前那张上 `autoplay`，其余暂停。
+  代价是多张视频会同时解码，所以视频只在当前那张上播放，其余暂停。
 -->
 
 <script setup lang="ts">
@@ -19,11 +19,37 @@ const props = withDefaults(
     index: number
     /** 量平移距离；由 `useThemeStage` 提供。 */
     measure: (el: HTMLImageElement | HTMLVideoElement) => void
-    /** 这一层现在看得见吗。看不见就暂停解码，但**不卸载**，缓冲还在。 */
+    /** 这一层现在看得见吗。看不见就暂停播放，但**不卸载**，缓冲还在。 */
     active?: boolean
+    /**
+     * 后台预载当前素材（不必看得见）。
+     *
+     * 加载页要先把大厅那几十 MB 的 CG 暖好：进度条画在首页上，进大厅时已经能播，
+     * 不会先闪一帧错尺寸再跳回来。和 `active` 拆开——暖的时候只缓冲，不播放。
+     */
+    warm?: boolean
+    /**
+     * 要不要自己画底部进度条。
+     *
+     * 大厅不需要：进厅前应在首页暖完。加载页若进度反映的是自己那层素材，用这个；
+     * 若进度其实在反映另一层（首页条看大厅 CG），由外壳接 `loadProgress` 自己画。
+     */
+    showProgress?: boolean
+    /**
+     * 量尺寸之前先按哪种方式铺。
+     *
+     * 大厅是 `center`：没 metadata 时若没有任何 data-fit，浏览器会按原始像素乱画一帧，
+     * 看起来像放大/发糊。加载图留给 measure 事后写 wide/tall。
+     */
+    defaultFit?: 'center'
   }>(),
-  { active: true },
+  { active: true, warm: false, showProgress: false },
 )
+
+const emit = defineEmits<{
+  /** 当前素材的就绪程度；外壳可拿去画在别的层上（比如首页条看大厅 CG）。 */
+  loadProgress: [state: { pct: number | null; show: boolean }]
+}>()
 
 const root = ref<HTMLElement | null>(null)
 
@@ -36,7 +62,7 @@ const root = ref<HTMLElement | null>(null)
  * - 去内容页之后这一层整个看不见了，还在后台解码几十 MB 纯属白烧
  *
  * 关键是**暂停而不是卸载**：元素留在 DOM 里，缓冲和解码器状态都还在，切回来是
- * 立刻接着播，不是从头下载。
+ * 立刻接着播，不是从头下载。`warm` 只预载不播放，也走暂停。
  */
 function syncPlayback(): void {
   const videos = root.value?.querySelectorAll<HTMLVideoElement>('video[data-theme-stage]')
@@ -50,10 +76,10 @@ watch(() => [props.index, props.active, props.items.length], () => void nextTick
   immediate: true,
 })
 
-/* ── 底部进度条 ─────────────────────────────────────────
+/* ── 加载进度 ─────────────────────────────────────────
  *
- * 刚进大厅时那个几十 MB 的 CG 还在下，屏幕上要么是 poster 要么是空的，而界面看上去
- * 已经好了——人不知道是在加载还是坏了。给一条会走的线。
+ * 刻度给调用方（自己画条，或外壳画在另一层）。大厅不画条；首页可以画自己的，
+ * 也可以画大厅 CG 的——那才是「打开应用先进首页、条子在首页」该有的样子。
  */
 
 /** 0–1；`null` 表示进度不可知，条子改走来回扫的样子。 */
@@ -68,6 +94,11 @@ let fading = 0
 function currentMedia(): HTMLImageElement | HTMLVideoElement | null {
   const all = root.value?.querySelectorAll<HTMLImageElement | HTMLVideoElement>('[data-theme-stage]')
   return all?.[props.index] ?? null
+}
+
+/** 正在预载或正在展示时，才有「加载中」可言。 */
+function tracking(): boolean {
+  return props.active || props.warm
 }
 
 /**
@@ -95,18 +126,29 @@ function readiness(el: HTMLImageElement | HTMLVideoElement): number | null {
   return Math.min(Math.max(stage, buffered), 1)
 }
 
+function publish(): void {
+  emit('loadProgress', { pct: pct.value, show: showBar.value })
+}
+
 function refresh(): void {
   const el = currentMedia()
-  const at = props.active && el ? readiness(el) : 1
+  const at = tracking() && el ? readiness(el) : 1
 
   if (at === 1) {
     window.clearTimeout(arming)
     arming = 0
-    if (!showBar.value) return
+    if (!showBar.value) {
+      publish()
+      return
+    }
     // 先走满再退场，不然会在半路凭空消失
     pct.value = 1
     window.clearTimeout(fading)
-    fading = window.setTimeout(() => (showBar.value = false), 420)
+    fading = window.setTimeout(() => {
+      showBar.value = false
+      publish()
+    }, 420)
+    publish()
     return
   }
 
@@ -114,24 +156,38 @@ function refresh(): void {
   fading = 0
   pct.value = at
 
-  if (showBar.value || arming) return
+  if (showBar.value || arming) {
+    publish()
+    return
+  }
   arming = window.setTimeout(() => {
     arming = 0
     const now = currentMedia()
-    if (props.active && now && readiness(now) !== 1) showBar.value = true
+    if (tracking() && now && readiness(now) !== 1) {
+      showBar.value = true
+      publish()
+    }
   }, 150)
+  publish()
 }
 
-// 换张图、或这一层重新可见时，事件可能早就发过了（缓存命中就一个都不发），
+// 换张图、或这一层开始暖/可见时，事件可能早就发过了（缓存命中就一个都不发），
 // 所以直接照元素当下的状态重算一遍
-watch(() => [props.index, props.active, props.items.length], () => void nextTick(refresh), {
-  immediate: true,
-})
+watch(
+  () => [props.index, props.active, props.warm, props.items.length],
+  () => void nextTick(refresh),
+  { immediate: true },
+)
 
 onUnmounted(() => {
   window.clearTimeout(arming)
   window.clearTimeout(fading)
 })
+
+function onMeasured(el: HTMLImageElement | HTMLVideoElement): void {
+  props.measure(el)
+  refresh()
+}
 </script>
 
 <template>
@@ -146,21 +202,21 @@ onUnmounted(() => {
         记忆大厅一个几十 MB，首帧要等好一会儿。`poster` 是创意工坊条目自带的预览图，
         几百 KB，先顶上去，视频就位了浏览器自己换掉——不给的话这段时间是一片空白。
 
-        `preload` 只在**这一层看得见、且是当前那张**时才给 auto。少了 `active` 这个
-        条件，加载页刚打开就会去全量缓冲大厅的那个几十 MB 视频，而用户此刻在看的是
-        加载图——整个应用的资源加载都被它拖慢，为的是一屏还没打开的东西。
+        `preload=auto` 在「看得见」或「后台暖着」且是当前张时打开。加载页暖大厅 CG，
+        进度条画在首页；进大厅时缓冲多半已经够了。
       -->
       <video
         v-if="item.media === 'video'"
         data-theme-stage
         class="stage__media"
+        :data-fit="defaultFit"
         :src="item.url"
         :poster="item.poster"
-        :preload="active && at === index ? 'auto' : 'metadata'"
+        :preload="(active || warm) && at === index ? 'auto' : 'metadata'"
         loop
         muted
         playsinline
-        @loadedmetadata="measure($event.target as HTMLVideoElement), refresh()"
+        @loadedmetadata="onMeasured($event.target as HTMLVideoElement)"
         @progress="refresh"
         @loadeddata="refresh"
         @canplay="refresh"
@@ -170,19 +226,20 @@ onUnmounted(() => {
         v-else
         data-theme-stage
         class="stage__media"
+        :data-fit="defaultFit"
         :src="item.url"
         alt=""
         decoding="async"
-        @load="measure($event.target as HTMLImageElement), refresh()"
+        @load="onMeasured($event.target as HTMLImageElement)"
       />
     </div>
 
     <!-- 顶底压暗：浮层上的字要在任何画面上都读得清 -->
     <div class="stage__scrim" aria-hidden="true" />
 
-    <!-- 素材还没就位时贴在最底下的一条线；颜色由主题给 -->
+    <!-- 只要自己这层的进度；跨层的条子由外壳画 -->
     <div
-      v-if="showBar"
+      v-if="showProgress && showBar"
       class="stage__bar"
       :class="{ 'stage__bar--wait': pct === null, 'stage__bar--done': pct === 1 }"
       aria-hidden="true"
@@ -219,10 +276,17 @@ onUnmounted(() => {
  *
  * 之前是 `min-width: 100%` 配 `object-fit: cover` 想一招通吃，结果 tall 那种情况下
  * 元素被强行拉到窗口宽、cover 再裁着填满——那就是**画面被放大**的由来。
+ *
+ * 还没 data-fit 的帧不画：否则浏览器按原始像素先糊一屏，metadata 到了再跳到 cover。
  */
 .stage__media {
   position: absolute;
   max-width: none;
+  opacity: 0;
+}
+
+.stage__media[data-fit] {
+  opacity: 1;
 }
 
 .stage__media[data-fit='wide'] {
@@ -297,6 +361,7 @@ onUnmounted(() => {
   overflow: hidden;
   background: rgba(9, 26, 44, 0.34);
   transition: opacity var(--duration-normal) ease;
+  z-index: 2;
 }
 
 .stage__bar--done {

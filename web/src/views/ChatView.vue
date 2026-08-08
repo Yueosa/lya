@@ -69,6 +69,7 @@ function toggleSession(): void {
             :items="displayTimeline"
             :timeline-offset="timelineOffset"
             :motion-ready="sessionEnterMotion"
+            :defer-heavy="!timelineReady || sessionEnterMotion"
           />
         </div>
       </div>

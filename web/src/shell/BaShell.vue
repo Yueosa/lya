@@ -78,6 +78,14 @@ const atLobby = computed(() => props.view === 'home' && landing.value === 'lobby
 const boot = useThemeStage({ theme: 'ba', kind: 'home', autoMs: 9000, shuffle: true })
 const cg = useThemeStage({ theme: 'ba', kind: 'cg', remember: true, pan: false })
 
+/**
+ * 大厅 CG 的加载进度——画在**首页**底边，不画在大厅里。
+ *
+ * 打开主题先进加载页；那几十 MB 的视频在后台暖着，条子告诉你还在读盘。
+ * 暖好再进大厅，就不会先闪一帧错尺寸。大厅本身不再挂进度条。
+ */
+const cgLoad = ref<{ pct: number | null; show: boolean }>({ pct: 0, show: false })
+
 /** lya 现在在做什么。 */
 const status = computed(() => {
   const model = defaultModel.value?.name ?? '未配置模型'
@@ -126,9 +134,14 @@ function go(view: View): void {
   emit('navigate', view)
 }
 
-/** 从内容页回落地：回大厅而不是加载页——加载页是「刚打开」才该看到的。 */
+/**
+ * 从内容页回落地：回加载页，不直接进大厅。
+ *
+ * 切到 BA 时人往往还停在设置等页；这时大厅 CG 还没暖。直接回大厅会先闪错尺寸，
+ * 进度条也画在加载页上——先回首页把条子走完，再点字标进厅。
+ */
 function backToLanding(): void {
-  landing.value = 'lobby'
+  landing.value = 'boot'
   emit('navigate', 'home')
 }
 
@@ -198,12 +211,25 @@ function subtitle(session: SessionMeta): string {
         :active="atBoot"
       />
     </div>
-    <div v-show="atLobby" class="ba__layer" data-layer="cg">
+    <!--
+      大厅层在加载页阶段就挂着并 warm：预载当前 CG，进度经 loadProgress 画到首页底边。
+      不能用 v-show（display:none）——隐藏时浏览器会停掉预载，条子永远走不动。
+      用 visibility 藏起来，缓冲照常进行；active 仍只在大厅为真，暖的时候不播放。
+    -->
+    <div
+      class="ba__layer"
+      data-layer="cg"
+      :class="{ 'ba__layer--veil': !atLobby }"
+      :aria-hidden="!atLobby"
+    >
       <ThemeStage
         :items="cg.items.value"
         :index="cg.index.value"
         :measure="cg.measure"
         :active="atLobby"
+        :warm="atBoot || atLobby"
+        default-fit="center"
+        @load-progress="cgLoad = $event"
       />
     </div>
 
@@ -218,6 +244,19 @@ function subtitle(session: SessionMeta): string {
         <p v-if="!boot.items.value.length && !boot.loading.value" class="ba__empty">
           把加载图放进 <code>{{ boot.dir.value }}</code>，点字标进入大厅
         </p>
+
+        <!-- 条子看的是大厅 CG，不是加载图——加载图通常很小，要等的是进厅那支视频 -->
+        <div
+          v-if="cgLoad.show"
+          class="ba__boot-bar"
+          :class="{ 'ba__boot-bar--wait': cgLoad.pct === null, 'ba__boot-bar--done': cgLoad.pct === 1 }"
+          aria-hidden="true"
+        >
+          <div
+            class="ba__boot-fill"
+            :style="cgLoad.pct === null ? undefined : { transform: `scaleX(${cgLoad.pct})` }"
+          />
+        </div>
       </div>
     </template>
 
@@ -323,7 +362,7 @@ function subtitle(session: SessionMeta): string {
         多一条通栏 header 会把两栏从顶上切断，Momotalk 的左栏是**顶到天**的。
       -->
       <header v-if="!atChat" class="ba__bar">
-        <button class="ba__back" type="button" @click="backToLanding">‹ 大厅</button>
+        <button class="ba__back" type="button" @click="backToLanding">‹ 首页</button>
         <BaLogo class="ba__logo--sm" left="lya" right="Archive" />
       </header>
 
@@ -332,7 +371,7 @@ function subtitle(session: SessionMeta): string {
         <aside v-if="atChat" class="ba__roster">
           <!-- 返回与字标就是这一栏的表头，不另起标题 -->
           <div class="ba__roster-head">
-            <button class="ba__back ba__back--tight" type="button" v-tip="'回大厅'" @click="backToLanding">
+            <button class="ba__back ba__back--tight" type="button" v-tip="'回首页'" @click="backToLanding">
               ‹
             </button>
             <BaLogo class="ba__logo--sm" left="lya" right="Archive" />
@@ -406,6 +445,12 @@ function subtitle(session: SessionMeta): string {
   z-index: 0;
 }
 
+/* 看不见，但别 display:none——加载页要靠这层继续预载大厅视频 */
+.ba__layer--veil {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .ba {
   position: relative;
   display: flex;
@@ -424,6 +469,57 @@ function subtitle(session: SessionMeta): string {
   flex-direction: column;
   gap: 14px;
   padding: 20px 24px;
+}
+
+/* 首页底边：跟的是大厅 CG 的预载，不是加载图 */
+.ba__boot-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  overflow: hidden;
+  background: rgba(9, 26, 44, 0.45);
+  transition: opacity var(--duration-normal) ease;
+  pointer-events: none;
+}
+
+.ba__boot-bar--done {
+  opacity: 0;
+}
+
+.ba__boot-fill {
+  width: 100%;
+  height: 100%;
+  transform: scaleX(0);
+  transform-origin: left center;
+  /* 金黄：天蓝在这套皮里是「可点」，进度条不能点；见 ba.css --local-ba-gold */
+  background: var(--local-ba-gold);
+  transition: transform 240ms ease;
+}
+
+.ba__boot-bar--wait .ba__boot-fill {
+  width: 30%;
+  transform: none;
+  transition: none;
+  animation: ba-boot-wait 1.1s ease-in-out infinite;
+}
+
+@keyframes ba-boot-wait {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(333%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ba__boot-bar--wait .ba__boot-fill {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
 }
 
 /* 字标本身就是按钮，不要 hover 底块——它是一块招牌，不是一个控件 */

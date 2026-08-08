@@ -49,9 +49,11 @@ const props = withDefaults(
   items: TimelineItem[]
   timelineOffset?: number
   motionReady?: boolean
+  /** 进场期间压住 mermaid/公式，避免异步换 DOM 跟滑入抢布局 */
+  deferHeavy?: boolean
   editing: { id: number; text: string } | null
 }>(),
-  { timelineOffset: 0, motionReady: true },
+  { timelineOffset: 0, motionReady: true, deferHeavy: false },
 )
 
 const timelineBase = computed(() => props.timelineOffset ?? 0)
@@ -331,6 +333,7 @@ function onEditKey(event: KeyboardEvent): void {
                 :text="block.text"
                 :raw="isRaw(item.message.id)"
                 :streaming="item.message.status === 'streaming'"
+                :defer-heavy="deferHeavy"
               />
               <span v-if="item.message.status === 'streaming'" class="chat__caret" />
             </div>
