@@ -37,12 +37,6 @@ describe('renderMarkdown', () => {
     expect(html).toMatch(/<li>✅ a<\/li>\s*<li>✅ b<\/li>/)
   })
 
-  it('不把中文里的波浪号当删除线', () => {
-    // 中文里 ~ 用得很随意，误判成删除线会让正文莫名其妙缺一块
-    const html = renderMarkdown('这样~那样~就好了')
-    expect(html).not.toContain('<del>')
-  })
-
   it('挡住脚本注入', () => {
     // 正文是模型生成的，而模型读过的网页里可能藏着东西。这个页面手里有图片
     // 令牌、能调所有本地接口，一次 XSS 的代价不小
@@ -244,5 +238,72 @@ describe('数学公式', () => {
     const html = renderMarkdown('先看 $$a+b 然后还有很多话要说')
     expect(html).not.toContain(MATH_CLASS)
     expect(html).toContain('然后还有很多话要说')
+  })
+})
+
+/**
+ * 波浪号与尖号：删除线、下标、上标。
+ *
+ * 这一组的难点全在中文里 `~` 是个语气符号。GFM 的删除线单个波浪号也认，于是「这样~那样~就
+ * 好了」会被当成删除线，正文里莫名其妙缺一块——读的人不会想到是渲染问题。先前的处理是把删除
+ * 线整个关掉，但那连没有歧义的 `~~这样~~` 也一起关了。现在按数量分开，见 model/inlineMarks.ts。
+ */
+describe('行内记号', () => {
+  it('双波浪号是删除线', () => {
+    // 报上来的 bug：这条一直渲染不出来，因为删除线被整个关掉了
+    expect(renderMarkdown('~~删除线~~')).toContain('<del>删除线</del>')
+  })
+
+  it('单波浪号包着中文时还是字', () => {
+    // 这条是关掉删除线的原因，放开双波浪号之后它必须继续成立
+    const html = renderMarkdown('这样~那样~就好了')
+    expect(html).not.toContain('<del>')
+    expect(html, '也不该变成下标').not.toContain('<sub>')
+    expect(html).toContain('这样~那样~就好了')
+  })
+
+  it('句尾的语气号原样留着', () => {
+    // 「好耶~」「等一下~~」是中文里最常见的用法，一个都不能动
+    expect(renderMarkdown('好耶~')).toContain('好耶~')
+    expect(renderMarkdown('等一下~~')).toContain('等一下~~')
+  })
+
+  it('下标和上标', () => {
+    expect(renderMarkdown('H~2~O')).toContain('H<sub>2</sub>O')
+    expect(renderMarkdown('E=mc^2^')).toContain('E=mc<sup>2</sup>')
+    expect(renderMarkdown('a~n+1~ 和 x~(i)~')).toContain('a<sub>n+1</sub>')
+  })
+
+  it('下标只认像下标的内容，中文和长串都不算', () => {
+    // 这条就是「~那样~ 不变下标」的一般化：界线画在内容上，不是画在有没有配对上
+    expect(renderMarkdown('~中文~')).not.toContain('<sub>')
+    expect(renderMarkdown('~这是一个很长的内容超过十二个字符~')).not.toContain('<sub>')
+    expect(renderMarkdown('~有 空格~')).not.toContain('<sub>')
+  })
+
+  it('删除线里面还能有别的记号', () => {
+    // 删除线的正文要再走一遍行内分词，否则里面的粗体和下标都变成原文
+    expect(renderMarkdown('~~带 **粗体** 的~~')).toContain('<del>带 <strong>粗体</strong> 的</del>')
+    expect(renderMarkdown('~~H~2~O 整段~~'), '懒匹配要吃到最后那对波浪号').toContain(
+      '<del>H<sub>2</sub>O 整段</del>',
+    )
+  })
+
+  it('公式里的尖号还是公式，不被上标抢走', () => {
+    // 上标和行内公式都盯着同一段文本，抢错了公式会变成一段带 <sup> 的碎片
+    const html = renderMarkdown('$E=mc^2$')
+    expect(html).not.toContain('<sup>')
+    expect(html).toContain('lya-math')
+  })
+
+  it('代码里的波浪号和尖号不受影响', () => {
+    expect(renderMarkdown('`H~2~O`')).toContain('<code>H~2~O</code>')
+    expect(renderMarkdown('`a^2^`')).toContain('<code>a^2^</code>')
+  })
+
+  it('转义之后是字面量', () => {
+    const html = renderMarkdown('转义 \\~2\\~ 和 \\^2\\^')
+    expect(html).not.toContain('<sub>')
+    expect(html).not.toContain('<sup>')
   })
 })

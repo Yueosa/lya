@@ -11,6 +11,7 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 
+import { inlineMarksExtension } from './inlineMarks'
 import { mathExtension } from './math'
 
 marked.use({ gfm: true, breaks: true })
@@ -18,14 +19,8 @@ marked.use({ gfm: true, breaks: true })
 // 公式只在这里分词，排版在消毒之后由 KaTeX 做，见 model/math.ts
 marked.use(mathExtension)
 
-// 关掉删除线：中文里 `~` 用得很随意，`~这样~` 会被误判成删除线
-marked.use({
-  tokenizer: {
-    del() {
-      return undefined
-    },
-  },
-})
+// 删除线、下标、上标。删除线只认双波浪号——单个波浪号在中文里是语气符号，见 model/inlineMarks.ts
+marked.use(inlineMarksExtension)
 
 /** 本地/会话媒体改写所需的信息，来自 `/api/bootstrap` 与当前会话。 */
 export interface ImageContext {
