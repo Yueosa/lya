@@ -35,8 +35,7 @@ const props = withDefaults(
     /**
      * 这段正文还会继续长。
      *
-     * 只影响画不出来的图表报不报错：写到一半的图表解析不通过是必然的，那时候
-     * 报错纯属噪音。说完了还画不出来才是真错。
+     * 图表在这期间**一律不画**，只以代码块的样子待着，见 [`renderDiagrams`]。
      */
     streaming?: boolean
   }>(),
@@ -76,17 +75,21 @@ watch(themeId, async () => {
 })
 
 /*
-  说完之后再走一遍图表。
+  说完了，这才是图表被画出来的那一下。
 
-  收尾那一刻正文往往已经不变了，光盯着 html 是等不到这一下的——于是「写坏的图表
-  要报错」永远差最后一步，页面上停在最后一次流式渲染的样子：一块没有下文的代码块。
+  流式期间 `renderDiagrams` 一概不动手（理由见那边），所以这个 watcher 不是补漏而是
+  正路。而且非它不可：收尾那一刻正文往往已经不再变了，光盯着 html 是等不到这一下的。
+
+  先 nextTick 再动手：收尾常常伴着一次正文替换（运行缓冲换成落库的那条消息），那会
+  重新走一遍 v-html。不等它落地就画，画完立刻被整段 DOM 覆盖掉，白画一次。
 */
 watch(
   () => props.streaming,
   async (now, before) => {
     if (props.raw || now || !before || !root.value) return
     const mine = ++generation
-    await renderDiagrams(root.value, mine)
+    await nextTick()
+    if (root.value && generation === mine) await renderDiagrams(root.value, mine)
   },
 )
 
@@ -128,10 +131,22 @@ function highlightCode(container: HTMLElement): void {
 /**
  * 把 mermaid 代码块换成图。
  *
- * 渲染不成就原样留着当代码块——流式输出时源码必然有半截的一刻，那不是错误。
- * 但话说完了还画不出来就是真错，那时候把原因摆在代码块下面：模型很爱写
- * `A[启动(初始化)]` 这种方括号里塞圆括号的写法，而它在 mermaid 里是语法错。
- * 不说的话，看的人只会以为图表功能坏了。
+ * # 说完了才画
+ *
+ * 流式期间一张都不画。这不只是省开销，更是因为**边写边画是错的**：半截的流程图往往
+ * 是合法 mermaid（`graph TD` 加一条边就能解析），于是每来一个 delta 就画出一张不完整
+ * 的图；而 `html` 是 computed，`v-html` 每次把整段 DOM 换掉，刚画好的那张又变回代码块
+ * 再被画一遍。实测一条 612 字、三张图的回复，图表元素被插进页面 **189 次**（该是 3 次），
+ * 主线程比同样长的纯文字多忙 842ms，其中 30 个 delta 单独就超过一帧——看上去就是三块
+ * 东西在那儿疯狂闪。
+ *
+ * 所以流式期间源码就以代码块的样子逐行长出来，等 `streaming` 翻成 false 的那个 watcher
+ * 再来画一次。
+ *
+ * # 画不出来怎么办
+ *
+ * 原样留着当代码块，并把原因摆在下面：模型很爱写 `A[启动(初始化)]` 这种方括号里塞圆
+ * 括号的写法，而它在 mermaid 里是语法错。不说的话，看的人只会以为图表功能坏了。
  */
 async function renderDiagrams(container: HTMLElement, mine: number): Promise<void> {
   const blocks = Array.from(
@@ -139,12 +154,19 @@ async function renderDiagrams(container: HTMLElement, mine: number): Promise<voi
   )
   if (blocks.length === 0) return
 
+  if (props.streaming) {
+    // 这期间不画，但可以先把那个上百万字节的大件拉下来：正文还在长，这几秒本来是闲的,
+    // 不占就得等说完之后再等一次下载，代码块要在那里多停一会儿
+    void import('../ui/mermaid')
+    return
+  }
+
   let mermaid: typeof import('../ui/mermaid')
   try {
     mermaid = await import('../ui/mermaid')
   } catch (err) {
     // 整个组件都没加载起来，这一屏的图一张都画不出来，更该说清楚
-    if (!props.streaming && generation === mine) {
+    if (generation === mine) {
       for (const block of blocks) noteFailure(block, `图表组件加载失败：${String(err)}`)
     }
     return
@@ -158,7 +180,6 @@ async function renderDiagrams(container: HTMLElement, mine: number): Promise<voi
     if (generation !== mine) return
 
     if (!svg) {
-      if (props.streaming) continue
       const why = await mermaid.explainDiagram(source, themeId.value)
       if (generation !== mine) return
       noteFailure(block, why)

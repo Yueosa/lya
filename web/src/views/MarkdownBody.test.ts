@@ -77,6 +77,48 @@ describe('MarkdownBody', () => {
     vi.doUnmock('../ui/mermaid')
   })
 
+  it('还在输出时一次都不去渲染图表，说完了才画', async () => {
+    /*
+      边写边画是错的，不只是慢：半截的流程图往往是合法 mermaid（`graph TD` 加一条边
+      就能解析），于是每个 delta 都画出一张不完整的图；而 html 是 computed，v-html 每次
+      把整段 DOM 换掉，刚画好的又变回代码块再被画一遍。实测一条 612 字、三张图的回复
+      要往页面上插 189 次图表元素（该是 3 次），看上去就是三块东西在疯狂闪。
+
+      测的是「有没有去调 renderDiagram」而不是「页面上有没有图」。后者在 jsdom 里恒为
+      「没有」——没有 getBBox，真的 mermaid 到布局那步一定倒——那样写出来的断言在缺陷
+      版本下同样是绿的，等于没测。所以这里换成假的 mermaid：它一定成功，于是「画了」
+      和「没画」才区分得开。
+    */
+    vi.resetModules()
+    const renderDiagram = vi.fn().mockResolvedValue('<svg viewBox="0 0 10 10"></svg>')
+    const explainDiagram = vi.fn().mockResolvedValue('不该问到这一句')
+    vi.doMock('../ui/mermaid', () => ({ renderDiagram, explainDiagram }))
+
+    const source = '```mermaid\ngraph TD\n    A[开始] --> B[结束]\n```'
+    const wrapper = mount(MarkdownBody, { props: { text: '', streaming: true } })
+
+    for (let at = 8; at <= source.length; at += 6) {
+      await wrapper.setProps({ text: source.slice(0, at) })
+      await flushPromises()
+    }
+    expect(renderDiagram, '流式期间一次都不该去渲染').not.toHaveBeenCalled()
+    expect(wrapper.find('.lya-diagram').exists()).toBe(false)
+
+    // 代码块得留在那儿——用户看到的是源码逐行长出来，而不是一块空白
+    expect(wrapper.find('pre code.language-mermaid').exists()).toBe(true)
+    expect(wrapper.text()).toContain('A[开始]')
+
+    // 另一半：说完之后必须真的去画。少了这句，把 renderDiagrams 改成直接 return 也是绿的
+    await wrapper.setProps({ streaming: false })
+    await vi.waitFor(() => expect(wrapper.find('.lya-diagram').exists()).toBe(true), {
+      timeout: 5000,
+    })
+    expect(renderDiagram, '整段只该画这一次').toHaveBeenCalledTimes(1)
+
+    vi.doUnmock('../ui/mermaid')
+    vi.resetModules()
+  })
+
   it('话说完了还画不出来的图表，要说明原因', async () => {
     // 模型很爱写 `A[启动(初始化)]`——方括号里塞圆括号在 mermaid 里是语法错。
     // 不说的话页面上只剩一块代码块，看的人分不清是这张图写坏了还是功能坏了
