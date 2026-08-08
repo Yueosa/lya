@@ -9,21 +9,22 @@ import { computed, onMounted, ref, watch } from 'vue'
 
 import type { SessionMeta } from '../api/wire'
 import {
+  archiveSession,
+  deleteSession,
+  renameSession,
+  unarchiveSession,
+} from '../app/sessionActions'
+import {
   archivedSessions,
   createSession,
   currentId,
   models,
   openSession,
   refreshSessions,
-  removeSession,
-  rename,
   sessions,
   sessionsLoading,
-  setArchived,
 } from '../app/useChat'
 import { useArchiveDock } from '../shell/useArchiveDock'
-import { confirm, confirmAsync, prompt } from '../ui/useDialog'
-import { toast } from '../ui/useToast'
 
 const emit = defineEmits<{ opened: [] }>()
 
@@ -99,56 +100,21 @@ async function startNew(): Promise<void> {
   emit('opened')
 }
 
-async function renameSelected(): Promise<void> {
-  const session = selected.value
-  if (!session) return
-  const title = await prompt({ title: '重命名会话', initial: session.title })
-  if (title === null || !title.trim()) return
-  try {
-    await rename(session.id, title.trim())
-    toast('已重命名', 'success')
-  } catch {
-    toast('重命名失败', 'error')
-  }
-}
+/*
+  底部那排按钮作用在选中项上。
 
-async function archiveSelected(): Promise<void> {
-  const session = selected.value
-  if (!session || session.status !== 'active') return
-  const ok = await confirm({
-    title: '归档这个会话？',
-    message: '归档之后它从活跃列表里收起来，仍然可以回看，但不能再发消息。',
-  })
-  if (!ok) return
-  try {
-    await setArchived(session.id, true)
-    toast('已归档', 'success')
-  } catch {
-    toast('归档失败', 'error')
-  }
-}
+  每个动作本身（问什么、成功说什么、失败说什么）在 `app/sessionActions.ts`，和右键菜单
+  共用一份——这四个动作原先两边各写一遍，措辞已经走偏了八处。这里只负责「作用在哪一条」。
 
-async function unarchiveSelected(): Promise<void> {
+  状态那道判断留着：按钮是 disabled 的，但键盘和辅助技术不一定认那个属性。
+*/
+function onSelected(
+  act: (session: SessionMeta) => Promise<void>,
+  when?: SessionMeta['status'],
+): void {
   const session = selected.value
-  if (!session || session.status !== 'archived') return
-  try {
-    await setArchived(session.id, false)
-    toast('已取消归档', 'success')
-  } catch {
-    toast('取消归档失败', 'error')
-  }
-}
-
-async function deleteSelected(): Promise<void> {
-  const session = selected.value
-  if (!session) return
-  await confirmAsync({
-    title: `删除「${session.title || '未命名会话'}」？`,
-    message: '连同全部消息一起从库里去掉，不可恢复。只想收起来的话用「归档」。',
-    confirmText: '删除',
-    danger: true,
-    run: () => removeSession(session.id),
-  })
+  if (!session || (when && session.status !== when)) return
+  void act(session)
 }
 </script>
 
@@ -227,7 +193,11 @@ async function deleteSelected(): Promise<void> {
         <button class="btn btn--lg sessions__action" :disabled="!selected" @click="enter">
           进入
         </button>
-        <button class="btn btn--lg sessions__action" :disabled="!selected" @click="renameSelected">
+        <button
+          class="btn btn--lg sessions__action"
+          :disabled="!selected"
+          @click="onSelected(renameSession)"
+        >
           重命名
         </button>
         <button class="btn btn--lg sessions__action" @click="startNew">新建</button>
@@ -236,21 +206,21 @@ async function deleteSelected(): Promise<void> {
         <button
           class="btn btn--lg sessions__action"
           :disabled="!selected || selected.status !== 'active'"
-          @click="archiveSelected"
+          @click="onSelected(archiveSession, 'active')"
         >
           归档
         </button>
         <button
           class="btn btn--lg sessions__action"
           :disabled="!selected || selected.status !== 'archived'"
-          @click="unarchiveSelected"
+          @click="onSelected(unarchiveSession, 'archived')"
         >
           取消归档
         </button>
         <button
           class="btn btn--lg sessions__action btn--danger"
           :disabled="!selected"
-          @click="deleteSelected"
+          @click="onSelected(deleteSession)"
         >
           删除
         </button>

@@ -14,11 +14,13 @@
  * 一遍，看它到底能去哪。**
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
+
+import { sourcesIn } from '../testing/sources'
 
 import { vTip } from '../ui/vTip'
 import { THEMES } from '../themes'
@@ -92,27 +94,14 @@ describe('外壳导航完整性', () => {
 describe('列了会话的地方都列了归档', () => {
   it('遍历 sessions 的文件都用了 useArchiveDock', () => {
     // 不写死文件名单：新外壳一样会遍历会话，也一样会漏掉归档
-    const offenders: string[] = []
-    for (const dir of ['shell', 'views']) {
-      for (const path of listSources(resolve(process.cwd(), 'src', dir))) {
-        const src = readFileSync(path, 'utf8')
-        if (!/v-for="[^"]*\bin (?:active)?[sS]essions\b/.test(src)) continue
-        if (/useArchiveDock/.test(src)) continue
-        offenders.push(path.slice(path.indexOf('/src/') + 1))
-      }
-    }
+    const offenders = sourcesIn('shell', 'views')
+      .filter(({ src }) => /v-for="[^"]*\bin (?:active)?[sS]essions\b/.test(src))
+      .filter(({ src }) => !/useArchiveDock/.test(src))
+      .map(({ path }) => path)
+
     expect(offenders, '这些地方列了会话却没列归档，归档会在这里凭空消失').toEqual([])
   })
 })
-
-function listSources(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    const path = resolve(dir, entry)
-    if (statSync(path).isDirectory()) listSources(path, out)
-    else if (/\.(vue|ts)$/.test(entry) && !entry.endsWith('.test.ts')) out.push(path)
-  }
-  return out
-}
 
 /**
  * 装视图的那一格要自己定位。
