@@ -17,7 +17,7 @@ export const imageContext = computed<ImageContext | null>(() => {
 export async function bootstrap(): Promise<void> {
   try {
     const info = await client.bootstrap()
-    if (info.home) imageBootstrap.value = { token: info.image_token, home: info.home }
+    setImageBootstrap(info.image_token, info.home)
     if (info.default_model_id) {
       defaultModel.value = {
         id: info.default_model_id,
@@ -29,6 +29,20 @@ export async function bootstrap(): Promise<void> {
   } catch {
     toast('拿不到图片令牌，本地图片将无法显示', 'error')
   }
+}
+
+/**
+ * 只在**令牌真的变了**时才换对象。
+ *
+ * `imageBootstrap` 是 `imageContext` 的来源，而 `MarkdownBody` 的 `html` 依赖
+ * `imageContext`。无脑赋一个新对象就会让整段正文重渲染、图片重新请求；如果那张图本来
+ * 就 404，失败又会来刷一次令牌——一张坏图足够把界面卷进死循环，实测每 140ms 一轮。
+ */
+function setImageBootstrap(token: string, home: string | null): void {
+  if (!home) return
+  const now = imageBootstrap.value
+  if (now?.token === token && now.home === home) return
+  imageBootstrap.value = { token, home }
 }
 
 /** 正在进行的令牌刷新；同一批媒体一起报错时只握手一次。 */
@@ -47,7 +61,7 @@ export async function refreshImageToken(): Promise<string | null> {
   tokenRefresh ??= (async () => {
     try {
       const info = await client.bootstrap()
-      if (info.home) imageBootstrap.value = { token: info.image_token, home: info.home }
+      setImageBootstrap(info.image_token, info.home)
       return info.image_token
     } catch {
       return null
