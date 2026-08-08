@@ -11,8 +11,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import type { Memory } from '../api/client'
-import { archivedSessions, client, models, sessions } from '../app/useChat'
+import { ensureMemories, memories as memoryList } from '../app/useMemories'
+import { archivedSessions, models, sessions } from '../app/useChat'
 import {
   buildSplashLines,
   menuFootLeft,
@@ -24,7 +24,7 @@ import { NAV_ITEMS, type ShellProps, type View } from './types'
 defineProps<ShellProps>()
 const emit = defineEmits<{ navigate: [view: View] }>()
 
-const memories = ref<Memory[]>([])
+const memories = memoryList.items
 const splash = ref('Also try 新的对话！')
 let splashTimer: ReturnType<typeof setInterval> | undefined
 
@@ -69,11 +69,7 @@ function rollSplash(): void {
 }
 
 onMounted(async () => {
-  try {
-    memories.value = await client.memories()
-  } catch {
-    memories.value = []
-  }
+  void ensureMemories()
   rollSplash()
   splashTimer = setInterval(rollSplash, 10_000)
 })

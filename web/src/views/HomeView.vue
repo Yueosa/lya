@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 
-import type { Memory } from '../api/client'
-import { archivedSessions, client, models, sessions } from '../app/useChat'
+import { ensureMemories, memories as memoryList } from '../app/useMemories'
+import { archivedSessions, models, sessions } from '../app/useChat'
 import { setSidebarCollapsed, sidebarCollapsed } from '../app/useShell'
 import BaLogo from '../ui/BaLogo.vue'
 import Icon from '../ui/Icon.vue'
@@ -39,7 +39,7 @@ const BOX_GAP = 2.4
 const MAX_VISIBLE = 16
 const SPAWN_INTERVAL_MS = 700
 
-const memories = ref<Memory[]>([])
+const memories = memoryList.items
 const active = ref<ActiveFloat[]>([])
 let keySeq = 0
 let spawnTimer: number | null = null
@@ -47,11 +47,8 @@ let timers: number[] = []
 
 onMounted(async () => {
   setSidebarCollapsed(true)
-  try {
-    memories.value = await client.memories()
-  } catch {
-    memories.value = []
-  }
+  // 共享列表：记忆页刚增删过的话这儿已经是新的，也不会再多发一次请求
+  void ensureMemories()
   primeFloats()
   spawnTimer = window.setInterval(tickSpawn, SPAWN_INTERVAL_MS)
 })

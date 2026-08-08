@@ -9,7 +9,7 @@
 import { onMounted, ref } from 'vue'
 
 import { errorText, type UsageReport } from '../api/client'
-import { client } from '../app/useChat'
+import { client } from '../app/client'
 import StorageBreakdown from '../ui/StorageBreakdown.vue'
 import ViewHead from '../ui/ViewHead.vue'
 

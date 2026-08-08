@@ -6,6 +6,7 @@
 -->
 
 <script setup lang="ts">
+import { client } from './client'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { shellFor } from '../shell/registry'
@@ -26,7 +27,6 @@ import SessionsView from '../views/SessionsView.vue'
 import {
   archivedSessions,
   bootstrap,
-  client,
   currentId,
   hydrating,
   loadModels,

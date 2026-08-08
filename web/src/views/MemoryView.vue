@@ -1,22 +1,35 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
-import { report } from '../app/errors'
-import { client } from '../app/useChat'
 import type { Memory, MemoryHit } from '../api/client'
+import {
+  createMemory,
+  deleteMemory,
+  ensureMemories,
+  fetchMemory,
+  memories,
+  reloadMemories,
+  searchMemories,
+  updateMemory,
+} from '../app/useMemories'
 import { confirmAsync, prompt } from '../ui/useDialog'
 import { toast } from '../ui/useToast'
 import ViewHead from '../ui/ViewHead.vue'
 
-const items = ref<Memory[]>([])
+// 列表是共享的：首页和 Minecraft 主菜单也拿它当装饰，这里增删改会顺手更新那份
+const items = memories.items
+const loadError = memories.error
+
 const hits = ref<MemoryHit[] | null>(null)
 const keyword = ref('')
-const loading = ref(false)
+const searching = ref(false)
 const selected = ref<Memory | null>(null)
 const editing = ref(false)
 const tagsDraft = ref('')
 
-onMounted(refresh)
+const loading = computed(() => memories.loading.value || searching.value)
+
+onMounted(ensureMemories)
 
 watch(keyword, (value) => {
   if (!value.trim()) {
@@ -38,16 +51,10 @@ function fieldLabel(field: string): string {
 }
 
 async function refresh(): Promise<void> {
-  loading.value = true
-  try {
-    items.value = await client.memories()
-    if (selected.value) {
-      selected.value = items.value.find((m) => m.id === selected.value!.id) ?? null
-    }
-  } catch {
-    toast('读取失败', 'error')
-  } finally {
-    loading.value = false
+  await reloadMemories()
+  // 选中的那条可能已经被别处删了，对不上就放开
+  if (selected.value) {
+    selected.value = items.value.find((m) => m.id === selected.value!.id) ?? null
   }
 }
 
@@ -57,27 +64,20 @@ async function search(): Promise<void> {
     hits.value = null
     return refresh()
   }
-  loading.value = true
-  try {
-    hits.value = await client.searchMemories(q)
-  } catch {
-    toast('搜索失败', 'error')
-  } finally {
-    loading.value = false
-  }
+  searching.value = true
+  const found = await searchMemories(q)
+  searching.value = false
+  // 搜失败返回 null，和「搜到 0 条」是两回事：前者保持原样，别把结果区变成「没找到」
+  if (found) hits.value = found
 }
 
 async function create(): Promise<void> {
   const title = await prompt({ title: '新建记忆', placeholder: '标题' })
   if (title === null || !title.trim()) return
-  try {
-    const created = await client.createMemory({ title: title.trim(), summary: '', body: '', tags: [] })
-    items.value = [created, ...items.value]
-    select(created)
-    editing.value = true
-  } catch (error) {
-    report(error, '新建')
-  }
+  const created = await createMemory(title.trim())
+  if (!created) return
+  select(created)
+  editing.value = true
 }
 
 function select(memory: Memory): void {
@@ -87,35 +87,26 @@ function select(memory: Memory): void {
 }
 
 async function selectHit(hit: MemoryHit): Promise<void> {
-  loading.value = true
-  try {
-    const full = await client.memory(hit.id)
-    select(full)
-  } catch {
-    toast('读取记忆失败', 'error')
-  } finally {
-    loading.value = false
-  }
+  searching.value = true
+  const full = await fetchMemory(hit.id)
+  searching.value = false
+  if (full) select(full)
 }
 
 async function save(): Promise<void> {
   const draft = selected.value
   if (!draft) return
-  try {
-    const updated = await client.updateMemory(draft.id, {
-      title: draft.title,
-      summary: draft.summary,
-      body: draft.body,
-      tags: parseTags(tagsDraft.value),
-    })
-    items.value = items.value.map((item) => (item.id === updated.id ? updated : item))
-    selected.value = { ...updated }
-    tagsDraft.value = updated.tags.join(', ')
-    editing.value = false
-    toast('已保存', 'success')
-  } catch (error) {
-    report(error, '保存')
-  }
+  const updated = await updateMemory(draft.id, {
+    title: draft.title,
+    summary: draft.summary,
+    body: draft.body,
+    tags: parseTags(tagsDraft.value),
+  })
+  if (!updated) return
+  selected.value = { ...updated }
+  tagsDraft.value = updated.tags.join(', ')
+  editing.value = false
+  toast('已保存', 'success')
 }
 
 async function remove(): Promise<void> {
@@ -126,9 +117,9 @@ async function remove(): Promise<void> {
     message: '不可恢复',
     confirmText: '删除',
     danger: true,
+    // 不吞异常：失败要留在确认框里，框先关掉再弹提示的话用户不确定到底删没删
     run: async () => {
-      await client.deleteMemory(memory.id)
-      items.value = items.value.filter((item) => item.id !== memory.id)
+      await deleteMemory(memory.id)
       selected.value = null
     },
   })
@@ -164,7 +155,10 @@ function parseTags(text: string): string[] {
         </div>
 
         <div class="split-view__list-scroll">
-          <p v-if="loading" class="split-view__hint">加载中…</p>
+          <!-- 读取失败就地说明，不弹提示：这一栏本来就是空的，位置正好用来说为什么，
+               弹窗几秒就飘走了，回头看到空列表也不知道是没有还是没读到 -->
+          <p v-if="loadError" class="page__error">{{ loadError }}</p>
+          <p v-else-if="loading" class="split-view__hint">加载中…</p>
           <template v-if="hits">
             <button
               v-for="hit in hits"
@@ -189,7 +183,12 @@ function parseTags(text: string): string[] {
               <span v-if="memory.tags.length" class="split-view__list-meta">{{ memory.tags.slice(0, 3).join(' · ') }}</span>
             </button>
           </template>
-          <p v-if="!loading && (hits ? hits.length === 0 : items.length === 0)" class="split-view__hint">暂无记忆</p>
+          <p
+            v-if="!loading && !loadError && (hits ? hits.length === 0 : items.length === 0)"
+            class="split-view__hint"
+          >
+            暂无记忆
+          </p>
         </div>
       </aside>
 
