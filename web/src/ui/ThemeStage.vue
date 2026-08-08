@@ -1,17 +1,18 @@
 <!--
   主题背景层：一张素材铺满窗口、缓慢平移，切换时渐变。
 
-  两处在用：首页（加载页，自动轮播 `home/`）和大厅（手动切 `cg/`）。所有素材同时挂在
-  DOM 上、靠 opacity 交替，是为了让切换真的能交叠淡入——只留当前一张的话，换的瞬间会
-  是「消失再出现」。
-
-  代价是多张视频会同时解码，所以视频只在当前那张上播放，其余暂停。
+  两处在用：首页（加载页，自动轮播 `home/`）和大厅（手动切 `cg/`）。幻灯片壳子都挂在
+  DOM 上、靠 opacity 交替淡入；**视频源只挂当前张**（淡出中的上一张多留一小会儿），
+  其余卸掉——否则多切几次解码器堆满，就会卡顿、黑屏、再也播不动。
 -->
 
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import type { StageItem } from './useThemeStage'
+
+/** 淡出时长；略长于 CSS transition，避免卸源时淡出还没走完。 */
+const FADE_MS = 1700
 
 const props = withDefaults(
   defineProps<{
@@ -40,6 +41,9 @@ const props = withDefaults(
      *
      * 大厅是 `center`：没 metadata 时若没有任何 data-fit，浏览器会按原始像素乱画一帧，
      * 看起来像放大/发糊。加载图留给 measure 事后写 wide/tall。
+     *
+     * **只在 JS 里写 dataset，不要用 `:data-fit` 绑在模板上**——Vue 重渲时会把
+     * `measure` 写好的 wide/tall 清掉，切几次之后画面就空白了。
      */
     defaultFit?: 'center'
   }>(),
@@ -54,27 +58,98 @@ const emit = defineEmits<{
 const root = ref<HTMLElement | null>(null)
 
 /**
- * 只让「当前这张、且这一层看得见」的视频播。
- *
- * 两件事都要管：
- *
- * - 同层里几个 CG 同时解码，一个 1080p 就够吃掉一个核，而用户只看得见一张
- * - 去内容页之后这一层整个看不见了，还在后台解码几十 MB 纯属白烧
- *
- * 关键是**暂停而不是卸载**：元素留在 DOM 里，缓冲和解码器状态都还在，切回来是
- * 立刻接着播，不是从头下载。`warm` 只预载不播放，也走暂停。
+ * 正在淡出的那一张。交叉淡入要它暂时留着源；淡完再卸，免得解码器堆一排。
  */
-function syncPlayback(): void {
-  const videos = root.value?.querySelectorAll<HTMLVideoElement>('video[data-theme-stage]')
-  videos?.forEach((video, at) => {
-    if (props.active && at === props.index) void video.play().catch(() => {})
-    else video.pause()
+const outgoing = ref<number | null>(null)
+let releaseTimer = 0
+
+/** 当前张永远占坑（回内容页再回来还能接着缓冲）；淡出张只在可见/预载时留。 */
+function isHeld(at: number): boolean {
+  if (at === props.index) return true
+  if (outgoing.value !== null && at === outgoing.value && (props.active || props.warm)) return true
+  return false
+}
+
+const heldKey = computed(
+  () => `${props.index}:${outgoing.value ?? ''}:${props.active}:${props.warm}:${props.items.length}`,
+)
+
+/**
+ * 卸掉不该占坑的视频源。
+ *
+ * 以前所有片子都挂着 `src`，`preload` 在 auto/metadata 之间切——浏览器多半不会真的
+ * 把旧缓冲吐出来。首页/大厅多切几次就会卡死、黑屏、再也播不动。
+ * 淡出结束后 `removeAttribute('src')` + `load()` 才是把解码器还回去。
+ */
+function reclaimVideos(): void {
+  const slides = root.value?.querySelectorAll<HTMLElement>('.stage__slide')
+  slides?.forEach((slide, at) => {
+    const video = slide.querySelector('video[data-theme-stage]')
+    if (!(video instanceof HTMLVideoElement)) return
+    if (isHeld(at)) return
+    if (!video.dataset['lyaUrl'] && video.networkState === HTMLMediaElement.NETWORK_EMPTY) return
+    video.pause()
+    delete video.dataset['lyaUrl']
+    video.removeAttribute('src')
+    video.removeAttribute('poster')
+    video.load()
   })
 }
 
-watch(() => [props.index, props.active, props.items.length], () => void nextTick(syncPlayback), {
-  immediate: true,
-})
+/**
+ * 只让「当前这张、且这一层看得见」的视频播；并给该挂源的补上 src。
+ *
+ * 当前张的缓冲要留着：去内容页再回来是接着播，不是从头下。`warm` 只预载不播放。
+ */
+function syncPlayback(): void {
+  if (props.defaultFit && root.value) {
+    root.value.querySelectorAll<HTMLElement>('[data-theme-stage]').forEach((el) => {
+      if (!el.dataset['fit']) el.dataset['fit'] = props.defaultFit
+    })
+  }
+
+  const slides = root.value?.querySelectorAll<HTMLElement>('.stage__slide')
+  slides?.forEach((slide, at) => {
+    const video = slide.querySelector('video[data-theme-stage]')
+    if (!(video instanceof HTMLVideoElement)) return
+    const item = props.items[at]
+    if (!item || item.media !== 'video') return
+
+    if (isHeld(at)) {
+      const want = item.url
+      // `video.src` 会变成绝对地址，不能跟相对 path 直接比；用 dataset 记我们挂过的
+      if (video.dataset['lyaUrl'] !== want) {
+        video.dataset['lyaUrl'] = want
+        video.src = want
+        if (item.poster) video.setAttribute('poster', item.poster)
+        else video.removeAttribute('poster')
+      }
+      if (props.defaultFit && !video.dataset['fit']) video.dataset['fit'] = props.defaultFit
+      if (props.active && at === props.index) void video.play().catch(() => {})
+      else video.pause()
+    } else {
+      video.pause()
+    }
+  })
+  reclaimVideos()
+}
+
+watch(
+  () => props.index,
+  (now, was) => {
+    if (typeof was === 'number' && was !== now && (props.active || props.warm)) {
+      outgoing.value = was
+      window.clearTimeout(releaseTimer)
+      releaseTimer = window.setTimeout(() => {
+        outgoing.value = null
+        void nextTick(syncPlayback)
+      }, FADE_MS)
+    }
+  },
+)
+
+watch(heldKey, () => void nextTick(syncPlayback))
+onMounted(() => void nextTick(syncPlayback))
 
 /* ── 加载进度 ─────────────────────────────────────────
  *
@@ -182,9 +257,11 @@ watch(
 onUnmounted(() => {
   window.clearTimeout(arming)
   window.clearTimeout(fading)
+  window.clearTimeout(releaseTimer)
 })
 
 function onMeasured(el: HTMLImageElement | HTMLVideoElement): void {
+  if (props.defaultFit && !el.dataset['fit']) el.dataset['fit'] = props.defaultFit
   props.measure(el)
   refresh()
 }
@@ -199,20 +276,16 @@ function onMeasured(el: HTMLImageElement | HTMLVideoElement): void {
       :class="{ 'stage__slide--on': at === index }"
     >
       <!--
-        记忆大厅一个几十 MB，首帧要等好一会儿。`poster` 是创意工坊条目自带的预览图，
-        几百 KB，先顶上去，视频就位了浏览器自己换掉——不给的话这段时间是一片空白。
+        记忆大厅一个几十 MB，首帧要等好一会儿。`poster` 由 syncPlayback 挂上。
 
-        `preload=auto` 在「看得见」或「后台暖着」且是当前张时打开。加载页暖大厅 CG，
-        进度条画在首页；进大厅时缓冲多半已经够了。
+        视频的 src **不写在模板里**：只给当前张（和淡出中的上一张）挂源，其余
+        removeAttribute + load() 还解码器。preload 也只在持有源时才有意义。
       -->
       <video
         v-if="item.media === 'video'"
         data-theme-stage
         class="stage__media"
-        :data-fit="defaultFit"
-        :src="item.url"
-        :poster="item.poster"
-        :preload="(active || warm) && at === index ? 'auto' : 'metadata'"
+        :preload="isHeld(at) && (active || warm) && at === index ? 'auto' : isHeld(at) ? 'metadata' : 'none'"
         loop
         muted
         playsinline
@@ -226,7 +299,6 @@ function onMeasured(el: HTMLImageElement | HTMLVideoElement): void {
         v-else
         data-theme-stage
         class="stage__media"
-        :data-fit="defaultFit"
         :src="item.url"
         alt=""
         decoding="async"

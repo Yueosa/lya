@@ -83,6 +83,9 @@ const CACHE_DIRS: [(&str, &str, &str); 3] = [
     ("cache.audio", "音频", "ado_cache"),
 ];
 
+/// `~/.lya/theme/{主题}/` 下的分类目录，和主题素材 API 的 `kind` 对齐。
+const THEME_KINDS: [(&str, &str); 2] = [("home", "加载图"), ("cg", "记忆大厅")];
+
 /// 扫描 `~/.lya`（或 `data_root()`）占用。
 pub fn scan_usage() -> Result<UsageReport, StorageError> {
     let root = data_root().map_err(|err| StorageError::Invalid(err.to_string()))?;
@@ -96,8 +99,9 @@ fn scan_usage_at(root: &Path) -> Result<UsageReport, StorageError> {
 
     let (database, config) = scan_root_files(root);
     let cache = scan_cache(&root.join("sessions"));
+    let theme = scan_theme(&root.join("theme"));
 
-    let mut sections = vec![database, config, cache];
+    let mut sections = vec![database, config, cache, theme];
 
     // 「其它」是兜底项：分类规则漏掉的文件不能凭空消失，否则分类之和对不上总数，
     // 而对不上的时候没人分得清是漏扫了还是算错了。
@@ -281,6 +285,86 @@ fn scan_session_cache(sessions: &Path, cache_dir: &str, local: &mut Scan, web: &
         }
         local.scan_dir(&path.join(cache_dir).join("local"));
         web.scan_dir(&path.join(cache_dir).join("web"));
+    }
+}
+
+/// `~/.lya/theme/`：按主题 id 分，再拆加载图 / 记忆大厅。
+///
+/// BA 的 CG 动辄几十 MB，以前全掉进「其它」，存储页上看不出是主题素材。
+fn scan_theme(theme_root: &Path) -> UsageSection {
+    let mut packs: Vec<(String, std::path::PathBuf)> = Vec::new();
+    if let Ok(read) = std::fs::read_dir(theme_root) {
+        for entry in read.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            packs.push((name.to_string(), path));
+        }
+    }
+    packs.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let children: Vec<UsageSection> = packs
+        .into_iter()
+        .map(|(name, path)| scan_theme_pack(&path, &name))
+        .collect();
+
+    UsageSection {
+        usage: sum_usage(children.iter().map(|child| &child.usage)),
+        id: "theme".into(),
+        label: "主题资源".into(),
+        children: (!children.is_empty()).then_some(children),
+    }
+}
+
+fn scan_theme_pack(dir: &Path, name: &str) -> UsageSection {
+    let mut children: Vec<UsageSection> = THEME_KINDS
+        .iter()
+        .map(|(kind, label)| {
+            let mut scan = Scan::default();
+            scan.scan_dir(&dir.join(kind));
+            UsageSection {
+                id: format!("theme.{name}.{kind}"),
+                label: (*label).into(),
+                usage: scan.finish(),
+                children: None,
+            }
+        })
+        .collect();
+
+    // 主题目录里若还有不在 home/cg 下的散文件，不能让它们滑回顶层「其它」
+    let mut whole = Scan::default();
+    whole.scan_dir(dir);
+    let pack = whole.finish();
+    let counted = sum_usage(children.iter().map(|child| &child.usage));
+    if pack.physical_bytes > counted.physical_bytes {
+        children.push(UsageSection {
+            id: format!("theme.{name}.other"),
+            label: "其它".into(),
+            usage: DiskUsage {
+                logical_bytes: pack.logical_bytes.saturating_sub(counted.logical_bytes),
+                physical_bytes: pack.physical_bytes - counted.physical_bytes,
+                reclaimable_bytes: pack
+                    .reclaimable_bytes
+                    .saturating_sub(counted.reclaimable_bytes),
+                shared_bytes: pack.shared_bytes.saturating_sub(counted.shared_bytes),
+                file_count: pack.file_count.saturating_sub(counted.file_count),
+                linked_file_count: pack
+                    .linked_file_count
+                    .saturating_sub(counted.linked_file_count),
+            },
+            children: None,
+        });
+    }
+
+    UsageSection {
+        usage: pack,
+        id: format!("theme.{name}"),
+        label: name.into(),
+        children: Some(children),
     }
 }
 
@@ -474,7 +558,8 @@ mod tests {
         let report = scan_usage_at(root).unwrap();
 
         assert_eq!(report.usage.physical_bytes, 100 + 50 + 7 + 20 + 10 + 30);
-        assert_eq!(report.sections.len(), 3);
+        // 数据库 / 配置 / 缓存 / 主题资源（空也占一位，免得前端要特判缺项）
+        assert_eq!(report.sections.len(), 4);
 
         let database = &report.sections[0];
         assert_eq!(database.id, "database");
@@ -490,6 +575,8 @@ mod tests {
         let cache = &report.sections[2];
         assert_eq!(cache.id, "cache");
         assert_eq!(cache.usage.physical_bytes, 60);
+        assert_eq!(report.sections[3].id, "theme");
+        assert_eq!(report.sections[3].usage.physical_bytes, 0);
 
         // 父节点等于子节点之和，一层层都成立
         let image = &cache.children.as_ref().unwrap()[0];
@@ -497,6 +584,42 @@ mod tests {
         let image_children = image.children.as_ref().unwrap();
         assert_eq!(image_children[0].usage.physical_bytes, 10);
         assert_eq!(image_children[1].usage.physical_bytes, 20);
+    }
+
+    #[test]
+    fn theme_assets_are_their_own_section_not_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_file(&root.join("theme/ba/home/boot.png"), &[0; 11]);
+        write_file(&root.join("theme/ba/cg/hall.mp4"), &[0; 77]);
+        write_file(&root.join("theme/ba/readme.txt"), b"extra");
+        write_file(&root.join("theme/mtf/home/a.jpg"), &[0; 5]);
+
+        let report = scan_usage_at(root).unwrap();
+
+        let theme = report
+            .sections
+            .iter()
+            .find(|section| section.id == "theme")
+            .expect("主题资源该单独成项");
+        assert_eq!(theme.label, "主题资源");
+        assert_eq!(theme.usage.physical_bytes, 11 + 77 + 5 + 5);
+        assert!(report.sections.iter().all(|section| section.id != "other"));
+
+        let packs = theme.children.as_ref().unwrap();
+        assert_eq!(packs.len(), 2);
+        assert_eq!(packs[0].id, "theme.ba");
+        assert_eq!(packs[0].usage.physical_bytes, 11 + 77 + 5);
+        let ba_kinds = packs[0].children.as_ref().unwrap();
+        assert_eq!(ba_kinds[0].label, "加载图");
+        assert_eq!(ba_kinds[0].usage.physical_bytes, 11);
+        assert_eq!(ba_kinds[1].label, "记忆大厅");
+        assert_eq!(ba_kinds[1].usage.physical_bytes, 77);
+        assert_eq!(ba_kinds[2].label, "其它");
+        assert_eq!(ba_kinds[2].usage.physical_bytes, 5);
+
+        assert_eq!(packs[1].id, "theme.mtf");
+        assert_eq!(packs[1].usage.physical_bytes, 5);
     }
 
     #[test]

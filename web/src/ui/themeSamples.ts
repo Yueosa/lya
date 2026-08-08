@@ -48,11 +48,11 @@ export const SAMPLE_USAGE: UsageReport = {
       id: 'cache',
       label: '媒体缓存',
       usage: {
-        logical_bytes: 201_326_592,
-        physical_bytes: 134_217_728,
-        reclaimable_bytes: 67_108_864,
+        logical_bytes: 134_217_728,
+        physical_bytes: 67_108_864,
+        reclaimable_bytes: 0,
         shared_bytes: 67_108_864,
-        file_count: 96,
+        file_count: 64,
         linked_file_count: 24,
       },
       children: [
@@ -68,9 +68,23 @@ export const SAMPLE_USAGE: UsageReport = {
             linked_file_count: 24,
           },
         },
+      ],
+    },
+    {
+      id: 'theme',
+      label: '主题资源',
+      usage: {
+        logical_bytes: 67_108_864,
+        physical_bytes: 67_108_864,
+        reclaimable_bytes: 67_108_864,
+        shared_bytes: 0,
+        file_count: 32,
+        linked_file_count: 0,
+      },
+      children: [
         {
-          id: 'cache-video',
-          label: '视频',
+          id: 'theme.ba',
+          label: 'ba',
           usage: {
             logical_bytes: 67_108_864,
             physical_bytes: 67_108_864,
@@ -79,6 +93,20 @@ export const SAMPLE_USAGE: UsageReport = {
             file_count: 32,
             linked_file_count: 0,
           },
+          children: [
+            {
+              id: 'theme.ba.cg',
+              label: '记忆大厅',
+              usage: {
+                logical_bytes: 67_108_864,
+                physical_bytes: 67_108_864,
+                reclaimable_bytes: 67_108_864,
+                shared_bytes: 0,
+                file_count: 32,
+                linked_file_count: 0,
+              },
+            },
+          ],
         },
       ],
     },
