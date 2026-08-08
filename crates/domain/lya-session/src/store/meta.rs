@@ -99,11 +99,13 @@ impl SessionStore {
     }
 
     fn set_status(&self, session_id: &str, status: SessionStatus) -> Result<(), SessionError> {
+        // 不走 set_field：归档门禁会把「解档」自己也挡掉
         let status = status.as_str();
-        self.set_field(session_id, move |conn, now| {
+        self.db.write(|conn| {
+            ensure_session(conn, session_id)?;
             conn.execute(
                 "UPDATE sessions SET status = ?1, updated_at = ?2 WHERE id = ?3",
-                params![status, now, session_id],
+                params![status, Utc::now().to_rfc3339(), session_id],
             )?;
             Ok(())
         })
@@ -217,7 +219,7 @@ impl SessionStore {
         })
     }
 
-    /// 设置会话级人设覆盖；`None` 表示回退到全局人设。
+    /// 设置会话级人设；`None` 表示清空库里的值（prompt 层会再按自己的规则回退）。
     pub fn set_persona(&self, session_id: &str, persona: Option<&str>) -> Result<(), SessionError> {
         self.set_field(session_id, |conn, now| {
             conn.execute(
@@ -251,14 +253,22 @@ impl SessionStore {
         })
     }
 
-    /// 会话字段更新的公共外壳：先确认会话存在，再执行具体 UPDATE。
+    /// 会话字段更新的公共外壳：先确认会话存在且未归档，再执行具体 UPDATE。
+    ///
+    /// 归档承诺的是「只能回看」。消息树的写口已经挡了；标题 / 人设 / 模型 /
+    /// 工具名单若还能改，归档就只是藏掉了输入框。解档走 [`SessionStore::unarchive_session`]，
+    /// 不经过这里。
     fn set_field(
         &self,
         session_id: &str,
         f: impl FnOnce(&rusqlite::Connection, String) -> Result<(), SessionError>,
     ) -> Result<(), SessionError> {
         self.db.write(|conn| {
-            ensure_session(conn, session_id)?;
+            let meta = load_session(conn, session_id)?
+                .ok_or_else(|| SessionError::NotFound(session_id.to_string()))?;
+            if meta.status == SessionStatus::Archived {
+                return Err(SessionError::Archived(session_id.to_string()));
+            }
             f(conn, Utc::now().to_rfc3339())
         })
     }

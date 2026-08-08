@@ -125,9 +125,35 @@ use lya_base::Mode;
         assert!(matches!(err, SessionError::Archived(_)));
         assert_eq!(store.get_session(&id).unwrap().unwrap().active_leaf_id, Some(leaf));
 
-        // 但回看不受影响
+        // 元数据同样不能改——否则归档只是藏掉了输入框
+        assert!(matches!(
+            store.set_title(&id, "改个名").unwrap_err(),
+            SessionError::Archived(_)
+        ));
+        assert!(matches!(
+            store.set_persona(&id, Some("新人设")).unwrap_err(),
+            SessionError::Archived(_)
+        ));
+        assert!(matches!(
+            store.set_model(&id, Some("other")).unwrap_err(),
+            SessionError::Archived(_)
+        ));
+        assert!(matches!(
+            store
+                .set_enabled_tools(&id, Some(&["bash".into()]))
+                .unwrap_err(),
+            SessionError::Archived(_)
+        ));
+
+        // 但回看不受影响；解档之后又能改
         assert_eq!(store.path_to_active_leaf(&id).unwrap().len(), 1);
         assert_eq!(store.get_session(&id).unwrap().unwrap().status, SessionStatus::Archived);
+        store.unarchive_session(&id).unwrap();
+        store.set_title(&id, "解档后可改").unwrap();
+        assert_eq!(
+            store.get_session(&id).unwrap().unwrap().title,
+            "解档后可改"
+        );
     }
 
     #[test]
