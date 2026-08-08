@@ -17,6 +17,7 @@ const LABELS: Record<keyof typeof prefs, string> = {
   hideResolvedHitl: '隐藏已答复的打断',
   hideNotices: '隐藏模式变更',
   autoCollapseAside: '思考块输出结束后自动收起',
+  rawMarkdown: '显示 Markdown 原文',
 }
 </script>
 

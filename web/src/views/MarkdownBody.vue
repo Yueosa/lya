@@ -13,35 +13,104 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { imageContext } from '../app/useChat'
 import { prefs } from '../app/usePrefs'
 import { renderMarkdown } from '../model/markdown'
+import { MATH_CLASS } from '../model/math'
+import { themeId } from '../themes'
+import { mountDiagram } from '../ui/diagramHost'
 import { bindChatImages } from '../ui/useImageLightbox'
 import { bindChatMediaPaths } from '../ui/useChatMedia'
+import { bindDiagramZoom } from '../ui/useDiagramLightbox'
 
 const props = withDefaults(
   defineProps<{
     text: string
     /** 详情页说明文案：列表左对齐、换行与原先 pre-wrap 一致 */
     variant?: 'default' | 'doc'
+    /**
+     * 显示 Markdown 原文。
+     *
+     * 由调用方决定而不是在这里读偏好：原文模式既有整屏的默认值，又能在单条消息
+     * 上翻转，那笔账只有 `ChatTimeline` 算得清。这里只管照做。
+     */
+    raw?: boolean
+    /**
+     * 这段正文还会继续长。
+     *
+     * 只影响画不出来的图表报不报错：写到一半的图表解析不通过是必然的，那时候
+     * 报错纯属噪音。说完了还画不出来才是真错。
+     */
+    streaming?: boolean
   }>(),
-  { variant: 'default' },
+  { variant: 'default', raw: false, streaming: false },
 )
 
 const root = ref<HTMLElement | null>(null)
-const html = computed(() => renderMarkdown(props.text, imageContext.value ?? undefined))
+// 原文模式下连解析都不做：省一趟无用功，也让这条路上不存在任何 v-html
+const html = computed(() =>
+  props.raw ? '' : renderMarkdown(props.text, imageContext.value ?? undefined),
+)
 const codeWrap = computed(() => prefs.codeBlockWrap && props.variant === 'default')
+
+/*
+  正文每来一个增量就重渲一次，而公式和图表都要等动态 import 落地才画得出来，
+  于是同一瞬间可能有好几轮在飞。带上轮次编号，过期的那几轮自己退场——否则一张
+  刚渲染好的旧图会盖回已经更新过的正文上。
+*/
+let generation = 0
 
 watch(
   html,
   async () => {
+    if (props.raw) return
+    const mine = ++generation
     await nextTick()
-    if (root.value) enhance(root.value)
+    if (root.value && generation === mine) await enhance(root.value, mine)
   },
   { immediate: true },
 )
 
-/** 给还没处理过的代码块加高亮、顶栏与行号。 */
-function enhance(container: HTMLElement): void {
+// 图表的配色是渲染时烤进 SVG 的，换主题不重画就会留着上一套颜色
+watch(themeId, async () => {
+  if (props.raw || !root.value) return
+  const mine = ++generation
+  await redrawDiagrams(root.value, mine)
+})
+
+/*
+  说完之后再走一遍图表。
+
+  收尾那一刻正文往往已经不变了，光盯着 html 是等不到这一下的——于是「写坏的图表
+  要报错」永远差最后一步，页面上停在最后一次流式渲染的样子：一块没有下文的代码块。
+*/
+watch(
+  () => props.streaming,
+  async (now, before) => {
+    if (props.raw || now || !before || !root.value) return
+    const mine = ++generation
+    await renderDiagrams(root.value, mine)
+  },
+)
+
+async function enhance(container: HTMLElement, mine: number): Promise<void> {
   bindChatImages(container)
   bindChatMediaPaths(container)
+  highlightCode(container)
+  // 先高亮后换图：图表源码在渲染出来之前先以代码块的样子待着，流式输出时
+  // 看到的是逐行长出来的源码，而不是一块空白
+  //
+  // 两件事各跑各的：mermaid 是个上百万字节的大件，它加载失败或者渲染时抛了，
+  // 不该顺手把公式排版也一起带走——那会让「一张图画不出来」看起来像是
+  // 「公式和图表两个功能一起坏了」，而后者根本无从查起
+  const done = await Promise.allSettled([
+    renderDiagrams(container, mine),
+    renderMath(container, mine),
+  ])
+  for (const outcome of done) {
+    if (outcome.status === 'rejected') console.error('[markdown] 增强失败', outcome.reason)
+  }
+}
+
+/** 给还没处理过的代码块加高亮、顶栏与行号。 */
+function highlightCode(container: HTMLElement): void {
   for (const block of Array.from(container.querySelectorAll<HTMLElement>('pre code'))) {
     const pre = block.closest('pre')
     if (!pre) continue
@@ -53,6 +122,130 @@ function enhance(container: HTMLElement): void {
 
     ensureCodeBlock(pre, block)
     syncLineNumbers(pre, block)
+  }
+}
+
+/**
+ * 把 mermaid 代码块换成图。
+ *
+ * 渲染不成就原样留着当代码块——流式输出时源码必然有半截的一刻，那不是错误。
+ * 但话说完了还画不出来就是真错，那时候把原因摆在代码块下面：模型很爱写
+ * `A[启动(初始化)]` 这种方括号里塞圆括号的写法，而它在 mermaid 里是语法错。
+ * 不说的话，看的人只会以为图表功能坏了。
+ */
+async function renderDiagrams(container: HTMLElement, mine: number): Promise<void> {
+  const blocks = Array.from(
+    container.querySelectorAll<HTMLElement>('pre code.language-mermaid'),
+  )
+  if (blocks.length === 0) return
+
+  let mermaid: typeof import('../ui/mermaid')
+  try {
+    mermaid = await import('../ui/mermaid')
+  } catch (err) {
+    // 整个组件都没加载起来，这一屏的图一张都画不出来，更该说清楚
+    if (!props.streaming && generation === mine) {
+      for (const block of blocks) noteFailure(block, `图表组件加载失败：${String(err)}`)
+    }
+    return
+  }
+  if (generation !== mine) return
+
+  for (const block of blocks) {
+    const source = (block.textContent ?? '').trim()
+    if (!source) continue
+    const svg = await mermaid.renderDiagram(source, themeId.value)
+    if (generation !== mine) return
+
+    if (!svg) {
+      if (props.streaming) continue
+      const why = await mermaid.explainDiagram(source, themeId.value)
+      if (generation !== mine) return
+      noteFailure(block, why)
+      continue
+    }
+
+    const shell = block.closest('.md-code') ?? block.closest('pre')
+    if (!shell?.parentElement) continue
+    const host = document.createElement('div')
+    host.className = 'lya-diagram'
+    host.dataset['source'] = source
+    mountDiagram(host, svg)
+    shell.replaceWith(host)
+  }
+  bindDiagramZoom(container)
+}
+
+/**
+ * 在代码块下面挂一条「这张图为什么没变成图」。
+ *
+ * 源码留着不动：它是这段话的一部分，而且往往正是用户要拿去让模型改的东西。
+ */
+function noteFailure(block: HTMLElement, why: string): void {
+  const shell = block.closest('.md-code') ?? block.closest('pre')
+  if (!shell) return
+  // 同一轮里可能被走到两次（加载失败那条路会遍历全部块），别叠罗汉
+  if (shell.nextElementSibling?.classList.contains('lya-diagram-error')) return
+
+  const note = document.createElement('div')
+  note.className = 'lya-diagram-error'
+  const head = document.createElement('strong')
+  head.textContent = '这张图画不出来'
+  const body = document.createElement('pre')
+  // 原因里带着模型写的源码片段，只当文本塞，绝不走 innerHTML
+  body.textContent = why
+  note.append(head, body)
+  shell.after(note)
+}
+
+/** 换主题后按新配色重画已经在页面上的图。 */
+async function redrawDiagrams(container: HTMLElement, mine: number): Promise<void> {
+  const hosts = Array.from(container.querySelectorAll<HTMLElement>('.lya-diagram'))
+  if (hosts.length === 0) return
+
+  const { renderDiagram } = await import('../ui/mermaid')
+  if (generation !== mine) return
+
+  for (const host of hosts) {
+    const source = host.dataset['source']
+    if (!source) continue
+    const svg = await renderDiagram(source, themeId.value)
+    if (generation !== mine) return
+    if (svg) mountDiagram(host, svg)
+  }
+}
+
+/**
+ * 把占位元素换成排好版的公式。
+ *
+ * 占位元素里那段文字就是模型写的 LaTeX，KaTeX 从字符串建 DOM，所以这一步没有
+ * 任何模型生成的 HTML 进入页面，见 model/math.ts。
+ */
+async function renderMath(container: HTMLElement, mine: number): Promise<void> {
+  const nodes = Array.from(
+    container.querySelectorAll<HTMLElement>(`.${MATH_CLASS}`),
+  ).filter((node) => node.dataset['done'] !== '1')
+  if (nodes.length === 0) return
+
+  const katex = (await import('../ui/katex')).default
+  if (generation !== mine) return
+
+  for (const node of nodes) {
+    const source = node.textContent ?? ''
+    try {
+      katex.render(source, node, {
+        displayMode: node.dataset['display'] === '1',
+        // 写错的公式画成红色原文就好，不该让它中断整段正文的渲染
+        throwOnError: false,
+        errorColor: 'var(--danger)',
+        // \href、\htmlClass 这类能生成任意属性的命令一律不认
+        trust: false,
+        strict: false,
+      })
+      node.dataset['done'] = '1'
+    } catch {
+      // 极少数输入仍会抛，那就把原文留在那儿，比整段炸掉强
+    }
   }
 }
 
@@ -118,8 +311,12 @@ function headerBar(block: HTMLElement): HTMLElement {
 </script>
 
 <template>
+  <!-- 原文走插值而不是 v-html：这条路上根本没有 HTML，也就没有消毒这回事 -->
+  <pre v-if="raw" class="md-raw">{{ text }}</pre>
+
   <!-- 内容已经过 DOMPurify 消毒，见 model/markdown.ts -->
   <div
+    v-else
     ref="root"
     class="md"
     :class="{ 'md--doc': variant === 'doc', 'md--code-wrap': codeWrap }"
@@ -128,6 +325,25 @@ function headerBar(block: HTMLElement): HTMLElement {
 </template>
 
 <style scoped>
+/* 原文是拿来看和拷的，所以长行折行而不是横向滚动——气泡里没有横滚的余地 */
+.md-raw {
+  margin: 0;
+  min-width: 0;
+  max-width: 100%;
+  padding: 10px 12px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .md {
   min-width: 0;
   max-width: 100%;
@@ -434,6 +650,57 @@ function headerBar(block: HTMLElement): HTMLElement {
   font-size: var(--text-xs);
   word-break: break-all;
   line-height: 1.5;
+}
+
+/* 展示公式独占一行。宽公式横向滚动，不然会把气泡撑破 */
+.md :deep(.lya-math[data-display='1']) {
+  display: block;
+  margin: 0.6em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* 还没渲染的公式（KaTeX 正在下载）先按等宽显示原文，比空白诚实 */
+.md :deep(.lya-math:not([data-done='1'])) {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.md :deep(.lya-diagram) {
+  margin: 0.6em 0;
+  padding: 10px;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  overflow-x: auto;
+}
+
+/* 紧贴在源码下面：它解释的就是上面那块东西 */
+.md :deep(.lya-diagram-error) {
+  margin: -0.4em 0 0.6em;
+  padding: 8px 12px;
+  border: var(--border-width) solid var(--danger);
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--text-xs);
+}
+
+/* mermaid 的报错自带一行 ^ 指着出错的列，等宽才对得齐 */
+.md :deep(.lya-diagram-error pre) {
+  margin: 4px 0 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
 }
 
 .md :deep(table) {

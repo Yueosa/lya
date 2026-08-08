@@ -242,7 +242,10 @@
 }
 
 .chat__msg:hover .chat__actions,
-.chat__foot:focus-within .chat__actions {
+.chat__foot:focus-within .chat__actions,
+/* 有按钮正处在开启态时整排常驻：否则切成原文之后，那个切回去的按钮
+   自己也跟着隐形了，只能靠猜它在哪 */
+.chat__actions:has(.chat__action--on) {
   opacity: 1;
 }
 
@@ -264,6 +267,12 @@
   color: var(--text);
   border-color: var(--border-strong);
   background: var(--surface-hover);
+}
+
+.chat__action--on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }
 
 .chat__branch {

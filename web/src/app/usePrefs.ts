@@ -35,6 +35,13 @@ export interface SessionPrefs {
   hideNotices: boolean
   /** 思考块流式结束后自动收起；工具块默认收起，不受此项影响。 */
   autoCollapseAside: boolean
+  /**
+   * 正文显示 Markdown 原文而不是渲染结果。
+   *
+   * 这是**这一屏的默认值**：单条消息上的那个按钮是相对它取反的，所以整段都想看
+   * 源码就开这个，只想扒一条就点那条上的按钮。
+   */
+  rawMarkdown: boolean
 }
 
 /** 一组显示偏好。 */
@@ -57,6 +64,7 @@ const SESSION_DEFAULTS: SessionPrefs = {
   hideResolvedHitl: false,
   hideNotices: false,
   autoCollapseAside: true,
+  rawMarkdown: false,
 }
 
 /** 供设置界面分组用。 */

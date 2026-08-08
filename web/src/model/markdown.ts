@@ -11,7 +11,12 @@
 import DOMPurify from 'dompurify'
 import { marked } from 'marked'
 
+import { mathExtension } from './math'
+
 marked.use({ gfm: true, breaks: true })
+
+// 公式只在这里分词，排版在消毒之后由 KaTeX 做，见 model/math.ts
+marked.use(mathExtension)
 
 // 关掉删除线：中文里 `~` 用得很随意，`~这样~` 会被误判成删除线
 marked.use({

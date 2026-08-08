@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { MATH_CLASS } from './math'
 import { localImageUrl, renderMarkdown } from './markdown'
 
 const IMAGES = { token: 'tok', home: '/home/me' }
@@ -172,5 +173,76 @@ describe('renderMarkdown', () => {
     expect(html).toContain('src="/home/me/a.mp4"')
     expect(html).toContain('src="/home/me/a.mp3"')
     expect(html).not.toContain('/api/sessions/')
+  })
+})
+
+/** 取出占位元素里的公式原文，模拟 KaTeX 拿到的 `textContent`。 */
+function mathNodes(html: string): { display: boolean; text: string }[] {
+  const host = document.createElement('div')
+  host.innerHTML = html
+  return Array.from(host.querySelectorAll('.lya-math')).map((node) => ({
+    display: node.getAttribute('data-display') === '1',
+    text: node.textContent ?? '',
+  }))
+}
+
+describe('数学公式', () => {
+  it('四种定界符都认，并分清行内与展示', () => {
+    // 反斜杠那两种也得认：不少模型默认就吐这个，只认 $ 的话它们的公式全是原文
+    expect(mathNodes(renderMarkdown('质能 $E=mc^2$ 关系'))).toEqual([
+      { display: false, text: 'E=mc^2' },
+    ])
+    expect(mathNodes(renderMarkdown('$$a^2+b^2=c^2$$'))).toEqual([
+      { display: true, text: 'a^2+b^2=c^2' },
+    ])
+    expect(mathNodes(renderMarkdown('行内 \\(x+y\\) 好了'))).toEqual([
+      { display: false, text: 'x+y' },
+    ])
+    expect(mathNodes(renderMarkdown('\\[x+y\\]'))).toEqual([{ display: true, text: 'x+y' }])
+  })
+
+  it('公式原文一字不差地传下去', () => {
+    // KaTeX 拿到的就是这段 textContent，少一个反斜杠就是另一个公式
+    const source = '\\frac{1}{2} \\times \\sum_{i=0}^{n} x_i'
+    expect(mathNodes(renderMarkdown(`$${source}$`))[0]?.text).toBe(source)
+  })
+
+  it('不把中文里的美元号当公式', () => {
+    // 「$5 到 $10」被认成公式的话，中间那段文字会整段消失在一个渲染失败的
+    // 公式里——比不渲染糟得多
+    for (const text of ['这本书 $5 到 $10 不等', '涨到 $100 了', '把 $PATH 打出来', '$ x $']) {
+      expect(mathNodes(renderMarkdown(text)), text).toEqual([])
+      expect(renderMarkdown(text), text).not.toContain(MATH_CLASS)
+    }
+  })
+
+  it('代码里的美元号不受影响', () => {
+    const inline = renderMarkdown('用 `$HOME` 这个变量')
+    expect(inline).toContain('<code>$HOME</code>')
+    expect(inline).not.toContain(MATH_CLASS)
+
+    const fenced = renderMarkdown('```bash\necho $$ $PATH\n```')
+    expect(fenced).not.toContain(MATH_CLASS)
+    expect(fenced).toContain('$PATH')
+  })
+
+  it('公式里塞 HTML 也只是文本', () => {
+    // 占位元素里是模型写的东西。这里要是漏了转义，公式就成了注入通道
+    const html = renderMarkdown('$\\text{<img src=x onerror=alert(1)>}$')
+
+    // 要断言的是它没变成元素，而不是 HTML 里找不到 onerror 这串字符——
+    // 那串字符本来就是公式的一部分，转义之后原样待在文本里才是对的
+    const host = document.createElement('div')
+    host.innerHTML = html
+    expect(host.querySelector('img')).toBeNull()
+    expect(host.querySelectorAll('*')).toHaveLength(2) // 只有 <p> 和占位的 <span>
+    expect(mathNodes(html)[0]?.text).toBe('\\text{<img src=x onerror=alert(1)>}')
+  })
+
+  it('没闭合的公式保持原样，不吞后面的正文', () => {
+    // 流式输出时公式总会有半截的一刻，那一刻不能把剩下的正文吃掉
+    const html = renderMarkdown('先看 $$a+b 然后还有很多话要说')
+    expect(html).not.toContain(MATH_CLASS)
+    expect(html).toContain('然后还有很多话要说')
   })
 })

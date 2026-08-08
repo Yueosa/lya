@@ -344,3 +344,41 @@
   border-radius: var(--radius-sm);
   box-shadow: 0 8px 32px color-mix(in srgb, var(--bg-sunken) 40%, transparent);
 }
+
+/* 图表值得占满：复杂流程图在窄栏里只剩一团线 */
+.lya-lightbox__panel--wide {
+  width: min(96vw, 1600px);
+  height: 92vh;
+}
+
+.lya-lightbox__stage {
+  /* 图层按舞台左上角定位，缩放锚点才算得对，见 useDiagramLightbox.bindZoomPan */
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  box-shadow: 0 8px 32px color-mix(in srgb, var(--bg-sunken) 40%, transparent);
+  cursor: grab;
+  /* 缩放靠滚轮，交给浏览器做手势会和它打架 */
+  touch-action: none;
+}
+
+.lya-lightbox__stage--dragging {
+  cursor: grabbing;
+}
+
+/*
+  图本身在影子树里，样式够不着它；尺寸和位置都由 useDiagramLightbox 算，这里只定规则：
+  贴着舞台左上角、缩放原点也在左上角——锚点算式算的是「离舞台左上角多远」。
+
+  居中一律交给 transform 的位移，这里不做：图比舞台大的时候 flex 会把居中悄悄改成靠
+  左上，而算式还按居中算，缩放就开始漂。
+*/
+.lya-lightbox__layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}

@@ -4,7 +4,7 @@
 -->
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 import {
   deleteMessage,
@@ -103,6 +103,25 @@ function timelineKey(item: TimelineItem, index: number): string {
 
 async function copyText(text: string): Promise<void> {
   await navigator.clipboard.writeText(text)
+}
+
+/*
+  单条消息上翻转过原文模式的那些 id。
+
+  存的是「和当前默认值相反」而不是「要不要原文」：这样在设置里把整屏切成原文
+  之后，先前扒过源码的那条不会反过来变成唯一渲染的那条。只活在内存里也是故意的
+  ——扒一眼源码是临时动作，没道理刷新之后还留着。
+*/
+const rawFlipped = ref(new Set<number>())
+
+function isRaw(id: number): boolean {
+  return prefs.rawMarkdown !== rawFlipped.value.has(id)
+}
+
+function toggleRaw(id: number): void {
+  const next = new Set(rawFlipped.value)
+  if (!next.delete(id)) next.add(id)
+  rawFlipped.value = next
 }
 
 function startEdit(message: Message, text: string): void {
@@ -307,7 +326,12 @@ function onEditKey(event: KeyboardEvent): void {
                 @input="emit('update:editing', { id: item.message.id, text: ($event.target as HTMLTextAreaElement).value })"
                 @keydown="onEditKey"
               />
-              <MarkdownBody v-else :text="block.text" />
+              <MarkdownBody
+                v-else
+                :text="block.text"
+                :raw="isRaw(item.message.id)"
+                :streaming="item.message.status === 'streaming'"
+              />
               <span v-if="item.message.status === 'streaming'" class="chat__caret" />
             </div>
 
@@ -327,6 +351,16 @@ function onEditKey(event: KeyboardEvent): void {
               <div class="chat__actions">
                 <button class="chat__action" v-tip="'复制'" @click="copyText(block.text)">
                   <Icon name="copy" size="sm" />
+                </button>
+                <button
+                  v-if="block.type === 'text'"
+                  class="chat__action"
+                  :class="{ 'chat__action--on': isRaw(item.message.id) }"
+                  v-tip="isRaw(item.message.id) ? '显示渲染结果' : '显示 Markdown 原文'"
+                  :aria-pressed="isRaw(item.message.id)"
+                  @click="toggleRaw(item.message.id)"
+                >
+                  <Icon name="code" size="sm" />
                 </button>
                 <button
                   v-if="!readOnly && item.message.role === 'user'"

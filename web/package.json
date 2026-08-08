@@ -7,7 +7,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build && node scripts/strip-mc-font.mjs",
+    "build": "vue-tsc --noEmit && vite build && node scripts/strip-mc-font.mjs && node scripts/strip-katex-fonts.mjs",
     "build:full": "vue-tsc --noEmit && vite build",
     "typecheck": "vue-tsc --noEmit"
   },
@@ -21,9 +21,12 @@
     "vue-tsc": "^3.3.9"
   },
   "dependencies": {
+    "@types/katex": "^0.16.8",
     "dompurify": "^3.4.12",
     "highlight.js": "^11.11.1",
+    "katex": "^0.16.47",
     "marked": "^18.0.7",
+    "mermaid": "^11.16.1",
     "vue": "^3.5.40"
   }
 }
