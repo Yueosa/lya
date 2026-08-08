@@ -107,7 +107,11 @@ const effectivePersona = computed(() => {
 })
 
 function startEditPersona(): void {
-  draftPersona.value = meta.value?.persona ?? ''
+  // 当前跟着全局走时，把全局那份正文预填进去。这样「编辑 → 保存」一次点击就等于
+  // 把此刻的人设钉死在这个会话上，之后再改全局也不会牵动它——想要「这段对话里她
+  // 不会变人」的人，不必自己去别处把正文抄过来。
+  // 内置默认没有正文可填，留空即可：留空本来就是「跟随」的意思。
+  draftPersona.value = meta.value?.persona ?? globalPersona.value ?? ''
   editingPersona.value = true
 }
 
