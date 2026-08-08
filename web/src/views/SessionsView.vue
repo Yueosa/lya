@@ -21,6 +21,7 @@ import {
   sessionsLoading,
   setArchived,
 } from '../app/useChat'
+import { useArchiveDock } from '../shell/useArchiveDock'
 import { confirm, confirmAsync, prompt } from '../ui/useDialog'
 import { toast } from '../ui/useToast'
 
@@ -28,11 +29,21 @@ const emit = defineEmits<{ opened: [] }>()
 
 const selectedId = ref<string | null>(null)
 
-const allSessions = computed(() =>
-  [...sessions.value, ...archivedSessions.value].sort(
-    (a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-  ),
-)
+/**
+ * 归档单独列，不混进主列表。
+ *
+ * 原先两批按时间揉成一列，归档的唯一标记是副标题末尾多「已归档」三个字——夹在
+ * 「Responses · chat · 模型名 · 时间」后面，扫一眼根本分不出来。现在主列表只放在用的，
+ * 归档收进底部抽屉，和默认外壳侧栏是同一套做法。
+ */
+const byRecent = (a: SessionMeta, b: SessionMeta): number =>
+  new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+
+const activeSessions = computed(() => [...sessions.value].sort(byRecent))
+const archive = useArchiveDock()
+
+/** 选中项可以来自任意一批，所以查找和空态判断都看合起来的这份。 */
+const allSessions = computed(() => [...activeSessions.value, ...archivedSessions.value])
 
 const selected = computed(
   () => allSessions.value.find((session) => session.id === selectedId.value) ?? null,
@@ -73,9 +84,8 @@ function when(session: SessionMeta): string {
 
 function subtitle(session: SessionMeta): string {
   const stack = session.api_mode === 'responses' ? 'Responses' : 'Completions'
-  const bits = [stack, session.work_mode, modelLabel(session), when(session)]
-  if (session.status === 'archived') bits.push('已归档')
-  return bits.join(' · ')
+  // 「已归档」不再写进这串：归档现在自己一栏，位置就说明了状态
+  return [stack, session.work_mode, modelLabel(session), when(session)].join(' · ')
 }
 
 async function enter(): Promise<void> {
@@ -151,9 +161,12 @@ async function deleteSelected(): Promise<void> {
       <p v-else-if="allSessions.length === 0" class="sessions__hint">
         还没有会话，点下方「新建」开始第一句。
       </p>
+      <p v-else-if="activeSessions.length === 0" class="sessions__hint">
+        在用的对话都归档了，展开下面那栏可以找回来。
+      </p>
 
       <ul v-else class="sessions__list">
-        <li v-for="session in allSessions" :key="session.id">
+        <li v-for="session in activeSessions" :key="session.id">
           <button
             type="button"
             class="sessions__row"
@@ -170,6 +183,43 @@ async function deleteSelected(): Promise<void> {
           </button>
         </li>
       </ul>
+
+      <!-- 归档钉在列表底部，收起来只占一行 -->
+      <div
+        v-if="archive.count.value"
+        class="sessions__archive"
+        :class="{ 'sessions__archive--open': archive.open.value }"
+      >
+        <button
+          class="sessions__archive-head"
+          type="button"
+          :aria-expanded="archive.open.value"
+          @click="archive.open.value = !archive.open.value"
+        >
+          <span class="sessions__archive-label">归档对话</span>
+          <span class="sessions__archive-count">{{ archive.count.value }}</span>
+          <span class="sessions__archive-chevron">›</span>
+        </button>
+
+        <ul v-if="archive.open.value" class="sessions__list sessions__list--archived">
+          <li v-for="session in archive.items.value" :key="session.id">
+            <button
+              type="button"
+              class="sessions__row sessions__row--archived"
+              :class="{ 'sessions__row--on': session.id === selectedId }"
+              @click="select(session)"
+              @dblclick="enter()"
+            >
+              <img class="sessions__icon" src="/icon.png" alt="" />
+              <span class="sessions__info">
+                <span class="sessions__name">{{ session.title || '未命名会话' }}</span>
+                <span class="sessions__meta">{{ subtitle(session) }}</span>
+              </span>
+              <span v-if="session.id === currentId" class="sessions__mark">当前</span>
+            </button>
+          </li>
+        </ul>
+      </div>
     </div>
 
     <div class="sessions__actions">
@@ -242,6 +292,64 @@ async function deleteSelected(): Promise<void> {
   font-size: var(--text-sm);
 }
 
+/* ── 归档抽屉 ─────────────────────────────────── */
+
+.sessions__archive {
+  flex-shrink: 0;
+  border-top: var(--border-width) solid var(--border);
+}
+
+.sessions__archive-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sessions__archive-head:hover {
+  color: var(--accent);
+}
+
+.sessions__archive-label {
+  flex: 1;
+}
+
+.sessions__archive-count {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-active);
+  font-weight: 700;
+}
+
+.sessions__archive-chevron {
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1;
+  transition: transform var(--transition);
+}
+
+.sessions__archive--open .sessions__archive-chevron {
+  transform: rotate(90deg);
+}
+
+/* 归档项压暗一档：点得开，但一眼看得出不是在用的那批 */
+.sessions__row--archived .sessions__name {
+  color: var(--text-muted);
+}
+
+.sessions__row--archived .sessions__icon {
+  opacity: 0.62;
+}
+
 .sessions__list {
   list-style: none;
   margin: 0;
@@ -275,10 +383,12 @@ async function deleteSelected(): Promise<void> {
   background: color-mix(in srgb, var(--accent-soft) 45%, var(--surface));
 }
 
+/* 圆形，和聊天气泡旁的头像同一个规矩——它们是同一个「人」 */
 .sessions__icon {
   width: 32px;
   height: 32px;
   flex-shrink: 0;
+  border-radius: 50%;
   object-fit: cover;
   border: var(--border-width) solid var(--border);
 }

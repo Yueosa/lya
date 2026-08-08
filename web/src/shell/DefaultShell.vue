@@ -3,56 +3,30 @@
 -->
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, watch } from 'vue'
 
-import type { SessionMeta } from '../api/wire'
-import {
-  archivedSessions,
-  createSession,
-  currentId,
-  openSession,
-  removeSession,
-  rename,
-  sessions,
-  setArchived,
-} from '../app/useChat'
+import { createSession, currentId, openSession, sessions } from '../app/useChat'
 import { setSidebarCollapsed, sidebarCollapsed } from '../app/useShell'
-import { readLocal, writeLocal } from '../utils/storage'
-import { openContextMenu } from '../ui/useContextMenu'
-import { confirm, confirmAsync, prompt } from '../ui/useDialog'
-import { toast } from '../ui/useToast'
 import Icon from '../ui/Icon.vue'
+import { useArchiveDock } from './useArchiveDock'
 import { NAV_ITEMS, type ShellProps, type View } from './types'
 import { NAV_ICONS } from './icons'
+import { openSessionMenu } from './sessionMenu'
 
 const props = defineProps<ShellProps>()
 const emit = defineEmits<{ navigate: [view: View] }>()
 
-const ARCHIVED_KEY = 'lya.sidebar.archived'
-
 const collapsed = sidebarCollapsed
-const showArchived = ref(readLocal(ARCHIVED_KEY) === '1')
 
-const archiveCount = computed(() => archivedSessions.value.length)
+const {
+  open: showArchived,
+  count: archiveCount,
+  viewing: viewingArchived,
+  items: archivedSessions,
+} = useArchiveDock()
+
 const activeCount = computed(() => sessions.value.length)
-const viewingArchived = computed(() =>
-  archivedSessions.value.some((session) => session.id === currentId.value),
-)
-const viewingActive = computed(
-  () => currentId.value !== null && !viewingArchived.value,
-)
-
-watch(showArchived, (open) => {
-  writeLocal(ARCHIVED_KEY, open ? '1' : '0')
-})
-
-watch(
-  viewingArchived,
-  (on) => {
-    if (on) showArchived.value = true
-  },
-  { immediate: true },
-)
+const viewingActive = computed(() => currentId.value !== null && !viewingArchived.value)
 
 /** 首页聚焦大 logo，进入时自动收起侧栏（含首次访问）。 */
 watch(
@@ -77,66 +51,6 @@ async function open(id: string): Promise<void> {
   emit('navigate', 'chat')
 }
 
-function sessionMenu(event: MouseEvent, session: SessionMeta): void {
-  const archived = session.status === 'archived'
-  openContextMenu(event, [
-    {
-      label: '重命名',
-      icon: 'edit',
-      onSelect: async () => {
-        const title = await prompt({ title: '重命名', initial: session.title })
-        if (title === null || !title.trim()) return
-        try {
-          await rename(session.id, title.trim())
-        } catch {
-          toast('重命名失败', 'error')
-        }
-      },
-    },
-    archived
-      ? {
-          label: '取消归档',
-          icon: 'unarchive',
-          onSelect: async () => {
-            try {
-              await setArchived(session.id, false)
-              toast('已恢复', 'success')
-            } catch {
-              toast('操作失败', 'error')
-            }
-          },
-        }
-      : {
-          label: '归档',
-          icon: 'archive',
-          onSelect: async () => {
-            const ok = await confirm({ title: '归档此会话？', message: '归档后只读，可随时恢复。' })
-            if (!ok) return
-            try {
-              await setArchived(session.id, true)
-              toast('已归档', 'success')
-            } catch {
-              toast('归档失败', 'error')
-            }
-          },
-        },
-    { separator: true },
-    {
-      label: '删除',
-      icon: 'delete',
-      danger: true,
-      onSelect: async () => {
-        await confirmAsync({
-          title: `删除「${session.title || '未命名'}」？`,
-          message: '不可恢复。',
-          confirmText: '删除',
-          danger: true,
-          run: () => removeSession(session.id),
-        })
-      },
-    },
-  ])
-}
 </script>
 
 <template>
@@ -191,7 +105,7 @@ function sessionMenu(event: MouseEvent, session: SessionMeta): void {
             :class="{ 'shell__item--on': session.id === currentId && view === 'chat' }"
             :title="session.title || '未命名'"
             @click="open(session.id)"
-            @contextmenu.prevent="sessionMenu($event, session)"
+            @contextmenu.prevent="openSessionMenu($event, session)"
           >
             {{ session.title || '未命名' }}
           </button>
@@ -228,7 +142,7 @@ function sessionMenu(event: MouseEvent, session: SessionMeta): void {
             :class="{ 'shell__item--on': session.id === currentId && view === 'chat' }"
             :title="session.title || '未命名'"
             @click="open(session.id)"
-            @contextmenu.prevent="sessionMenu($event, session)"
+            @contextmenu.prevent="openSessionMenu($event, session)"
           >
             {{ session.title || '未命名' }}
           </button>
