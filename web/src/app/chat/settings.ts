@@ -40,6 +40,25 @@ export async function toggleTool(name: string, enabled: boolean): Promise<void> 
   }
 }
 
+/**
+ * 撤掉会话自己的工具名单，改回跟随全局默认。
+ *
+ * `enabled_tools = null` 才是「跟随」，空数组是「一个都不启用」——两者在界面上长得一样，
+ * 在后端是两回事。所以这个动作不能让每处界面自己去拼那个 patch，写错一次就把工具全关了。
+ */
+export async function resetSessionTools(): Promise<boolean> {
+  const id = currentId.value
+  if (!id) return false
+  try {
+    await client.patchSession(id, { enabled_tools: null })
+    await loadTools()
+    return true
+  } catch (error) {
+    report(error, '恢复')
+    return false
+  }
+}
+
 export async function setMode(mode: Mode): Promise<void> {
   const id = currentId.value
   if (!id || meta.value?.work_mode === mode) return

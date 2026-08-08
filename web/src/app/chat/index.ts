@@ -54,6 +54,7 @@ export {
   loadModels,
   loadTools,
   toggleTool,
+  resetSessionTools,
   setMode,
   setModel,
   setApiMode,

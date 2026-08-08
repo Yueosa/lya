@@ -40,6 +40,7 @@ export {
   regenerate,
   refreshRuntimeDefaults,
   refreshSessions,
+  resetSessionTools,
   removeSession,
   rename,
   replyHitl,

@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 
-import { report } from '../../app/errors'
-import { client, currentId, loadTools, meta, readOnly, toggleTool, tools } from '../../app/useChat'
+import {
+  loadTools,
+  meta,
+  readOnly,
+  resetSessionTools,
+  toggleTool,
+  tools,
+} from '../../app/useChat'
 import { toast } from '../../ui/useToast'
 
 const resetting = ref(false)
@@ -19,18 +25,12 @@ function outOfReach(minMode: string): boolean {
 }
 
 async function resetToGlobalDefault(): Promise<void> {
-  const id = currentId.value
-  if (!id || readOnly.value) return
+  if (readOnly.value) return
   resetting.value = true
-  try {
-    await client.patchSession(id, { enabled_tools: null })
-    await loadTools()
-    toast('已恢复为全局默认', 'success')
-  } catch (error) {
-    report(error, '恢复')
-  } finally {
-    resetting.value = false
-  }
+  // 「跟随全局」是 enabled_tools = null，不是空数组——那个区别由 resetSessionTools 负责，
+  // 这里只管按钮的忙碌态和成功提示
+  if (await resetSessionTools()) toast('已恢复为全局默认', 'success')
+  resetting.value = false
 }
 </script>
 
