@@ -47,6 +47,31 @@ const MAX_VISIBLE = 120
 /** 每次「加载更早」多露出多少条。 */
 const LOAD_CHUNK = 60
 
+/** 计算时间线窗口：offset = 上方隐藏条数，start = slice 起点。 */
+export function computeTimelineWindow(
+  length: number,
+  renderTail: number | null,
+  shownFrom: number | null,
+): { offset: number; start: number } {
+  if (shownFrom !== null) {
+    return { offset: shownFrom, start: shownFrom }
+  }
+  if (renderTail !== null && length > renderTail) {
+    const start = length - renderTail
+    return { offset: start, start }
+  }
+  if (length > MAX_VISIBLE) {
+    const start = length - MAX_VISIBLE
+    return { offset: start, start }
+  }
+  return { offset: 0, start: 0 }
+}
+
+/** loadEarlier 的下一窗口起点。 */
+export function nextShownFrom(offset: number, chunk = LOAD_CHUNK): number {
+  return Math.max(0, offset - chunk)
+}
+
 /** 离底多少像素以内算「精确贴着底」。用于百分比显示和位置记忆。 */
 const BOTTOM_EPS = 2
 
@@ -76,7 +101,8 @@ export function forgetScrollPosition(id: string): void {
 
 export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HTMLElement | null>) {
   const renderTail = ref<number | null>(null)
-  const shownFrom = ref(0)
+  /** `null` = 自动窗口；数字 = 用户点过「加载更早」后的起点（含 0 = 全文）。 */
+  const shownFrom = ref<number | null>(null)
   const timelineReady = ref(false)
   /** 仅进入会话时短暂为 true；SSE 流式更新不再播放入场动画。 */
   const sessionEnterMotion = ref(false)
@@ -88,25 +114,23 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     sessionAtEnter !== null ? (savedOffsets.get(sessionAtEnter) ?? 0) : 0
 
   const timelineOffset = computed(() => {
-    const items = timeline.value
-    const tail = renderTail.value
-    if (tail !== null && items.length > tail) return items.length - tail
-    if (shownFrom.value > 0) return shownFrom.value
-    if (items.length > MAX_VISIBLE) return items.length - MAX_VISIBLE
-    return 0
+    return computeTimelineWindow(
+      timeline.value.length,
+      renderTail.value,
+      shownFrom.value,
+    ).offset
   })
 
   const hiddenCount = computed(() => timelineOffset.value)
 
   const displayTimeline = computed(() => {
     const items = timeline.value
-    const tail = renderTail.value
-    if (tail !== null && items.length > tail) {
-      return items.slice(items.length - tail)
-    }
-    if (shownFrom.value > 0) return items.slice(shownFrom.value)
-    if (items.length > MAX_VISIBLE) return items.slice(items.length - MAX_VISIBLE)
-    return items
+    const { start } = computeTimelineWindow(
+      items.length,
+      renderTail.value,
+      shownFrom.value,
+    )
+    return start > 0 ? items.slice(start) : items
   })
 
   const scrollPercent = ref(0)
@@ -323,7 +347,8 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     if (offset <= 0) return
     const el = scroller.value
     const prevHeight = content.value?.scrollHeight ?? 0
-    shownFrom.value = Math.max(0, offset - LOAD_CHUNK)
+    renderTail.value = null
+    shownFrom.value = nextShownFrom(offset)
     nextTick(() => {
       if (!el || !content.value) return
       el.scrollTop += content.value.scrollHeight - prevHeight
