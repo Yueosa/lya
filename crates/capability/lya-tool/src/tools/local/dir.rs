@@ -77,7 +77,8 @@ impl DirListTool {
                 "2) 找特定文件用 pattern 过滤，比拉全量列表再自己筛省得多。\n",
                 "3) 条目超过 limit 会截断并标注，说明你该缩小范围而不是加大 limit。\n",
                 "4) 不进入符号链接指向的目录，避免绕圈。\n",
-                "5) 要看文件内容用 file_read，这里只给名字和大小。"
+                "5) 条目路径相对所列根目录（如 H/foo.mp4），可直接拼到根路径后给 file_read 或 Markdown 引用。\n",
+                "6) 要看文件内容用 file_read，这里只给名字和大小。"
             ),
         }
     }
@@ -164,7 +165,7 @@ pub(crate) fn run_dir_list_at(abs_path: &Path, args: &Value) -> ToolResult {
 
     let mut lines = Vec::new();
     let mut truncated = false;
-    walk(abs_path, 0, &options, &mut lines, &mut truncated);
+    walk(abs_path, abs_path, 0, &options, &mut lines, &mut truncated);
 
     if lines.is_empty() {
         return ToolResult::ok(format!("{}（空，或没有符合条件的条目）", abs_path.display()));
@@ -182,7 +183,17 @@ pub(crate) fn run_dir_list_at(abs_path: &Path, args: &Value) -> ToolResult {
 }
 
 /// 递归收集条目。
-fn walk(dir: &Path, level: usize, options: &Options, lines: &mut Vec<String>, truncated: &mut bool) {
+///
+/// `root` 是用户请求的目录；条目一律用相对 `root` 的路径，避免 pattern 过滤掉
+/// 中间目录名后，深处的文件看起来像落在根目录下。
+fn walk(
+    dir: &Path,
+    root: &Path,
+    level: usize,
+    options: &Options,
+    lines: &mut Vec<String>,
+    truncated: &mut bool,
+) {
     if level >= options.depth || *truncated {
         return;
     }
@@ -228,20 +239,27 @@ fn walk(dir: &Path, level: usize, options: &Options, lines: &mut Vec<String>, tr
                 *truncated = true;
                 return;
             }
-            let indent = "  ".repeat(level);
+            let rel = relative_display_path(&entry.path(), root);
             lines.push(if is_dir {
-                format!("{indent}{name}/")
+                format!("{rel}/")
             } else {
                 let size = entry.metadata().map(|m| human_size(m.len())).unwrap_or_default();
-                format!("{indent}{name}  {size}")
+                format!("{rel}  {size}")
             });
         }
 
         // 不跟随符号链接，免得绕圈
         if is_dir && !file_type.is_symlink() {
-            walk(&entry.path(), level + 1, options, lines, truncated);
+            walk(&entry.path(), root, level + 1, options, lines, truncated);
         }
     }
+}
+
+fn relative_display_path(path: &Path, root: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
 }
 
 #[cfg(test)]
@@ -273,8 +291,8 @@ mod tests {
     fn depth_expands_into_a_tree() {
         let dir = fixture();
         let result = run_dir_list_at(dir.path(), &json!({ "depth": 3 }));
-        assert!(result.content.contains("lib.rs"));
-        assert!(result.content.contains("mod.rs"));
+        assert!(result.content.contains("src/lib.rs"));
+        assert!(result.content.contains("src/deep/mod.rs"));
     }
 
     #[test]
@@ -288,8 +306,29 @@ mod tests {
     fn pattern_filters_but_still_descends() {
         let dir = fixture();
         let result = run_dir_list_at(dir.path(), &json!({ "depth": 3, "pattern": "mod" }));
-        assert!(result.content.contains("mod.rs"), "深处的匹配项要能找到");
+        assert!(
+            result.content.contains("src/deep/mod.rs"),
+            "深处的匹配项要带相对路径：{}",
+            result.content
+        );
         assert!(!result.content.contains("a.txt"));
+    }
+
+    #[test]
+    fn pattern_keeps_subdirectory_in_file_path() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("H")).unwrap();
+        fs::write(dir.path().join("H/video.mp4"), "x").unwrap();
+        fs::write(dir.path().join("root.mp4"), "x").unwrap();
+
+        let result = run_dir_list_at(dir.path(), &json!({ "depth": 2, "pattern": "mp4" }));
+        assert!(result.content.contains("H/video.mp4"), "{}", result.content);
+        assert!(result.content.contains("root.mp4"), "{}", result.content);
+        assert!(
+            !result.content.lines().any(|line| line.trim() == "video.mp4"),
+            "子目录文件不应丢失目录前缀：{}",
+            result.content
+        );
     }
 
     #[test]
