@@ -34,7 +34,7 @@ pub(super) fn load_session(
     let raw = conn
         .query_row(
             "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
-                    api_mode, enabled_tools_json, created_at, updated_at
+                    api_mode, enabled_tools_json, context_config_json, created_at, updated_at
              FROM sessions WHERE id = ?1",
             [session_id],
             RawSession::from_row,
@@ -129,6 +129,7 @@ pub(super) struct RawSession {
     model_id: Option<String>,
     api_mode: String,
     enabled_tools_json: Option<String>,
+    context_config_json: Option<String>,
     created_at: String,
     updated_at: String,
 }
@@ -145,8 +146,9 @@ impl RawSession {
             model_id: row.get(6)?,
             api_mode: row.get(7)?,
             enabled_tools_json: row.get(8)?,
-            created_at: row.get(9)?,
-            updated_at: row.get(10)?,
+            context_config_json: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
         })
     }
 
@@ -172,6 +174,7 @@ impl RawSession {
             persona: self.persona,
             model_id: self.model_id,
             api_mode: self.api_mode,
+            context_config_json: self.context_config_json,
         })
     }
 }

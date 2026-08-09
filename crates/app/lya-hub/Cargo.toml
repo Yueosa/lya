@@ -13,6 +13,7 @@ lya-agent = { workspace = true }
 lya-http = { workspace = true }
 lya-llm = { workspace = true }
 lya-session = { workspace = true }
+lya-token = { workspace = true }
 lya-tool = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

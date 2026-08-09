@@ -3,8 +3,9 @@
 use crate::identity::{
     format_persona_section, DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
 };
-use crate::media::chat_media_section;
 use crate::input::PromptInput;
+use crate::media::chat_media_section;
+use crate::sections::{trim_section, SystemSections};
 
 /// 提示词组装器。
 ///
@@ -69,26 +70,31 @@ impl PromptBuilder {
     /// 注意记忆段是例外：它随记忆库变化，而 system 是第一条消息，改一个字节
     /// 就是整个请求全量 miss。取舍见 `docs/plan.md` 的延后表。
     pub fn build(&self, input: &PromptInput) -> String {
-        let mut parts: Vec<String> = vec![
-            SYSTEM_AWARENESS.trim().to_string(),
-            SELF_AWARENESS.trim().to_string(),
-            TIME_ANCHOR.trim().to_string(),
-            chat_media_section(input.vision),
-        ];
+        self.build_sections(input).join()
+    }
 
-        push_optional(&mut parts, input.action_section.as_deref());
-        push_optional(&mut parts, input.tool_section.as_deref());
-        push_optional(&mut parts, input.extra_section.as_deref());
-        push_optional(&mut parts, input.mode_section.as_deref());
-        push_optional(&mut parts, input.memory_section.as_deref());
+    /// 按段组装 system prompt（供占用统计与 [`Self::build`] 共用）。
+    pub fn build_sections(&self, input: &PromptInput) -> SystemSections {
+        let core = [
+            SYSTEM_AWARENESS.trim(),
+            SELF_AWARENESS.trim(),
+            TIME_ANCHOR.trim(),
+            chat_media_section(input.vision).trim(),
+        ]
+        .join("\n\n");
 
         let persona_body = resolve_persona_body(self, input);
-        let persona_section = format_persona_section(persona_body);
-        if !persona_section.is_empty() {
-            parts.push(persona_section);
-        }
+        let persona = format_persona_section(persona_body);
 
-        parts.join("\n\n")
+        SystemSections {
+            core,
+            actions: trim_section(input.action_section.as_deref()),
+            tools: trim_section(input.tool_section.as_deref()),
+            extra: trim_section(input.extra_section.as_deref()),
+            mode: trim_section(input.mode_section.as_deref()),
+            memory: trim_section(input.memory_section.as_deref()),
+            persona,
+        }
     }
 }
 
@@ -101,16 +107,6 @@ fn resolve_persona_body<'a>(builder: &'a PromptBuilder, input: &'a PromptInput) 
     match &input.persona {
         Some(s) => s.as_str(),
         None => builder.global_persona_body(),
-    }
-}
-
-/// 非空才追加一段。
-fn push_optional(parts: &mut Vec<String>, section: Option<&str>) {
-    if let Some(s) = section {
-        let t = s.trim();
-        if !t.is_empty() {
-            parts.push(t.to_string());
-        }
     }
 }
 

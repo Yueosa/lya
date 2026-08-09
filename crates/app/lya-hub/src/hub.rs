@@ -18,6 +18,7 @@ use lya_agent::{Agent, AgentError, AgentEvent, CallKind, CancelToken, ChatBacken
 use lya_http::HttpClient;
 use lya_llm::LlmClient;
 use lya_session::{MessagePayload, MessageRecord, MessageRole, SessionError, SessionMeta};
+use lya_token::ContextUsageReport;
 use serde::Serialize;
 use tokio::sync::broadcast;
 
@@ -266,6 +267,13 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     /// 底层 agent，供 HTTP 层做会话 CRUD 与 HITL 答复。
     pub fn agent(&self) -> &Agent<B> {
         &self.agent
+    }
+
+    /// 估算当前活跃分支的上下文占用（只读）。
+    pub fn estimate_context_usage(&self, session_id: &str) -> Result<ContextUsageReport, HubError> {
+        self.agent
+            .estimate_context_usage(session_id)
+            .map_err(HubError::Agent)
     }
 
     /// 该会话是否有轮次在跑，或正在执行挂起后放行的工具。

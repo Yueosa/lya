@@ -42,7 +42,7 @@ pub struct CreateSession {
     pub title: String,
     /// 初始模式；默认 agent。
     pub work_mode: Mode,
-    /// 会话人设覆盖；`None` 表示用全局。
+    /// 会话人设；创建时写入，之后不跟全局默认联动。
     pub persona: Option<String>,
     /// 使用哪个模型；`None` 表示用配置里的默认模型。
     pub model_id: Option<String>,
@@ -75,6 +75,9 @@ pub struct SessionMeta {
     pub api_mode: String,
     /// 用户启用的工具名；`None` 表示全部启用。
     pub enabled_tools: Option<Vec<String>>,
+    /// 上下文管理配置 JSON；`None` 表示用模型模板默认。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_config_json: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。

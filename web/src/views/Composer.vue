@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 
 import { canSend, currentId, pendingHitl, running, readComposerDraft, send, stop, writeComposerDraft } from '../app/useChat'
+import ContextUsagePanel from './ContextUsagePanel.vue'
 import HitlTray from './HitlTray.vue'
 
 const draft = ref('')
@@ -62,6 +63,8 @@ function onKeydown(event: KeyboardEvent): void {
     <HitlTray />
 
     <div class="composer__row">
+      <ContextUsagePanel />
+
       <textarea
         ref="input"
         v-model="draft"

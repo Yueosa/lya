@@ -17,6 +17,7 @@ lya-memory = { workspace = true }
 lya-base = { workspace = true }
 lya-prompt = { workspace = true }
 lya-session = { workspace = true }
+lya-token = { workspace = true }
 lya-tool = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

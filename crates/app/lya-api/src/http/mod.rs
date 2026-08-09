@@ -46,6 +46,7 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
         .route("/api/sessions/{id}/stop", post(sessions::stop))
         .route("/api/sessions/{id}/hitl", post(sessions::hitl))
         .route("/api/sessions/{id}/tree", get(sessions::tree))
+        .route("/api/sessions/{id}/context-usage", get(sessions::context_usage))
         .route("/api/sessions/{id}/subscribe", get(sessions::subscribe))
         .route(
             "/api/sessions/{id}/tools/{tool}",

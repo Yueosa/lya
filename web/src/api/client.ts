@@ -226,6 +226,24 @@ export interface UsageReport {
   sections: UsageSection[]
 }
 
+/** 上下文占用的一项分类。 */
+export interface ContextUsageCategory {
+  id: string
+  label: string
+  tokens: number
+  /** 默认 true；false 表示落库但未进 wire，不计入 total/pct。 */
+  in_context?: boolean
+}
+
+/** `GET /api/sessions/{id}/context-usage` 响应。 */
+export interface ContextUsageReport {
+  tokenizer_id: string
+  total: number
+  limit: number
+  pct: number
+  categories: ContextUsageCategory[]
+}
+
 /** 探测一个模型能不能连通。 */
 export interface ProbeResult {
   ok: boolean
@@ -334,6 +352,11 @@ export class LyaClient {
    */
   tree(id: string): Promise<SessionTree> {
     return this.request('GET', `/api/sessions/${id}/tree`)
+  }
+
+  /** 估算当前活跃分支的上下文占用（只读）。 */
+  contextUsage(id: string): Promise<ContextUsageReport> {
+    return this.request('GET', `/api/sessions/${id}/context-usage`)
   }
 
   /**

@@ -167,14 +167,6 @@ async fn serve(
 
     let settings = turn_settings(&config)?;
 
-    // 人设改成会话级之前建的会话是「留空 = 每轮读全局」，改一次默认人设就会把它们的性格
-    // 一起换掉。给它们补上当前这份，从此各自固定，见 SessionStore::adopt_default_persona
-    match sessions.adopt_default_persona(settings.prompt.global_persona_body()) {
-        Ok(0) => {}
-        Ok(n) => eprintln!("给 {n} 个早先的会话补上了各自的人设"),
-        Err(err) => eprintln!("补会话人设失败：{err}"),
-    }
-
     let agent = Arc::new(Agent::new(AgentParts {
         backend: LlmClient::new(http.clone()),
         endpoints: llm_endpoints_from_config(&config),
@@ -255,7 +247,9 @@ fn llm_endpoints_from_config(config: &Config) -> Vec<LlmEndpoint> {
         .models
         .iter()
         .map(|entry| {
-            let mut ep = LlmEndpoint::new(&entry.base_url, &entry.api_key).with_id(&entry.id);
+            let mut ep = LlmEndpoint::new(&entry.base_url, &entry.api_key)
+                .with_id(&entry.id)
+                .with_context_window(entry.context_window);
             for (key, mode_cfg) in &entry.modes {
                 if let Some(mode) = lya_config::ApiMode::parse(key) {
                     let llm_mode = match mode {

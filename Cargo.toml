@@ -34,6 +34,7 @@ lya-llm = { path = "crates/capability/lya-llm" }
 lya-memory = { path = "crates/domain/lya-memory" }
 lya-prompt = { path = "crates/capability/lya-prompt" }
 lya-session = { path = "crates/domain/lya-session" }
+lya-token = { path = "crates/capability/lya-token" }
 lya-tool = { path = "crates/capability/lya-tool" }
 percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = [

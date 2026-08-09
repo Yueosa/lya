@@ -34,7 +34,9 @@
 pub mod agent;
 pub mod backend;
 pub mod context;
+pub mod context_breakdown;
 pub mod context_responses;
+pub mod context_usage;
 pub mod error;
 pub mod event;
 
@@ -44,3 +46,4 @@ pub use context::{INTERRUPTED_MARK, MISSING_RESULT, build_messages};
 pub use context_responses::build_responses_input;
 pub use error::AgentError;
 pub use event::{AgentEvent, BatchCallInfo, CallKind, CancelToken, ProviderSearchPhase, TurnEndReason};
+pub use lya_token::ContextUsageReport;

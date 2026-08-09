@@ -43,7 +43,7 @@ describe('createEventBatcher', () => {
     })
 
     batcher.push({ type: 'message_delta', text: 'x' })
-    batcher.push({ type: 'turn_end', reason: 'completed' })
+    batcher.push({ type: 'turn_end', reason: { kind: 'completed' } })
 
     expect(state.running).toBeNull()
     expect(applied.map((event) => event.type)).toEqual(['message_delta', 'turn_end'])

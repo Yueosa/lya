@@ -18,16 +18,18 @@ impl SessionStore {
             .api_mode
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "completions".into());
+        let persona = req.persona.unwrap_or_default();
         let meta = SessionMeta {
             id: Uuid::new_v4().to_string(),
             title: req.title,
             status: SessionStatus::Active,
             active_leaf_id: None,
             work_mode: req.work_mode,
-            persona: req.persona,
+            persona: Some(persona),
             model_id: req.model_id,
             api_mode,
             enabled_tools: req.enabled_tools,
+            context_config_json: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         };
@@ -41,8 +43,8 @@ impl SessionStore {
             conn.execute(
                 "INSERT INTO sessions (
                      id, title, status, active_leaf_id, work_mode, persona, model_id,
-                     api_mode, enabled_tools_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                     api_mode, enabled_tools_json, context_config_json, created_at, updated_at
+                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10)",
                 params![
                     meta.id,
                     meta.title,
@@ -76,7 +78,7 @@ impl SessionStore {
         self.db.read(|conn| {
             let mut stmt = conn.prepare(
                 "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
-                        api_mode, enabled_tools_json, created_at, updated_at
+                        api_mode, enabled_tools_json, context_config_json, created_at, updated_at
                  FROM sessions
                  WHERE status = ?1
                  ORDER BY updated_at DESC",
@@ -236,17 +238,13 @@ impl SessionStore {
     /// 都换掉性格，而聊天记录还是旧性格写的——模型下一轮得同时扮演两个人。现在会话在创建时
     /// 就抄一份（见 `lya-api` 的 `create`），这个方法只管把改之前建的那些会话补齐。
     ///
-    /// 补的是**调用时的默认人设正文**：那几段对话是在这个值下进行的（至少最近一次是），
-    /// 冻在这儿最接近它们已有的语气。真实历史无从恢复，这是能拿到的最好近似。
+    /// 一次性把 `persona IS NULL` 或空串的老会话补成给定正文。
     ///
-    /// 幂等：补完就没有 NULL 了，之后每次启动都是 0 条。不做成 SQL 迁移是因为要补的值在
-    /// 配置文件里，SQL 读不到。
-    ///
-    /// 不动 `updated_at`：这是补数据，不是用户改了什么，碰它会让全部会话一起窜到列表最前面。
+    /// **不在启动时自动调用**——老库请跑 `scripts/upgrade-existing-lya-db.sh`。
     pub fn adopt_default_persona(&self, persona: &str) -> Result<usize, SessionError> {
         self.db.write(|conn| {
             let n = conn.execute(
-                "UPDATE sessions SET persona = ?1 WHERE persona IS NULL",
+                "UPDATE sessions SET persona = ?1 WHERE persona IS NULL OR persona = ''",
                 params![persona],
             )?;
             Ok(n)

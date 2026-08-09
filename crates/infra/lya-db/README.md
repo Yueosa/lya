@@ -6,7 +6,7 @@ SQLite 基建：数据目录、连接、全库 schema 与写事务。
 
 - 默认库 `~/.lya/lya.db`（数据根来自 `lya-base`）
 - WAL、`foreign_keys`
-- 持有 `migrations/` 下的全库 schema，启动时把没跑过的补上
+- 持有 `migrations/000_init.sql` 全库 schema，新库 migrate 一次到位
 - 串行化读写封装（单进程 agent 够用）
 
 ## 非职责
@@ -18,7 +18,6 @@ SQLite 基建：数据目录、连接、全库 schema 与写事务。
 ```rust
 use lya_db::Db;
 
-// 打开即带全库 schema，装配方不需要知道有哪些表
 let db = Db::open(path)?;
 db.migrate()?;
 ```
@@ -31,5 +30,6 @@ let (_dir, db) = lya_db::testing::open_test_db();
 
 ## 改库
 
-加 `migrations/NNN_xxx.sql` 并挂进 `SCHEMA`，**不要改已有文件**——已建过库的机器
-跳过旧文件，改了只会让新旧两条路走到不同终点。
+1. **直接改** `migrations/000_init.sql`（新用户一步建全表）
+2. **同步改** `scripts/upgrade-existing-lya-db.sql`（老用户手动 `sqlite3` 执行）
+3. **不要**往 `SCHEMA` 追加 version 1、2… 的增量迁移

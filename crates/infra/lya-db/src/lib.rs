@@ -19,7 +19,8 @@
 //! 逐个注册，漏一个就拿到半个库——只调 `SessionStore::open` 的测试和工具就是这样，
 //! 建出来的库里没有 memory 表。放在这里之后，打开库就等于拿到完整 schema。
 //!
-//! 改库加一个新的 `migrations/NNN_*.sql` 并挂进 [`SCHEMA`]，不要改已有文件。
+//! 改库：**直接改** `migrations/000_init.sql`，并同步 `scripts/upgrade-existing-lya-db.sql`
+//! 给已有库手动升级。不要往 [`SCHEMA`] 里追加 version 1、2…——新用户应一步建全表。
 //!
 //! ## 并发模型
 //!
@@ -249,7 +250,14 @@ mod tests {
             })
             .unwrap();
 
-        for expected in ["memories", "memory_tags", "messages", "sessions"] {
+        for expected in [
+            "memories",
+            "memory_tags",
+            "messages",
+            "model_templates",
+            "sessions",
+            "tokenizers",
+        ] {
             assert!(
                 tables.iter().any(|t| t == expected),
                 "缺 {expected}：{tables:?}"

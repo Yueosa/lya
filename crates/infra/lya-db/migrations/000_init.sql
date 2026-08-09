@@ -1,13 +1,43 @@
--- lya v0.1.0 全量 schema。
+-- lya 全量 schema（唯一初始化脚本）。
 --
--- 这是唯一的初始化脚本：新库一步建到位，不需要经历任何中间状态。以后要改库，
--- 另加 `001_xxx.sql` 独立迁移，**不要动这个文件** —— 已经建过库的机器跳过它，
--- 改了只会让新旧两条路走到不同的终点。
+-- 新用户：打开软件 → migrate 一次 → 库结构完整，没有 001/002 要追。
+-- 已有 ~/.lya/lya.db 的老用户：不要指望自动 ALTER，请手动跑仓库里的
+--   scripts/upgrade-existing-lya-db.sql（或按其中注释逐条执行）。
 --
--- 语句写成「不存在才建」纯属稳妥：台账已经保证跑过就不再跑，这里只是让手工执行
--- 这个文件（比如照着它建一个测试库）也不会炸。
+-- 以后要改表结构：**直接改本文件**，并同步更新 upgrade-existing-lya-db.sql；
+-- 不要往 SCHEMA 里追加 version 1、2… 的增量迁移。
+--
+-- 语句写成「不存在才建」纯属稳妥：台账保证跑过就不再跑，手工照着建测试库也不会炸。
 
 PRAGMA foreign_keys = ON;
+
+-- ── 词表注册（lya-token）──────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS tokenizers (
+    id          TEXT PRIMARY KEY,
+    label       TEXT NOT NULL,
+    -- bundled 资源路径（相对 lya-token/assets/）；NULL = 无文件，走启发式
+    asset_path  TEXT,
+    updated_at  TEXT NOT NULL
+);
+
+-- DeepSeek V4：Flash / Pro 共用同一份 HF tokenizer.json
+INSERT OR IGNORE INTO tokenizers (id, label, asset_path, updated_at)
+VALUES ('deepseek_v4', 'DeepSeek V4', 'deepseek_v4/tokenizer.json', datetime('now'));
+
+-- ── 模型参数模板（上下文管理器 UI + PATCH 校验）────────────────
+
+CREATE TABLE IF NOT EXISTS model_templates (
+    model_id             TEXT PRIMARY KEY,
+    tokenizer_id         TEXT NOT NULL REFERENCES tokenizers(id),
+    -- 可选 context_limit，如 [300000, 1000000]
+    context_options_json TEXT NOT NULL DEFAULT '[300000, 1048576]',
+    -- 字段定义：type / enum / min / max / api_modes / scope / default
+    schema_json          TEXT NOT NULL,
+    -- 各 api_mode 默认 params（与 models.toml modes.*.params 对齐，可被会话 override）
+    defaults_json        TEXT NOT NULL DEFAULT '{}',
+    updated_at           TEXT NOT NULL
+);
 
 -- ── 会话与消息树 ──────────────────────────────────────────────
 
@@ -19,14 +49,14 @@ CREATE TABLE IF NOT EXISTS sessions (
     active_leaf_id      INTEGER,
     work_mode           TEXT NOT NULL DEFAULT 'agent'
                             CHECK (work_mode IN ('ask', 'edit', 'agent')),
-    persona             TEXT,
-    -- NULL = 启用全部工具；JSON 数组 = 只启用列出的（空数组即全部禁用）。
-    -- 与 lya-config 的 tools.enabled 和 ToolRegistry::bundle 的 names 同语义
+    -- 创建时从默认人设抄一份正文进来；之后只改本会话，不跟 persona.toml 联动
+    persona             TEXT NOT NULL DEFAULT '',
+    -- NULL = 启用全部工具；JSON 数组 = 只启用列出的（空数组即全部禁用）
     enabled_tools_json  TEXT,
-    -- 不指定则跟随配置里的默认模型
     model_id            TEXT,
-    -- 建会话时锁定的 LLM API 栈，之后不再改
     api_mode            TEXT NOT NULL DEFAULT 'completions',
+    -- 上下文管理：context_limit、auto_compress_pct、params override 等
+    context_config_json TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );
@@ -34,7 +64,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS messages (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id      TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-    -- RESTRICT：只允许删叶节点，删中间节点会让下游整段失去父亲
     parent_id       INTEGER REFERENCES messages(id) ON DELETE RESTRICT,
     sort_key        INTEGER NOT NULL,
     message_json    TEXT NOT NULL,
@@ -50,33 +79,22 @@ CREATE INDEX IF NOT EXISTS idx_messages_parent
 
 -- ── 长期记忆 ──────────────────────────────────────────────────
 
--- 跨会话的显式笔记。正文直接入库，不拆到外部文件，保证单一真相。
 CREATE TABLE IF NOT EXISTS memories (
-    -- 自增整数：索引要常驻 prompt，短 id 比 uuid 省 token 且模型更容易引用准。
-    -- 这个 id 就是模型看到的编号，不再另算一套展示序号——序号会随写入重排，
-    -- 而历史消息里的旧序号不会跟着改，同一个号在一个上下文里能指两条记忆
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    -- 唯一：同名即视为同一条记忆，写入天然变成更新
     title               TEXT NOT NULL UNIQUE,
-    -- 一句话概括，进常驻索引
     summary             TEXT NOT NULL DEFAULT '',
-    -- 正文，按需读取
     body                TEXT NOT NULL DEFAULT '',
-    -- 溯源用；会话删除时**不**级联，记忆要比会话活得久
     source_session_id   TEXT,
     created_at          TEXT NOT NULL,
     updated_at          TEXT NOT NULL
 );
 
--- 索引按 id 升序列出，但超预算时丢的是最久没更新的，所以这个索引仍有用
 CREATE INDEX IF NOT EXISTS idx_memories_updated
     ON memories(updated_at DESC);
 
--- 标签拆关联表而不是塞 JSON，便于按标签直接查
 CREATE TABLE IF NOT EXISTS memory_tags (
     memory_id   INTEGER NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
     tag         TEXT NOT NULL,
-    -- 写入顺序。标签是有主次的（具体名词在前、泛类在后），排序展示会丢掉这层信息
     ord         INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (memory_id, tag)
 );

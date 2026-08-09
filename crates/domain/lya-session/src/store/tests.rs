@@ -27,11 +27,8 @@ use lya_base::Mode;
     #[test]
     fn adopt_default_persona_only_fills_the_empty_ones() {
         /*
-          人设改成会话级之前建的会话是「留空 = 每轮读全局」，于是改一次默认人设会把它们的
-          性格一起换掉，而聊天记录还是旧性格写的。这个方法给它们补上各自的一份。
-
-          补的时候不能碰已经有自己人设的那些——那才是用户明确挑过的，覆盖掉就是把用户的
-          设置抹了。
+          老库升级用：当时 persona 留空表示「每轮读全局」，升级脚本或本方法给它们冻一份正文。
+          已有明确人设的会话不能覆盖。
         */
         let (_dir, store) = store();
         let blank = new_session(&store);

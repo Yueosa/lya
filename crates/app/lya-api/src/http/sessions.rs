@@ -18,6 +18,7 @@ use tokio::sync::broadcast::error::RecvError;
 
 use lya_hub::event::Envelope;
 use lya_hub::{BranchInfo, HubError, SessionHub, SessionTree, Snapshot};
+use lya_token::ContextUsageReport;
 
 type Hub = State<Arc<SessionHub>>;
 
@@ -246,6 +247,22 @@ pub async fn remove(State(hub): Hub, Path(id): Path<String>) -> Result<StatusCod
 /// 已归档的会话。
 pub async fn archived(State(hub): Hub) -> Result<Json<Vec<SessionMeta>>, ApiError> {
     Ok(Json(hub.agent().sessions().list_archived()?))
+}
+
+/// 估算当前活跃分支的上下文占用（只读）。
+pub async fn context_usage(
+    State(hub): Hub,
+    Path(id): Path<String>,
+) -> Result<Json<ContextUsageReport>, ApiError> {
+    let hub = hub.clone();
+    let report = tokio::task::spawn_blocking(move || hub.estimate_context_usage(&id))
+        .await
+        .map_err(|err| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("context usage task failed: {err}"),
+        })?
+        .map_err(ApiError::from)?;
+    Ok(Json(report))
 }
 
 /// 整棵消息树，供分叉图与逐节点回看。

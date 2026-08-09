@@ -35,6 +35,7 @@ pub mod builder;
 pub mod identity;
 pub mod input;
 pub mod media;
+pub mod sections;
 
 pub use builder::PromptBuilder;
 pub use identity::{
@@ -42,3 +43,4 @@ pub use identity::{
 };
 pub use media::chat_media_section;
 pub use input::PromptInput;
+pub use sections::SystemSections;

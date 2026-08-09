@@ -23,6 +23,8 @@ pub struct LlmEndpoint {
     pub base_url: String,
     /// Bearer API Key。
     pub api_key: String,
+    /// 输入上下文上限（token）；lya 元数据，来自 `models.toml`，不发给 API。
+    pub context_window: Option<u64>,
     mode_params: BTreeMap<String, Map<String, Value>>,
     mode_capabilities: BTreeMap<String, Vec<String>>,
 }
@@ -34,9 +36,21 @@ impl LlmEndpoint {
             id: "default".into(),
             base_url: base_url.into(),
             api_key: api_key.into(),
+            context_window: None,
             mode_params: BTreeMap::new(),
             mode_capabilities: BTreeMap::new(),
         }
+    }
+
+    /// 设置输入上下文上限（token）。
+    pub fn with_context_window(mut self, limit: Option<u64>) -> Self {
+        self.context_window = limit;
+        self
+    }
+
+    /// 有效上下文上限；未配置时用 1M。
+    pub fn effective_context_window(&self) -> u64 {
+        self.context_window.unwrap_or(1_048_576)
     }
 
     /// 设置逻辑 id。

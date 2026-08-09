@@ -195,7 +195,7 @@ impl<B: ChatBackend> Agent<B> {
     ///
     /// 会话指名了一个已经不存在的模型时**报错而不是悄悄退回默认**——静默换成
     /// 另一个模型（可能更贵、能力也不同）比直接说清楚更让人困惑。
-    fn endpoint_for(
+    pub(crate) fn endpoint_for(
         &self,
         model_id: Option<&str>,
         default_model: &str,

@@ -15,6 +15,7 @@ lya-action = { workspace = true }
 lya-agent = { workspace = true }
 lya-config = { workspace = true }
 lya-hub = { workspace = true }
+lya-token = { workspace = true }
 lya-http = { workspace = true }
 lya-llm = { workspace = true }
 lya-media = { workspace = true }
