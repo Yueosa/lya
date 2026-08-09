@@ -119,6 +119,17 @@ describe('MarkdownBody', () => {
     vi.resetModules()
   })
 
+  it('还在输出时一次都不去排版公式，说完了才画', async () => {
+    const source = '质能 $E=mc^2$ 关系'
+    const wrapper = mount(MarkdownBody, { props: { text: source, streaming: true } })
+    await flushPromises()
+    expect(wrapper.find('.katex').exists(), '流式期间不该排版公式').toBe(false)
+    expect(wrapper.find('.lya-math').exists()).toBe(true)
+
+    await wrapper.setProps({ streaming: false })
+    await vi.waitFor(() => expect(wrapper.find('.katex').exists()).toBe(true), { timeout: 5000 })
+  })
+
   it('话说完了还画不出来的图表，要说明原因', async () => {
     // 模型很爱写 `A[启动(初始化)]`——方括号里塞圆括号在 mermaid 里是语法错。
     // 不说的话页面上只剩一块代码块，看的人分不清是这张图写坏了还是功能坏了

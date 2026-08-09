@@ -62,7 +62,7 @@ export async function enhanceMarkdown(
 
   const done = await Promise.allSettled([
     renderDiagrams(container, session, mine, options),
-    renderMath(container, session, mine),
+    renderMath(container, session, mine, options),
   ])
   for (const outcome of done) {
     if (outcome.status === 'rejected') console.error('[markdown] 增强失败', outcome.reason)
@@ -189,18 +189,24 @@ function noteFailure(block: HTMLElement, why: string): void {
 /**
  * 把占位元素换成排好版的公式。
  *
- * 占位元素里那段文字就是模型写的 LaTeX，KaTeX 从字符串建 DOM，所以这一步没有
- * 任何模型生成的 HTML 进入页面，见 model/math.ts。
+ * 流式期间不排版（与 [`renderDiagrams`] 同理）：每来一个 delta 就 KaTeX 一遍会
+ * 跟 v-html 整段换 DOM 叠在一起，公式块高度来回变，看上去就是抖动。
  */
 async function renderMath(
   container: HTMLElement,
   session: EnhanceSession,
   mine: number,
+  options: EnhanceOptions,
 ): Promise<void> {
   const nodes = Array.from(
     container.querySelectorAll<HTMLElement>(`.${MATH_CLASS}`),
   ).filter((node) => node.dataset['done'] !== '1')
   if (nodes.length === 0) return
+
+  if (options.streaming) {
+    void import('./katex')
+    return
+  }
 
   const katex = (await import('./katex')).default
   if (session.generation !== mine) return

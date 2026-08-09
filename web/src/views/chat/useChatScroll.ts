@@ -195,6 +195,12 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
   }, { immediate: true })
 
   watch(running, (on, was) => {
+    if (on && !was && prefs.followStream) {
+      userTookOver.value = false
+      stuckToBottom.value = true
+      lastTurnFinished.value = false
+      scrollBottom()
+    }
     if (was && !on && prefs.followStream) lastTurnFinished.value = true
   })
 
