@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 
 import type { FormAnswerItem } from '../api/client'
 import type { HitlBlock } from '../api/wire'
@@ -49,11 +49,32 @@ watch(pendingHitl, (block) => {
     for (const key of Object.keys(hitlRemarks)) delete hitlRemarks[Number(key)]
     busy.value = false
   }
+  void nextTick(growAllTextareas)
 })
 
 const block = computed<HitlBlock | null>(() => pendingHitl.value)
 
 const batchNav = computed(() => pendingHitlBatch.value)
+
+const TEXTAREA_MAX = 120
+const trayBody = ref<HTMLElement | null>(null)
+
+function growTextarea(el: HTMLTextAreaElement | null): void {
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = `${Math.min(el.scrollHeight, TEXTAREA_MAX)}px`
+  el.style.overflowY = el.scrollHeight > TEXTAREA_MAX ? 'auto' : 'hidden'
+}
+
+function onTextareaInput(event: Event): void {
+  growTextarea(event.currentTarget as HTMLTextAreaElement)
+}
+
+function growAllTextareas(): void {
+  trayBody.value
+    ?.querySelectorAll('textarea.tray__textarea')
+    .forEach((node) => growTextarea(node as HTMLTextAreaElement))
+}
 
 function toggle(questionId: string, key: string, multi: boolean): void {
   const current = picked[questionId] ?? []
@@ -130,114 +151,168 @@ async function answerMode(approved: boolean): Promise<void> {
 
 <template>
   <div v-if="block" class="tray panel">
-    <!-- 表单 -->
-    <template v-if="block.type === 'form'">
-      <h3 class="tray__title">{{ block.title }}</h3>
-      <div v-for="question in block.questions" :key="question.id" class="tray__q">
-        <p class="tray__prompt">{{ question.text }}</p>
+    <div ref="trayBody" class="tray__body">
+      <!-- 表单 -->
+      <template v-if="block.type === 'form'">
+        <h3 class="tray__title">{{ block.title }}</h3>
+        <div v-for="question in block.questions" :key="question.id" class="tray__q">
+          <p class="tray__prompt">{{ question.text }}</p>
 
-        <input
-          v-if="question.kind === 'text'"
-          v-model="notes[question.id]"
-          class="input"
-          placeholder="在这里回答…"
-        />
-        <div v-else class="tray__options">
+          <textarea
+            v-if="question.kind === 'text'"
+            v-model="notes[question.id]"
+            class="input tray__textarea"
+            rows="1"
+            placeholder="在这里回答…"
+            @input="onTextareaInput"
+          />
+          <div v-else class="tray__options">
+            <button
+              v-for="option in question.options ?? []"
+              :key="option.key"
+              class="btn btn--sm"
+              :class="{ 'btn--primary': isPicked(question.id, option.key) }"
+              @click="toggle(question.id, option.key, question.kind === 'multi')"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+
+          <textarea
+            v-if="question.allow_note && question.kind !== 'text'"
+            v-model="notes[question.id]"
+            class="input tray__textarea tray__note"
+            rows="1"
+            placeholder="补充说明（可不填）"
+            @input="onTextareaInput"
+          />
+        </div>
+      </template>
+
+      <!-- 工具确认 -->
+      <template v-else-if="block.type === 'tool_confirm'">
+        <div v-if="batchNav" class="tray__batch-nav">
           <button
-            v-for="option in question.options ?? []"
-            :key="option.key"
-            class="btn btn--sm"
-            :class="{ 'btn--primary': isPicked(question.id, option.key) }"
-            @click="toggle(question.id, option.key, question.kind === 'multi')"
+            type="button"
+            class="tray__batch-nav-btn"
+            :disabled="!canNavHitlPrev"
+            aria-label="上一条待确认工具"
+            @click="navigateHitlBatch(-1)"
           >
-            {{ option.label }}
+            <Icon name="chevronLeft" size="sm" />
+          </button>
+          <span class="tray__batch-nav-label">{{ batchNav.index }} / {{ batchNav.total }}</span>
+          <button
+            type="button"
+            class="tray__batch-nav-btn"
+            :disabled="!canNavHitlNext"
+            aria-label="下一条待确认工具"
+            @click="navigateHitlBatch(1)"
+          >
+            <Icon name="chevronRight" size="sm" />
           </button>
         </div>
+        <h3 class="tray__title">要执行 {{ block.tool_name }} 吗</h3>
+        <p class="tray__summary">{{ block.summary }}</p>
 
-        <input
-          v-if="question.allow_note && question.kind !== 'text'"
-          v-model="notes[question.id]"
-          class="input tray__note"
-          placeholder="补充说明（可不填）"
-        />
-      </div>
-
-      <input v-model="remark" class="input" placeholder="还想补充点什么（可不填）" />
-      <div class="tray__actions">
-        <button class="btn btn--primary" :disabled="busy" @click="submitForm">
-          {{ busy ? '提交中…' : '提交' }}
-        </button>
-      </div>
-    </template>
-
-    <!-- 工具确认 -->
-    <template v-else-if="block.type === 'tool_confirm'">
-      <div v-if="batchNav" class="tray__batch-nav">
-        <button
-          type="button"
-          class="tray__batch-nav-btn"
-          :disabled="!canNavHitlPrev"
-          aria-label="上一条待确认工具"
-          @click="navigateHitlBatch(-1)"
+        <details
+          v-if="block.steps?.length"
+          class="tray__fold"
+          :open="block.steps.length <= 3"
         >
-          <Icon name="chevronLeft" size="sm" />
-        </button>
-        <span class="tray__batch-nav-label">{{ batchNav.index }} / {{ batchNav.total }}</span>
-        <button
-          type="button"
-          class="tray__batch-nav-btn"
-          :disabled="!canNavHitlNext"
-          aria-label="下一条待确认工具"
-          @click="navigateHitlBatch(1)"
-        >
-          <Icon name="chevronRight" size="sm" />
-        </button>
-      </div>
-      <h3 class="tray__title">要执行 {{ block.tool_name }} 吗</h3>
-      <p class="tray__summary">{{ block.summary }}</p>
+          <summary class="tray__fold-summary">执行步骤（{{ block.steps.length }}）</summary>
+          <ol class="tray__steps">
+            <li v-for="(step, at) in block.steps" :key="at">
+              <span v-if="step.connector" class="tray__connector">{{ step.connector }}</span>
+              <code class="tray__raw">{{ step.raw }}</code>
+              <span class="tray__explain">{{ step.explain }}</span>
+              <span v-if="step.risk" class="tray__risk"><Icon name="warning" size="sm" /> {{ step.risk }}</span>
+            </li>
+          </ol>
+        </details>
 
-      <ol v-if="block.steps?.length" class="tray__steps">
-        <li v-for="(step, at) in block.steps" :key="at">
-          <span v-if="step.connector" class="tray__connector">{{ step.connector }}</span>
-          <code class="tray__raw">{{ step.raw }}</code>
-          <span class="tray__explain">{{ step.explain }}</span>
-          <span v-if="step.risk" class="tray__risk"><Icon name="warning" size="sm" /> {{ step.risk }}</span>
-        </li>
-      </ol>
+        <details v-if="block.reasons?.length" class="tray__fold" :open="block.reasons.length <= 2">
+          <summary class="tray__fold-summary">风险说明（{{ block.reasons.length }}）</summary>
+          <ul class="tray__reasons">
+            <li v-for="(reason, at) in block.reasons" :key="at">{{ reason }}</li>
+          </ul>
+        </details>
+      </template>
 
-      <ul v-if="block.reasons?.length" class="tray__reasons">
-        <li v-for="(reason, at) in block.reasons" :key="at">{{ reason }}</li>
-      </ul>
+      <!-- 模式切换 -->
+      <template v-else>
+        <h3 class="tray__title">它想切到 {{ block.to_mode }} 模式</h3>
+        <p class="tray__summary">{{ block.reason }}</p>
+      </template>
+    </div>
 
-      <input v-model="remark" class="input" placeholder="附一句话给它（可不填）" />
+    <div class="tray__footer">
+      <textarea
+        v-if="block.type === 'form'"
+        v-model="remark"
+        class="input tray__textarea"
+        rows="1"
+        placeholder="还想补充点什么（可不填）"
+        @input="onTextareaInput"
+      />
+      <textarea
+        v-else-if="block.type === 'tool_confirm'"
+        v-model="remark"
+        class="input tray__textarea"
+        rows="1"
+        placeholder="附一句话给它（可不填）"
+        @input="onTextareaInput"
+      />
+
       <div class="tray__actions">
-        <button class="btn" :disabled="busy || !canSubmitFocusedHitl" @click="answerConfirm(false)">拒绝</button>
-        <button class="btn btn--danger" :disabled="busy || !canSubmitFocusedHitl" @click="answerConfirm(true)">
-          {{ busy ? '执行中…' : '放行' }}
-        </button>
+        <template v-if="block.type === 'form'">
+          <button class="btn btn--primary" :disabled="busy" @click="submitForm">
+            {{ busy ? '提交中…' : '提交' }}
+          </button>
+        </template>
+        <template v-else-if="block.type === 'tool_confirm'">
+          <button class="btn" :disabled="busy || !canSubmitFocusedHitl" @click="answerConfirm(false)">拒绝</button>
+          <button class="btn btn--danger" :disabled="busy || !canSubmitFocusedHitl" @click="answerConfirm(true)">
+            {{ busy ? '执行中…' : '放行' }}
+          </button>
+        </template>
+        <template v-else>
+          <button class="btn" :disabled="busy" @click="answerMode(false)">不用</button>
+          <button class="btn btn--primary" :disabled="busy" @click="answerMode(true)">同意</button>
+        </template>
       </div>
-    </template>
-
-    <!-- 模式切换 -->
-    <template v-else>
-      <h3 class="tray__title">它想切到 {{ block.to_mode }} 模式</h3>
-      <p class="tray__summary">{{ block.reason }}</p>
-      <div class="tray__actions">
-        <button class="btn" :disabled="busy" @click="answerMode(false)">不用</button>
-        <button class="btn btn--primary" :disabled="busy" @click="answerMode(true)">同意</button>
-      </div>
-    </template>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .tray {
   margin: 0 5% 10px;
-  padding: 14px 16px;
+  max-height: min(58vh, 420px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-color: var(--accent);
+}
+
+.tray__body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px 16px 10px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  border-color: var(--accent);
+  overflow-y: auto;
+}
+
+.tray__footer {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 16px 14px;
+  border-top: var(--border-width) solid var(--border);
+  background: var(--surface);
 }
 
 .tray__title {
@@ -255,6 +330,20 @@ async function answerMode(approved: boolean): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+}
+
+.tray__textarea.input {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  min-height: var(--ctl-h-md);
+  padding-top: 8px;
+  padding-bottom: 8px;
+  line-height: 1.5;
+  resize: none;
+  overflow-y: hidden;
+  box-sizing: border-box;
 }
 
 .tray__prompt {
@@ -272,13 +361,38 @@ async function answerMode(approved: boolean): Promise<void> {
   margin-top: 2px;
 }
 
+.tray__fold {
+  margin: 0;
+  border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.tray__fold-summary {
+  padding: 8px 10px;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  list-style: none;
+}
+
+.tray__fold-summary::-webkit-details-marker {
+  display: none;
+}
+
+.tray__fold[open] .tray__fold-summary {
+  border-bottom: var(--border-width) solid var(--border);
+}
+
 .tray__steps {
   margin: 0;
-  padding-left: 1.2em;
+  padding: 8px 10px 10px 1.2em;
   display: flex;
   flex-direction: column;
   gap: 8px;
   font-size: var(--text-sm);
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .tray__steps li {
@@ -295,9 +409,10 @@ async function answerMode(approved: boolean): Promise<void> {
 .tray__raw {
   padding: 3px 6px;
   border-radius: var(--radius-sm);
-  background: var(--bg-sunken);
+  background: var(--surface);
   font-family: var(--font-mono);
   word-break: break-all;
+  white-space: pre-wrap;
 }
 
 .tray__explain {
@@ -313,9 +428,11 @@ async function answerMode(approved: boolean): Promise<void> {
 
 .tray__reasons {
   margin: 0;
-  padding-left: 1.2em;
+  padding: 8px 10px 10px 1.2em;
   color: var(--text-muted);
   font-size: var(--text-sm);
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .tray__actions {
@@ -362,12 +479,5 @@ async function answerMode(approved: boolean): Promise<void> {
   font-size: var(--text-sm);
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
-}
-
-.tray__batch-hint {
-  margin: 0;
-  text-align: center;
-  font-size: var(--text-xs);
-  color: var(--text-faint);
 }
 </style>

@@ -212,6 +212,7 @@ function onEditKey(event: KeyboardEvent): void {
             streaming
             :busy="item.message.status === 'streaming'"
             :auto-collapse="prefs.autoCollapseAside"
+            :scroll-token="block.text"
           >
             {{ block.text }}
           </CollapsibleBlock>

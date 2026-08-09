@@ -6,10 +6,13 @@
 -->
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { nextTick, onUnmounted, ref, watch } from 'vue'
 
 import Icon from '../ui/Icon.vue'
 import type { IconKey } from '../ui/icons'
+
+/** 离底多少像素内仍视为「在跟随尾部」。 */
+const FOLLOW_EPS = 24
 
 const props = withDefaults(
   defineProps<{
@@ -23,6 +26,8 @@ const props = withDefaults(
     failed?: boolean
     /** 流式结束后是否自动收起（仅 streaming 有效）。 */
     autoCollapse?: boolean
+    /** 流式正文变化时递增/更新，用于触发块内滚动跟随。 */
+    scrollToken?: string | number
   }>(),
   {
     busy: false,
@@ -39,6 +44,43 @@ function shouldStartCollapsed(): boolean {
 const open = ref(!shouldStartCollapsed())
 /** 用户是不是自己点过。 */
 const touched = ref(false)
+const bodyEl = ref<HTMLElement | null>(null)
+/** 块内滚动是否跟随流式输出尾部。 */
+const followTail = ref(true)
+let bodyObserver: ResizeObserver | null = null
+
+function scrollBodyToBottom(): void {
+  const el = bodyEl.value
+  if (!el) return
+  el.scrollTop = el.scrollHeight
+}
+
+function onBodyScroll(): void {
+  const el = bodyEl.value
+  if (!el) return
+  const fromBottom = el.scrollHeight - el.clientHeight - el.scrollTop
+  followTail.value = fromBottom <= FOLLOW_EPS
+}
+
+function bindBodyObserver(): void {
+  bodyObserver?.disconnect()
+  bodyObserver = null
+  const el = bodyEl.value
+  if (!el || !props.streaming) return
+  bodyObserver = new ResizeObserver(() => {
+    if (!open.value || !props.busy || !followTail.value) return
+    scrollBodyToBottom()
+  })
+  bodyObserver.observe(el)
+}
+
+function followStreamingTail(): void {
+  if (!props.streaming || !props.busy || !open.value || !followTail.value) return
+  void nextTick(() => {
+    scrollBodyToBottom()
+    bindBodyObserver()
+  })
+}
 
 // 在会话中途打开「自动收起」时，把已经输出完的块顺手收掉
 watch(
@@ -54,9 +96,36 @@ watch(
   (busy, was) => {
     if (!props.streaming || touched.value) return
     if (props.autoCollapse && was && !busy) open.value = false
-    if (busy) open.value = true
+    if (busy) {
+      open.value = true
+      followTail.value = true
+      followStreamingTail()
+    } else {
+      bodyObserver?.disconnect()
+      bodyObserver = null
+    }
   },
 )
+
+watch(open, (isOpen) => {
+  if (isOpen && props.streaming && props.busy) {
+    followTail.value = true
+    followStreamingTail()
+  } else if (!isOpen) {
+    bodyObserver?.disconnect()
+    bodyObserver = null
+  }
+})
+
+watch(
+  () => props.scrollToken,
+  () => followStreamingTail(),
+)
+
+onUnmounted(() => {
+  bodyObserver?.disconnect()
+  bodyObserver = null
+})
 
 function toggle(): void {
   touched.value = true
@@ -73,7 +142,7 @@ function toggle(): void {
       <Icon class="fold__caret" :name="open ? 'chevronDown' : 'chevronRight'" size="sm" />
     </button>
     <Transition enter-active-class="lya-fold-enter-active" leave-active-class="lya-fold-leave-active">
-      <div v-if="open" class="fold__body">
+      <div v-if="open" ref="bodyEl" class="fold__body" @scroll="onBodyScroll">
         <slot />
       </div>
     </Transition>
