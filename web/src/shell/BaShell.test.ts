@@ -13,6 +13,7 @@ import { mount } from '@vue/test-utils'
 import { describe, expect, it, vi } from 'vitest'
 
 import { vTip } from '../ui/vTip'
+import ThemeStage from '../ui/ThemeStage.vue'
 import BaShell from './BaShell.vue'
 import type { View } from './types'
 
@@ -50,12 +51,44 @@ function mountShell(view: View) {
   })
 }
 
+/** 模拟大厅 CG 预载完成，否则首页会拦着不让点字标进厅。 */
+async function markCgReady(wrapper: ReturnType<typeof mountShell>) {
+  const cgStage = wrapper.find('[data-layer="cg"]').findComponent(ThemeStage)
+  await cgStage.vm.$emit('loadProgress', { pct: 1, show: false })
+  await wrapper.vm.$nextTick()
+}
+
+async function enterLobby(wrapper: ReturnType<typeof mountShell>) {
+  await markCgReady(wrapper)
+  await wrapper.find('.ba__boot-brand').trigger('click')
+  await wrapper.vm.$nextTick()
+}
+
 describe('蔚蓝档案外壳', () => {
+  it('CG 未就绪时不让进大厅，并显示首页进度条', async () => {
+    const wrapper = mountShell('home')
+
+    expect(wrapper.find('.ba__boot-bar').exists()).toBe(true)
+    expect(wrapper.find('.ba__boot-status').text()).toContain('记忆大厅加载中')
+
+    await wrapper.find('.ba__boot-brand').trigger('click')
+    await wrapper.vm.$nextTick()
+
+    expect(wrapper.find('.ba__boot').exists()).toBe(true)
+    expect(wrapper.find('.ba__me').exists()).toBe(false)
+  })
+
+  it('CG 就绪后可以进大厅', async () => {
+    const wrapper = mountShell('home')
+    await enterLobby(wrapper)
+    expect(wrapper.find('.ba__me').exists()).toBe(true)
+    expect(wrapper.find('.ba__boot-bar').exists()).toBe(false)
+  })
+
   it('去内容页再回来，背景的 video 元素还是同一个', async () => {
     const wrapper = mountShell('home')
 
-    // 进大厅
-    await wrapper.findAll('button').find((b) => b.text().includes('lya'))?.trigger('click')
+    await enterLobby(wrapper)
     // 必须只看大厅那一层：加载页那层一直在，会把断言喂饱而掩盖问题
     const before = wrapper.findAll('[data-layer="cg"] video')
     expect(before.length, '大厅该有背景视频').toBeGreaterThan(0)
@@ -71,6 +104,17 @@ describe('蔚蓝档案外壳', () => {
       after[0]!.element,
       '同一个 video 元素要活过往返——重建的话几十 MB 会从头下载',
     ).toBe(firstEl)
+  })
+
+  it('从内容页回首页时，CG 已暖好则直接进大厅', async () => {
+    const wrapper = mountShell('home')
+    await enterLobby(wrapper)
+    await wrapper.setProps({ view: 'tools' })
+    await wrapper.find('[aria-label="回首页"]').trigger('click')
+    await wrapper.setProps({ view: 'home' })
+    await wrapper.vm.$nextTick()
+    expect(wrapper.find('.ba__me').exists()).toBe(true)
+    expect(wrapper.find('.ba__boot').exists()).toBe(false)
   })
 
   it('内容页也不卸载背景，只是藏起来', async () => {

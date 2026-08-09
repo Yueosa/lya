@@ -35,7 +35,7 @@
 -->
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 
 import type { SessionMeta } from '../api/wire'
 import {
@@ -84,7 +84,38 @@ const cg = useThemeStage({ theme: 'ba', kind: 'cg', remember: true, pan: false }
  * 打开主题先进加载页；那几十 MB 的视频在后台暖着，条子告诉你还在读盘。
  * 暖好再进大厅，就不会先闪一帧错尺寸。大厅本身不再挂进度条。
  */
-const cgLoad = ref<{ pct: number | null; show: boolean }>({ pct: 0, show: false })
+const cgLoad = ref<{ pct: number | null; show: boolean }>({ pct: null, show: false })
+
+/** 当前这批 CG 里至少有一支已经暖到可播——之后切页/暂停不再把就绪打回去。 */
+const cgEverReady = ref(false)
+
+watch(
+  () => cgLoad.value.pct,
+  (pct) => {
+    if (pct === 1) cgEverReady.value = true
+  },
+)
+
+watch(
+  () => cg.items.value.map((item) => item.name).join('\0'),
+  () => {
+    cgEverReady.value = false
+    cgLoad.value = { pct: null, show: false }
+  },
+)
+
+/** 目录里没有 CG 时不必等；有素材则必须 readyState/buffer 到可播。 */
+const cgReady = computed(() => {
+  if (cgEverReady.value) return true
+  if (cg.loading.value) return false
+  if (cg.items.value.length === 0) return true
+  return cgLoad.value.pct === 1
+})
+
+/** 首页底边进度条：有 CG 且未就绪就一直露着，不依赖 ThemeStage 里 150ms 延迟。 */
+const showCgBootBar = computed(
+  () => atBoot.value && cg.items.value.length > 0 && !cgReady.value,
+)
 
 /** lya 现在在做什么。 */
 const status = computed(() => {
@@ -119,6 +150,7 @@ const ticker = window.setInterval(() => (clock.value = nowText()), 10_000)
 onUnmounted(() => window.clearInterval(ticker))
 
 function enterLobby(): void {
+  if (!cgReady.value) return
   landing.value = 'lobby'
 }
 
@@ -135,13 +167,12 @@ function go(view: View): void {
 }
 
 /**
- * 从内容页回落地：回加载页，不直接进大厅。
+ * 从内容页回落地。
  *
- * 切到 BA 时人往往还停在设置等页；这时大厅 CG 还没暖。直接回大厅会先闪错尺寸，
- * 进度条也画在加载页上——先回首页把条子走完，再点字标进厅。
+ * CG 已经暖好就直接进大厅，避免再闪一遍加载页；否则回首页等条子走完。
  */
 function backToLanding(): void {
-  landing.value = 'boot'
+  landing.value = cgReady.value ? 'lobby' : 'boot'
   emit('navigate', 'home')
 }
 
@@ -236,7 +267,7 @@ function subtitle(session: SessionMeta): string {
         :index="cg.index.value"
         :measure="cg.measure"
         :active="atLobby"
-        :warm="atBoot || atLobby"
+        :warm="cg.items.value.length > 0"
         default-fit="center"
         @load-progress="cgLoad = $event"
       />
@@ -245,7 +276,14 @@ function subtitle(session: SessionMeta): string {
     <!-- ── 加载页 ────────────────────────────────── -->
     <template v-if="atBoot">
       <div class="ba__boot">
-        <button class="ba__boot-brand" type="button" @click="enterLobby">
+        <button
+          class="ba__boot-brand"
+          type="button"
+          :class="{ 'ba__boot-brand--locked': !cgReady }"
+          :disabled="!cgReady"
+          :aria-disabled="!cgReady"
+          @click="enterLobby"
+        >
           <BaLogo class="ba__logo--big" left="lya" right="Archive" />
         </button>
 
@@ -254,12 +292,20 @@ function subtitle(session: SessionMeta): string {
           把加载图放进 <code>{{ boot.dir.value }}</code>，点字标进入大厅
         </p>
 
-        <!-- 条子看的是大厅 CG，不是加载图——加载图通常很小，要等的是进厅那支视频 -->
+        <p v-if="showCgBootBar" class="ba__boot-status">
+          记忆大厅加载中…
+          <span v-if="cgLoad.pct !== null">{{ Math.round(cgLoad.pct * 100) }}%</span>
+        </p>
+
+        <!-- 条子看的是大厅 CG；未就绪前禁止进厅，条子始终置顶 -->
         <div
-          v-if="cgLoad.show"
+          v-if="showCgBootBar"
           class="ba__boot-bar"
-          :class="{ 'ba__boot-bar--wait': cgLoad.pct === null, 'ba__boot-bar--done': cgLoad.pct === 1 }"
-          aria-hidden="true"
+          role="progressbar"
+          :aria-valuemin="0"
+          :aria-valuemax="100"
+          :aria-valuenow="cgLoad.pct === null ? undefined : Math.round(cgLoad.pct * 100)"
+          :class="{ 'ba__boot-bar--wait': cgLoad.pct === null }"
         >
           <div
             class="ba__boot-fill"
@@ -509,10 +555,32 @@ function subtitle(session: SessionMeta): string {
 .ba__boot {
   position: absolute;
   inset: 0;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   gap: 14px;
   padding: 20px 24px;
+}
+
+.ba__boot-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 18px;
+  z-index: 102;
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--text);
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.85);
+  pointer-events: none;
+}
+
+.ba__boot-status span {
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--local-ba-deep, var(--accent));
 }
 
 /* 首页底边：跟的是大厅 CG 的预载，不是加载图 */
@@ -521,10 +589,11 @@ function subtitle(session: SessionMeta): string {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 8px;
+  z-index: 101;
+  height: 10px;
   overflow: hidden;
-  background: rgba(9, 26, 44, 0.45);
-  transition: opacity var(--duration-normal) ease;
+  background: rgba(9, 26, 44, 0.55);
+  box-shadow: 0 -2px 12px rgba(9, 26, 44, 0.25);
   pointer-events: none;
 }
 
@@ -573,6 +642,12 @@ function subtitle(session: SessionMeta): string {
   border: none;
   background: transparent;
   cursor: pointer;
+}
+
+.ba__boot-brand--locked,
+.ba__boot-brand:disabled {
+  cursor: wait;
+  opacity: 0.72;
 }
 
 .ba__logo--big {
