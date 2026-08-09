@@ -1,6 +1,7 @@
 import { report } from '../errors'
 import { client } from '../client'
 import { currentId } from './state'
+import { refreshSnapshot } from './snapshot'
 
 /** 发一条消息。 */
 export async function send(text: string): Promise<void> {
@@ -19,6 +20,8 @@ export async function stop(): Promise<void> {
   if (!id) return
   try {
     await client.stop(id)
+    // 后端可能已结束但 SSE 漏了 turn_end；或 Stop 返回 204——拉快照对齐界面。
+    await refreshSnapshot()
   } catch (error) {
     report(error, '停止')
   }

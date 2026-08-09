@@ -7,9 +7,8 @@ use futures_core::Stream;
 use futures_util::StreamExt;
 use lya_action::{ActionCtx, ActionOutcome, ActionRegistry, FormAnswer, render_form_answer};
 use lya_llm::{
-    ApiMode, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH, ChatStreamRequest, CompletionAssembler,
-    LlmEndpoint,
-    StreamEvent, WebSearchStatus,
+    ApiMode, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH, ChatEventStream, ChatStreamRequest,
+    CompletionAssembler, LlmEndpoint, LlmError, StreamEvent, WebSearchStatus,
 };
 use lya_prompt::RESPONSES_NATIVE_SEARCH;
 use lya_memory::MemoryStore;
@@ -380,14 +379,23 @@ impl<B: ChatBackend> Agent<B> {
                 ));
                 yield AgentEvent::MessageCommitted { record: Box::new(draft.clone()) };
 
-                let stream = self
-                    .backend
-                    .chat_stream(api_mode, endpoint, request, schemas)
-                    .await;
-                let mut stream = match stream {
-                    Ok(stream) => stream,
-                    Err(err) => {
-                        // 一个字都没产出，别在历史里留个空壳
+                let mut stream = match connect_chat_stream(
+                    &self.backend,
+                    &cancel,
+                    api_mode,
+                    endpoint,
+                    request,
+                    &schemas,
+                )
+                .await
+                {
+                    ChatConnect::Cancelled => {
+                        let _ = self.sessions.delete_leaf(&session_id, draft.id);
+                        yield AgentEvent::MessageDeleted { id: draft.id };
+                        yield AgentEvent::TurnEnd { reason: TurnEndReason::Cancelled };
+                        return;
+                    }
+                    ChatConnect::Failed(err) => {
                         let _ = self.sessions.delete_leaf(&session_id, draft.id);
                         yield AgentEvent::MessageDeleted { id: draft.id };
                         yield AgentEvent::TurnEnd {
@@ -395,6 +403,7 @@ impl<B: ChatBackend> Agent<B> {
                         };
                         return;
                     }
+                    ChatConnect::Ready(stream) => stream,
                 };
 
                 let mut assembler = CompletionAssembler::default();
@@ -1308,4 +1317,33 @@ fn hitl_payload(
     let mut payload = MessagePayload::hitl_pending(kind, block);
     payload.lya.meta = Some(meta);
     payload
+}
+
+enum ChatConnect {
+    Cancelled,
+    Failed(LlmError),
+    Ready(ChatEventStream),
+}
+
+async fn connect_chat_stream<B: ChatBackend>(
+    backend: &B,
+    cancel: &CancelToken,
+    mode: ApiMode,
+    endpoint: &LlmEndpoint,
+    request: ChatStreamRequest,
+    schemas: &[Value],
+) -> ChatConnect {
+    tokio::select! {
+        _ = wait_until_cancelled(cancel) => ChatConnect::Cancelled,
+        result = backend.chat_stream(mode, endpoint, request, schemas.to_vec()) => match result {
+            Ok(stream) => ChatConnect::Ready(stream),
+            Err(err) => ChatConnect::Failed(err),
+        },
+    }
+}
+
+async fn wait_until_cancelled(cancel: &CancelToken) {
+    while !cancel.is_cancelled() {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }

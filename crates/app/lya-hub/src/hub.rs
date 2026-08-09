@@ -14,13 +14,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use futures_util::StreamExt;
-use lya_agent::{Agent, AgentError, AgentEvent, CallKind, CancelToken, ChatBackend};
+use lya_agent::{Agent, AgentError, AgentEvent, CallKind, CancelToken, ChatBackend, TurnEndReason};
 use lya_http::HttpClient;
 use lya_llm::LlmClient;
-use lya_session::{MessagePayload, MessageRecord, MessageRole, SessionError, SessionMeta};
+use lya_session::{MessagePayload, MessageRecord, MessageRole, MessageStatus, SessionError, SessionMeta};
 use lya_token::ContextUsageReport;
 use serde::Serialize;
+use std::time::Duration;
 use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
 
 use crate::event::{self, Envelope, Scope};
 use lya_tool::tools::web::SelfPort;
@@ -168,6 +170,8 @@ struct SessionChannel {
     operation: Option<CancelToken>,
     /// 本轮的实时缓冲。
     buffer: Option<TurnBuffer>,
+    /// 持有 `run_turn` 的任务；Stop 超时后 abort，避免僵尸轮次占着界面。
+    turn_task: Option<JoinHandle<()>>,
 }
 
 /// 会话运行时。
@@ -423,7 +427,8 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
         let hub = Arc::clone(self);
         let agent = Arc::clone(&self.agent);
         let id = session_id.to_string();
-        tokio::spawn(async move {
+        let channel = self.channel(session_id);
+        let handle = tokio::spawn(async move {
             let stream = agent.run_turn(id.clone(), cancel);
             futures_util::pin_mut!(stream);
             while let Some(agent_event) = stream.next().await {
@@ -431,6 +436,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             }
             hub.finish(&id);
         });
+        channel.lock().unwrap().turn_task = Some(handle);
     }
 
     // ── 分支 ─────────────────────────────────────────────────────
@@ -594,20 +600,89 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
     }
 
     /// 停止当前轮或正在执行的挂起工具；没有可取消的任务时返回 false。
-    pub fn stop(&self, session_id: &str) -> bool {
+    pub fn stop(self: &Arc<Self>, session_id: &str) -> bool {
         let Some(channel) = self.channel_if_present(session_id) else {
             return false;
         };
-        let guard = channel.lock().unwrap();
-        if let Some(cancel) = &guard.cancel {
-            cancel.cancel();
-            return true;
-        }
-        if let Some(cancel) = &guard.operation {
-            cancel.cancel();
+        let cancelled = {
+            let guard = channel.lock().unwrap();
+            let mut did = false;
+            if let Some(cancel) = &guard.cancel {
+                cancel.cancel();
+                did = true;
+            }
+            if let Some(cancel) = &guard.operation {
+                cancel.cancel();
+                did = true;
+            }
+            did
+        };
+        if cancelled {
+            let hub = Arc::clone(self);
+            let id = session_id.to_string();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(2500)).await;
+                if hub.is_running(&id) {
+                    hub.force_abort_turn(&id);
+                }
+            });
             return true;
         }
         false
+    }
+
+    /// Stop 已发出但轮次仍占着坑（任务 panic、HTTP 连接迟迟不回等）时的兜底。
+    fn force_abort_turn(self: &Arc<Self>, session_id: &str) {
+        let Some(channel) = self.channel_if_present(session_id) else {
+            return;
+        };
+        let (buffer, handle) = {
+            let mut guard = channel.lock().unwrap();
+            if guard.cancel.is_none() && guard.operation.is_none() {
+                return;
+            }
+            let buffer = guard.buffer.clone();
+            let handle = guard.turn_task.take();
+            (buffer, handle)
+        };
+        if let Some(handle) = handle {
+            handle.abort();
+        }
+
+        if let Some(buf) = buffer {
+            if let Some(msg_id) = buf.message_id {
+                let produced = !buf.content.trim().is_empty()
+                    || !buf.reasoning.trim().is_empty()
+                    || !buf.calls.is_empty();
+                if produced {
+                    if let Ok(record) = self.agent.sessions().get_message(session_id, msg_id) {
+                        let mut payload = record.payload.clone();
+                        payload.status = MessageStatus::Interrupted;
+                        if let Ok(updated) =
+                            self.agent.sessions().update_payload(session_id, msg_id, &payload)
+                        {
+                            self.publish(
+                                session_id,
+                                &AgentEvent::MessageUpdated {
+                                    record: Box::new(updated),
+                                },
+                            );
+                        }
+                    }
+                } else {
+                    let _ = self.agent.sessions().delete_leaf(session_id, msg_id);
+                    self.publish(session_id, &AgentEvent::MessageDeleted { id: msg_id });
+                }
+            }
+        }
+
+        self.publish(
+            session_id,
+            &AgentEvent::TurnEnd {
+                reason: TurnEndReason::Cancelled,
+            },
+        );
+        self.finish(session_id);
     }
 
     /// 更新缓冲并广播。
@@ -645,6 +720,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             guard.cancel = None;
             guard.operation = None;
             guard.buffer = None;
+            guard.turn_task = None;
             guard.tx.receiver_count() == 0
         };
         if idle {
@@ -662,6 +738,7 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
                 cancel: None,
                 operation: None,
                 buffer: None,
+                turn_task: None,
             }))
         }))
     }

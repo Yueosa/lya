@@ -80,4 +80,23 @@ describe('蔚蓝档案外壳', () => {
       '内容页也该保留大厅背景，只是不可见',
     ).toBeGreaterThan(0)
   })
+
+  it('内容页顶栏有回首页和回大厅，外观页只有回首页', () => {
+    const tools = mountShell('tools')
+    const toolsBar = tools.find('.ba__bar-nav')
+    expect(toolsBar.find('[aria-label="回首页"]').exists()).toBe(true)
+    expect(toolsBar.find('[aria-label="回大厅"]').exists()).toBe(true)
+
+    const theme = mountShell('theme')
+    const themeBar = theme.find('.ba__bar-nav')
+    expect(themeBar.find('[aria-label="回首页"]').exists()).toBe(true)
+    expect(themeBar.find('[aria-label="回大厅"]').exists()).toBe(false)
+  })
+
+  it('聊天页联系人栏有回首页和回大厅', () => {
+    const chat = mountShell('chat')
+    const head = chat.find('.ba__roster-head')
+    expect(head.find('[aria-label="回首页"]').exists()).toBe(true)
+    expect(head.find('[aria-label="回大厅"]').exists()).toBe(true)
+  })
 })

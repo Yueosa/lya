@@ -145,6 +145,15 @@ function backToLanding(): void {
   emit('navigate', 'home')
 }
 
+/** 从内容页直接回记忆大厅，跳过加载页。 */
+function backToLobby(): void {
+  landing.value = 'lobby'
+  emit('navigate', 'home')
+}
+
+/** 外观页从大厅菜单进来，左上角只留返回，不再给「回大厅」。 */
+const showLobbyNav = computed(() => props.view !== 'theme')
+
 /*
  * 摊开的菜单盖着画面，不能只留「再点一次那个圆」一条出路：手已经移到别处了，还得挪
  * 回右下角那 70px 才关得掉。点空白处由遮罩层管，键盘这条在这儿。
@@ -362,7 +371,27 @@ function subtitle(session: SessionMeta): string {
         多一条通栏 header 会把两栏从顶上切断，Momotalk 的左栏是**顶到天**的。
       -->
       <header v-if="!atChat" class="ba__bar">
-        <button class="ba__back" type="button" @click="backToLanding">‹ 首页</button>
+        <div class="ba__bar-nav">
+          <button
+            class="ba__back ba__back--tight"
+            type="button"
+            v-tip="'回首页'"
+            aria-label="回首页"
+            @click="backToLanding"
+          >
+            ‹
+          </button>
+          <button
+            v-if="showLobbyNav"
+            class="ba__back ba__back--tight"
+            type="button"
+            v-tip="'回大厅'"
+            aria-label="回大厅"
+            @click="backToLobby"
+          >
+            <span v-html="NAV_ICONS.home" />
+          </button>
+        </div>
         <BaLogo class="ba__logo--sm" left="lya" right="Archive" />
       </header>
 
@@ -371,8 +400,23 @@ function subtitle(session: SessionMeta): string {
         <aside v-if="atChat" class="ba__roster">
           <!-- 返回与字标就是这一栏的表头，不另起标题 -->
           <div class="ba__roster-head">
-            <button class="ba__back ba__back--tight" type="button" v-tip="'回首页'" @click="backToLanding">
+            <button
+              class="ba__back ba__back--tight"
+              type="button"
+              v-tip="'回首页'"
+              aria-label="回首页"
+              @click="backToLanding"
+            >
               ‹
+            </button>
+            <button
+              class="ba__back ba__back--tight"
+              type="button"
+              v-tip="'回大厅'"
+              aria-label="回大厅"
+              @click="backToLobby"
+            >
+              <span v-html="NAV_ICONS.home" />
             </button>
             <BaLogo class="ba__logo--sm" left="lya" right="Archive" />
             <button class="ba__roster-new" type="button" v-tip="'新对话'" @click="startNew">＋</button>
@@ -851,6 +895,13 @@ function subtitle(session: SessionMeta): string {
   border-bottom: var(--border-width) solid var(--border);
 }
 
+.ba__bar-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .ba__back {
   padding: 0 var(--ctl-pad-x-md);
   height: var(--ctl-h-md);
@@ -918,6 +969,9 @@ function subtitle(session: SessionMeta): string {
 }
 
 .ba__back--tight {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0;
   width: var(--ctl-h-sm);
   height: var(--ctl-h-sm);
@@ -925,6 +979,12 @@ function subtitle(session: SessionMeta): string {
   border-radius: 50%;
   font-size: 20px;
   line-height: 1;
+}
+
+.ba__back--tight :deep(svg) {
+  width: 15px;
+  height: 15px;
+  display: block;
 }
 
 .ba__roster-new {

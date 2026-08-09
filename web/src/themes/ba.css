@@ -788,6 +788,24 @@
     font-size: var(--text-sm);
   }
 
+  /* ── 输入框 ───────────────────────────────────────── */
+
+  /*
+   * 走大圆角、不走全胶囊：多行时 `--radius-pill`（999px）会把每行首尾字裁进侧弧里。
+   * 固定 22px 仍然圆，行数变多时侧壁趋直，可读性更好；横内边距略加大，字离弧更远。
+   *
+   * 超高时仍可在框内滚，只是不画直 scrollbar——和消息流一样藏起来，免得直条配圆框。
+   */
+  .composer__input {
+    border-radius: 22px;
+    padding: 10px 22px;
+    scrollbar-width: none;
+  }
+
+  .composer__input::-webkit-scrollbar {
+    display: none;
+  }
+
   /* ── Momotalk：只作用在聊天页 ─────────────────────── */
 
   /*
