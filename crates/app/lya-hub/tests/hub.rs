@@ -94,11 +94,11 @@ fn fixture() -> Fixture {
         .id;
     Fixture {
         _dir: dir,
-        hub: Arc::new(SessionHub::new(
+        hub: SessionHub::new(
             agent,
             lya_http::HttpClient::with_defaults().unwrap(),
             Arc::new(AtomicU16::new(0)),
-        )),
+        ),
         sessions,
         stop,
         session_id,

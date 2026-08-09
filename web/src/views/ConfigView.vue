@@ -21,14 +21,14 @@ import {
 import { type GlobalToolsMode } from '../utils/toolLimits'
 
 type Tab = 'runtime' | 'raw'
-type RawFile = 'core' | 'runtime' | 'models' | 'persona'
+type RawFile = 'core' | 'runtime' | 'models' | 'prompt'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'runtime', label: '默认配置' },
   { id: 'raw', label: '原始文件' },
 ]
 
-const RAW_FILES: RawFile[] = ['core', 'runtime', 'models', 'persona']
+const RAW_FILES: RawFile[] = ['core', 'runtime', 'models', 'prompt']
 
 const tab = ref<Tab>('runtime')
 const loadError = ref('')

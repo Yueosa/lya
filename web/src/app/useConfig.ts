@@ -10,7 +10,7 @@
  *
  * # 为什么能自动新
  *
- * 后端**早就在广播**了：写完 `runtime.toml` 或 `persona.toml` 之后 `hub.broadcast_global`
+ * 后端**早就在广播**了：写完 `runtime.toml` 或 `prompt.toml` 之后 `hub.broadcast_global`
  * 会发一条 `config_changed`（见 `lya-api` 的 `http/config.rs`）。前端也早就收到了，但只用
  * 它去刷新模型列表和运行时默认值，配置本身没人刷。这里把那条广播接上，缺的就只是一个
  * 「谁来存这份配置」——也就是本文件。
@@ -75,8 +75,8 @@ export function onConfigChanged(): void {
 export const configState = {
   config: computed(() => config.value),
   runtime: computed(() => config.value?.runtime ?? null),
-  /** 默认人设正文；新会话从它起步，已有会话不受影响。 */
-  defaultPersona: computed(() => config.value?.persona ?? ''),
+  /** 全局提示词各段。 */
+  prompt: computed(() => config.value?.prompt ?? null),
   loading: computed(() => loading.value),
   error: computed(() => error.value),
 }

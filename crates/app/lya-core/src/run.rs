@@ -288,12 +288,20 @@ fn index_budget(memory: &lya_config::MemorySettings) -> IndexBudget {
 /// 启动装配与后续重载**都走这里**。两条路各写一份映射，迟早会长出「重启之后的
 /// 行为和刚改完配置时不一样」这种没人想查的 bug。
 fn turn_settings(config: &Config) -> Result<TurnSettings, RunError> {
-    let mut prompt = PromptBuilder::new();
-    // 空人设在 Config 里已经被规整成 None，这里不必再判一次空串：
-    // 那会走成 `with_persona("")`，语义是「本轮完全不要人设段」，不是「用内置默认」
-    if let Some(persona) = &config.persona {
-        prompt = prompt.with_persona(persona.clone());
-    }
+    use lya_config::PromptSectionKey;
+    let p = &config.prompt;
+    let prompt = PromptBuilder::new().with_prompt_file(
+        p.section_text(PromptSectionKey::Environment)
+            .map(str::to_string),
+        p.section_text(PromptSectionKey::Operations)
+            .map(str::to_string),
+        p.section_text(PromptSectionKey::Voice)
+            .map(str::to_string),
+        p.section_text(PromptSectionKey::Identity)
+            .map(str::to_string),
+        p.section_text(PromptSectionKey::Style)
+            .map(str::to_string),
+    );
     let default_model = config
         .default_model()
         .ok_or_else(|| RunError::NotReady("models.toml 里没有任何模型".into()))?

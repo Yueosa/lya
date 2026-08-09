@@ -9,6 +9,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::error::ConfigError;
+use crate::prompt::PromptSectionKey;
 
 /// 改 `runtime.toml` 里若干张表。
 ///
@@ -29,10 +30,18 @@ pub fn write_runtime(
     })
 }
 
-/// 写入全局人设。
-pub fn write_persona(dir: &Path, text: &str) -> Result<(), ConfigError> {
-    edit_file(&dir.join(crate::PERSONA_FILE), |document| {
-        document["text"] = toml_edit::value(text);
+/// 写入 `prompt.toml` 的某一节。
+pub fn write_prompt_section(
+    dir: &Path,
+    section: PromptSectionKey,
+    text: &str,
+) -> Result<(), ConfigError> {
+    edit_file(&dir.join(crate::PROMPT_FILE), |document| {
+        let table = section.as_str();
+        document
+            .entry(table)
+            .or_insert_with(|| toml_edit::Item::Table(toml_edit::Table::new()));
+        document[table]["text"] = toml_edit::value(text);
         Ok(())
     })
 }

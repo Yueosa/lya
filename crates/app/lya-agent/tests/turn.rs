@@ -742,29 +742,29 @@ async fn system_prompt_is_byte_stable_across_rounds() {
 }
 
 #[tokio::test]
-async fn default_persona_change_does_not_touch_existing_sessions() {
+async fn default_identity_change_does_not_touch_existing_sessions() {
     /*
-      人设是会话级的，「默认人设」只是新会话的起点。
+      身份与口吻是会话级的，「默认提示词」只是新会话的起点。
 
-      反过来做（会话留空、每轮去读全局）曾经是这里的实现，那样改一次默认人设就会把每一段
-      正在进行的对话都换掉性格——而上面几十条聊天记录还是旧性格写的，模型下一轮得同时扮演
-      两个人，答出来的东西两头都不像。
-
-      而且这条不能靠「改配置要重启」来兜：那个挡板已经没了（配置现在立刻生效），本来也不该
-      靠它——重启之后照样会串。所以真正的边界是这里。
+      改一次全局默认不该把每一段正在进行的对话都换掉性格——而上面几十条聊天记录
+      还是旧性格写的，模型下一轮得同时扮演两个人，答出来的东西两头都不像。
     */
     let fx = fixture(vec![Turn::Text("一".into()), Turn::Text("二".into())]);
-    // 真实会话在创建时就抄了一份进来，见 lya-api 的 create
     fx.sessions
-        .set_persona(&fx.session_id, Some("我是阿罗娜，说话轻快。"))
+        .set_identity(&fx.session_id, Some("我是阿罗娜，说话轻快。"))
         .unwrap();
 
     fx.say("第一句");
     fx.run().await;
 
-    // 用户在这中间改了默认人设
     let mut next = (*fx.agent.settings()).clone();
-    next.prompt = PromptBuilder::new().with_persona("我是普拉娜，说话冷静。");
+    next.prompt = PromptBuilder::new().with_prompt_file(
+        None,
+        None,
+        None,
+        Some("我是普拉娜，说话冷静。".into()),
+        None,
+    );
     fx.agent.apply_settings(next).unwrap();
 
     fx.say("第二句");
@@ -775,12 +775,12 @@ async fn default_persona_change_does_not_touch_existing_sessions() {
     for (i, system) in seen.iter().enumerate() {
         assert!(
             system[0].content.contains("我是阿罗娜"),
-            "第 {} 轮该还是这个会话自己那份人设",
+            "第 {} 轮该还是这个会话自己那份身份",
             i + 1
         );
         assert!(
             !system[0].content.contains("普拉娜"),
-            "第 {} 轮混进了改后的默认人设：一段对话中途换性格，模型会两头都不像",
+            "第 {} 轮混进了改后的默认身份",
             i + 1
         );
     }

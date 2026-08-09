@@ -66,8 +66,8 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
             axum::routing::put(config::write_runtime),
         )
         .route(
-            "/api/config/persona",
-            axum::routing::put(config::write_persona),
+            "/api/config/prompt/{section}",
+            axum::routing::put(config::write_prompt_section),
         )
         .route("/api/config/raw/{file}", get(config::raw))
         .route("/api/models", get(config::models))

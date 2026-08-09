@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use lya_config::{
-    ApiMode, Config, ConfigError, LogLevel, MODELS_FILE, validate_session_binding,
+    ApiMode, Config, ConfigError, LogLevel, MODELS_FILE, PROMPT_FILE, validate_session_binding,
 };
 use lya_base::Mode;
 
@@ -57,7 +57,7 @@ fn missing_files_fall_back_to_defaults() {
     assert_eq!(config.runtime.media.audio.max_bytes, 128 * 1024 * 1024);
     assert_eq!(config.runtime.tools.enabled, None, "键缺省表示启用全部工具");
     assert!(config.models.is_empty());
-    assert_eq!(config.persona, None);
+    assert_eq!(config.prompt.section_text(lya_config::PromptSectionKey::Environment), None);
 }
 
 #[test]
@@ -75,7 +75,7 @@ fn generated_templates_parse_and_are_consistent() {
     let pro = config.models.get("deepseek-v4-pro").unwrap();
     assert!(pro.supports(ApiMode::Completions));
     assert!(!pro.supports(ApiMode::Responses));
-    assert!(config.persona.as_ref().unwrap().contains("小恋恋"));
+    assert!(config.prompt.identity.text.contains("普拉娜"));
     assert_eq!(
         config.runtime.agent.default_model.as_deref(),
         Some("deepseek-v4-flash")
@@ -371,9 +371,17 @@ fn port_backoff_yields_candidate_range() {
 }
 
 #[test]
-fn empty_persona_is_treated_as_unset() {
+fn empty_prompt_section_is_treated_as_unset() {
     let dir = tempfile::tempdir().unwrap();
-    write(dir.path(), "persona.toml", "text = \"   \"\n");
+    write(
+        dir.path(),
+        PROMPT_FILE,
+        "[identity]\ntext = \"   \"\n",
+    );
     let config = Config::load_from(dir.path()).unwrap();
-    assert_eq!(config.persona, None, "空人设应回退到 lya-prompt 的内置默认");
+    assert_eq!(
+        config.prompt.section_text(lya_config::PromptSectionKey::Identity),
+        None,
+        "空段应回退到 lya-prompt 的内置默认"
+    );
 }

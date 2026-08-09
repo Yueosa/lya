@@ -26,8 +26,8 @@ import { sourcesIn } from '../testing/sources'
 const ALLOWED = new Set([
   // 只有设置页写 runtime.toml、读原文
   'src/views/ConfigView.vue',
-  // 只有默认人设那一页写 persona.toml
-  'src/views/PersonaView.vue',
+  // 只有提示词那一页写 prompt.toml
+  'src/views/PromptView.vue',
   // 存储是纯只读的观测面板，一次请求一整份报告
   'src/views/StorageView.vue',
   // 探测某个模型通不通，只有模型页会做

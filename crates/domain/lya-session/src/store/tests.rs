@@ -25,48 +25,6 @@ use lya_base::Mode;
     }
 
     #[test]
-    fn adopt_default_persona_only_fills_the_empty_ones() {
-        /*
-          老库升级用：当时 persona 留空表示「每轮读全局」，升级脚本或本方法给它们冻一份正文。
-          已有明确人设的会话不能覆盖。
-        */
-        let (_dir, store) = store();
-        let blank = new_session(&store);
-        let chosen = new_session(&store);
-        store.set_persona(&chosen, Some("我自己挑的")).unwrap();
-
-        assert_eq!(store.adopt_default_persona("默认那份").unwrap(), 1);
-        assert_eq!(
-            store.get_session(&blank).unwrap().unwrap().persona.as_deref(),
-            Some("默认那份")
-        );
-        assert_eq!(
-            store.get_session(&chosen).unwrap().unwrap().persona.as_deref(),
-            Some("我自己挑的"),
-            "用户自己挑过的不能被覆盖"
-        );
-    }
-
-    #[test]
-    fn adopting_default_persona_is_idempotent_and_quiet() {
-        let (_dir, store) = store();
-        let id = new_session(&store);
-        let before = store.get_session(&id).unwrap().unwrap().updated_at;
-
-        assert_eq!(store.adopt_default_persona("默认那份").unwrap(), 1);
-        // 每次启动都会跑一遍，补完之后必须是 0 条，否则日志里天天多一行
-        assert_eq!(store.adopt_default_persona("又改了默认").unwrap(), 0);
-        assert_eq!(
-            store.get_session(&id).unwrap().unwrap().persona.as_deref(),
-            Some("默认那份"),
-            "第二次不该再动它——那就又变成跟着默认人设漂了"
-        );
-
-        // 这是补数据不是用户改了什么，碰 updated_at 会让全部会话一起窜到列表最前面
-        assert_eq!(store.get_session(&id).unwrap().unwrap().updated_at, before);
-    }
-
-    #[test]
     fn session_roundtrip() {
         let (_dir, store) = store();
         let id = new_session(&store);
@@ -81,12 +39,14 @@ use lya_base::Mode;
             .set_enabled_tools(&id, Some(&["file_read".to_string()]))
             .unwrap();
         store.set_title(&id, "renamed").unwrap();
-        store.set_persona(&id, Some("小恋恋")).unwrap();
+        store.set_identity(&id, Some("我是普拉娜")).unwrap();
+        store.set_style(&id, Some("短句、报告式")).unwrap();
 
         let meta = store.get_session(&id).unwrap().unwrap();
         assert_eq!(meta.work_mode, Mode::Ask);
         assert_eq!(meta.title, "renamed");
-        assert_eq!(meta.persona.as_deref(), Some("小恋恋"));
+        assert_eq!(meta.identity.as_deref(), Some("我是普拉娜"));
+        assert_eq!(meta.style.as_deref(), Some("短句、报告式"));
 
         assert_eq!(store.list_sessions().unwrap().len(), 1);
         store.archive_session(&id).unwrap();
@@ -128,7 +88,7 @@ use lya_base::Mode;
             SessionError::Archived(_)
         ));
         assert!(matches!(
-            store.set_persona(&id, Some("新人设")).unwrap_err(),
+            store.set_identity(&id, Some("新身份")).unwrap_err(),
             SessionError::Archived(_)
         ));
         assert!(matches!(

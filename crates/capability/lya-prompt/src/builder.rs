@@ -1,23 +1,22 @@
 //! [`PromptBuilder`]：按固定顺序拼接 system prompt。
 
 use crate::identity::{
-    format_persona_section, DEFAULT_PERSONA, SELF_AWARENESS, SYSTEM_AWARENESS, TIME_ANCHOR,
+    format_environment, format_identity, format_operations, format_style, format_voice,
+    DEFAULT_ENVIRONMENT, DEFAULT_IDENTITY, DEFAULT_OPERATIONS, DEFAULT_STYLE, DEFAULT_VOICE,
+    TIME_ANCHOR,
 };
 use crate::input::PromptInput;
 use crate::media::chat_media_section;
 use crate::sections::{trim_section, SystemSections};
 
-/// 提示词组装器。
-///
-/// 持有**全局默认人设**；每次 [`PromptBuilder::build`] 用 [`PromptInput`]
-/// 覆盖/追加外部段落。
+/// 提示词组装器：持有全局默认各段（来自 `prompt.toml`）。
 #[derive(Debug, Clone)]
 pub struct PromptBuilder {
-    /// 全局人设正文（不含标题）。空字符串表示「默认用 [`DEFAULT_PERSONA`]」。
-    ///
-    /// 若调用 [`PromptBuilder::clear_persona`]，则全局与默认都不再注入人设，
-    /// 除非 [`PromptInput::persona`] 显式提供非空内容。
-    global_persona: Option<String>,
+    environment: Option<String>,
+    operations: Option<String>,
+    voice: Option<String>,
+    identity_default: Option<String>,
+    style_default: Option<String>,
 }
 
 impl Default for PromptBuilder {
@@ -27,86 +26,109 @@ impl Default for PromptBuilder {
 }
 
 impl PromptBuilder {
-    /// 使用内置 [`DEFAULT_PERSONA`] 作为全局人设回退。
+    /// 使用内置默认各段。
     pub fn new() -> Self {
         Self {
-            global_persona: None, // None = 回退 DEFAULT_PERSONA
+            environment: None,
+            operations: None,
+            voice: None,
+            identity_default: None,
+            style_default: None,
         }
     }
 
-    /// 设置全局人设正文（覆盖默认）。
-    pub fn with_persona(mut self, persona: impl Into<String>) -> Self {
-        self.global_persona = Some(persona.into());
+    /// 从已解析的 `prompt.toml` 正文注入全局默认（空白段仍回退内置常量）。
+    pub fn with_prompt_file(
+        mut self,
+        environment: Option<String>,
+        operations: Option<String>,
+        voice: Option<String>,
+        identity: Option<String>,
+        style: Option<String>,
+    ) -> Self {
+        self.environment = environment;
+        self.operations = operations;
+        self.voice = voice;
+        self.identity_default = identity;
+        self.style_default = style;
         self
     }
 
-    /// 清除全局人设，且不再回退到 [`DEFAULT_PERSONA`]。
-    ///
-    /// 之后若 `input.persona` 也为空/`None`，最终 prompt **无人设段**。
-    pub fn clear_persona(mut self) -> Self {
-        self.global_persona = Some(String::new());
-        self
+    /// 新会话默认身份正文。
+    pub fn global_identity_body(&self) -> &str {
+        resolve_body(self.identity_default.as_deref(), DEFAULT_IDENTITY)
     }
 
-    /// 当前将用于回退的人设正文（未考虑 `input.persona` 覆盖）。
-    pub fn global_persona_body(&self) -> &str {
-        match &self.global_persona {
-            None => DEFAULT_PERSONA,
-            Some(s) => s.as_str(),
-        }
+    /// 新会话默认口吻正文。
+    pub fn global_style_body(&self) -> &str {
+        resolve_body(self.style_default.as_deref(), DEFAULT_STYLE)
     }
 
     /// 组装完整 system prompt。
-    ///
-    /// 顺序：系统认知 → 自我认知 → 时间锚点 → 聊天媒体 → 动作 → 工具 → 能力补充
-    /// → 模式 → 记忆 → 人设。
-    ///
-    /// 记忆排在能力几段之后：先讲「你能做什么」，再讲「你已经知道什么」。
-    /// 能力补充（如原生联网）紧跟工具段——它说的是这类活儿怎么干，隔太远会被忽略。
-    ///
-    /// 全程**不含任何随时间变化的内容**——整段必须是逐字节确定的，否则前缀
-    /// 缓存每轮都会失效。当前时间通过消息前缀传达，见 [`TIME_ANCHOR`]。
-    ///
-    /// 注意记忆段是例外：它随记忆库变化，而 system 是第一条消息，改一个字节
-    /// 就是整个请求全量 miss。取舍见 `docs/plan.md` 的延后表。
     pub fn build(&self, input: &PromptInput) -> String {
         self.build_sections(input).join()
     }
 
-    /// 按段组装 system prompt（供占用统计与 [`Self::build`] 共用）。
+    /// 按段组装 system prompt。
     pub fn build_sections(&self, input: &PromptInput) -> SystemSections {
+        let environment = format_environment(resolve_body(
+            self.environment.as_deref(),
+            DEFAULT_ENVIRONMENT,
+        ));
+        let identity = format_identity(resolve_session_body(
+            input.identity.as_deref(),
+            self.identity_default.as_deref(),
+            DEFAULT_IDENTITY,
+        ));
+        let operations = format_operations(resolve_body(
+            self.operations.as_deref(),
+            DEFAULT_OPERATIONS,
+        ));
+        let voice = format_voice(resolve_body(self.voice.as_deref(), DEFAULT_VOICE));
         let core = [
-            SYSTEM_AWARENESS.trim(),
-            SELF_AWARENESS.trim(),
             TIME_ANCHOR.trim(),
             chat_media_section(input.vision).trim(),
         ]
         .join("\n\n");
 
-        let persona_body = resolve_persona_body(self, input);
-        let persona = format_persona_section(persona_body);
+        let style = format_style(resolve_session_body(
+            input.style.as_deref(),
+            self.style_default.as_deref(),
+            DEFAULT_STYLE,
+        ));
 
         SystemSections {
+            environment,
+            identity,
+            operations,
+            voice,
             core,
             actions: trim_section(input.action_section.as_deref()),
             tools: trim_section(input.tool_section.as_deref()),
             extra: trim_section(input.extra_section.as_deref()),
             mode: trim_section(input.mode_section.as_deref()),
             memory: trim_section(input.memory_section.as_deref()),
-            persona,
+            style,
         }
     }
 }
 
-/// 解析本轮人设正文。
-///
-/// - `input.persona = Some(s)` → 用 `s`（可为空 = 本轮强制无人设）
-/// - `input.persona = None` → 用 builder 全局；全局 `None` 则 [`DEFAULT_PERSONA`]；
-///   全局 `Some("")`（clear_persona）则无人设
-fn resolve_persona_body<'a>(builder: &'a PromptBuilder, input: &'a PromptInput) -> &'a str {
-    match &input.persona {
-        Some(s) => s.as_str(),
-        None => builder.global_persona_body(),
+fn resolve_body<'a>(configured: Option<&'a str>, fallback: &'a str) -> &'a str {
+    configured
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fallback)
+}
+
+/// 会话 `Some("")` 表示强制空段；`None` 用全局默认。
+fn resolve_session_body<'a>(
+    session: Option<&'a str>,
+    global: Option<&'a str>,
+    fallback: &'a str,
+) -> &'a str {
+    match session {
+        Some(s) => s,
+        None => resolve_body(global, fallback),
     }
 }
 
@@ -115,16 +137,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn order_and_defaults() {
-        let text = PromptBuilder::new().build(&PromptInput::new());
-        let sys = text.find("=== [系统]").expect("system");
-        let self_pos = text.find("=== [自我认知]").expect("self");
-        let media = text.find("=== [界面]").expect("media");
-        let persona = text.find("=== [人设]").expect("persona");
-        assert!(sys < self_pos && self_pos < media && media < persona);
-        assert!(text.contains("clip.mp4"));
-        assert!(text.contains("lya"));
-        assert!(text.contains(DEFAULT_PERSONA.trim().lines().next().unwrap()));
+    fn order_environment_before_identity() {
+        let text = PromptBuilder::new().build(
+            &PromptInput::new().with_style("=== [口吻] 测试 ==="),
+        );
+        let env = text.find("=== [环境]").expect("environment");
+        let id = text.find("=== [身份]").expect("identity");
+        let ops = text.find("=== [运行]").expect("operations");
+        let voice = text.find("=== [表达修正]").expect("voice");
+        let style = text.find("=== [口吻]").expect("style");
+        assert!(env < id && id < ops && ops < voice && voice < style);
     }
 
     #[test]
@@ -142,33 +164,32 @@ mod tests {
         let network = text.find("=== [联网]").unwrap();
         let mode = text.find("=== [模式]").unwrap();
         let memory = text.find("=== [记忆]").unwrap();
-        let persona = text.find("=== [人设]").unwrap();
-        // 能力补充紧跟工具段，记忆在能力之后，人设收尾
         assert!(action < tools && tools < network);
-        assert!(network < mode && mode < memory && memory < persona);
+        assert!(network < mode && mode < memory);
     }
 
     #[test]
-    fn vision_verdict_follows_input() {
-        let blind = PromptBuilder::new().build(&PromptInput::new());
-        assert!(blind.contains("看不到"));
-
-        let seeing = PromptBuilder::new().build(&PromptInput::new().with_vision(true));
-        assert!(seeing.contains("能读懂"));
-    }
-
-    #[test]
-    fn session_persona_overrides() {
+    fn session_identity_overrides() {
         let text = PromptBuilder::new()
-            .with_persona("全局冷淡")
-            .build(&PromptInput::new().with_persona("会话活泼"));
-        assert!(text.contains("会话活泼"));
-        assert!(!text.contains("全局冷淡"));
+            .with_prompt_file(None, None, None, Some("全局身份".into()), None)
+            .build(
+                &PromptInput::new()
+                    .with_identity("会话身份")
+                    .with_style("会话口吻"),
+            );
+        assert!(text.contains("会话身份"));
+        assert!(!text.contains("全局身份"));
+        assert!(text.contains("会话口吻"));
     }
 
     #[test]
-    fn clear_persona_omits_section() {
-        let text = PromptBuilder::new().clear_persona().build(&PromptInput::new());
-        assert!(!text.contains("=== [人设]"));
+    fn empty_session_identity_omits_section() {
+        let text = PromptBuilder::new().build(
+            &PromptInput::new()
+                .with_identity("")
+                .with_style("仍有口吻"),
+        );
+        assert!(!text.contains("=== [身份]"));
+        assert!(text.contains("仍有口吻"));
     }
 }

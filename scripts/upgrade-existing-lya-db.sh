@@ -20,23 +20,29 @@ echo "已备份到 $BAK"
 
 sqlite3 "$DB" < "$SQL"
 
-# 若 persona.toml 存在，把 NULL/空人设会话补成当前默认正文
-PERSONA_FILE="$(dirname "$DB")/persona.toml"
-if [ -f "$PERSONA_FILE" ]; then
-  PERSONA=$(python3 - <<'PY' "$PERSONA_FILE"
-import sys, re
-text = open(sys.argv[1], encoding="utf-8").read()
-m = re.search(r'(?m)^text\s*=\s*"""([\s\S]*?)"""', text)
-if m:
-    print(m.group(1).strip())
-else:
-    m = re.search(r'(?m)^text\s*=\s*"([^"]*)"', text)
-    print((m.group(1) if m else "").strip())
+PROMPT_FILE="$(dirname "$DB")/prompt.toml"
+if [ -f "$PROMPT_FILE" ]; then
+  IDENTITY=$(python3 - <<'PY' "$PROMPT_FILE"
+import sys, re, tomllib
+with open(sys.argv[1], "rb") as f:
+    data = tomllib.load(f)
+print((data.get("identity") or {}).get("text") or "")
 PY
 )
-  if [ -n "$PERSONA" ]; then
-    sqlite3 "$DB" "UPDATE sessions SET persona = ?1 WHERE persona IS NULL OR persona = '';" "$PERSONA"
-    echo "已用 persona.toml 补全空人设会话"
+  STYLE=$(python3 - <<'PY' "$PROMPT_FILE"
+import sys, tomllib
+with open(sys.argv[1], "rb") as f:
+    data = tomllib.load(f)
+print((data.get("style") or {}).get("text") or "")
+PY
+)
+  if [ -n "$IDENTITY" ]; then
+    sqlite3 "$DB" "UPDATE sessions SET identity = ?1 WHERE identity IS NULL OR identity = '';" "$IDENTITY"
+    echo "已用 prompt.toml [identity] 补全空身份会话"
+  fi
+  if [ -n "$STYLE" ]; then
+    sqlite3 "$DB" "UPDATE sessions SET style = ?1 WHERE style IS NULL OR style = '';" "$STYLE"
+    echo "已用 prompt.toml [style] 补全空口吻会话"
   fi
 fi
 

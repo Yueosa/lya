@@ -13,7 +13,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use lya_config::{Config, CoreConfig, ModelEntry, RuntimeConfig};
+use lya_config::{Config, CoreConfig, ModelEntry, PromptFile, PromptSectionKey, RuntimeConfig};
 use lya_llm::LlmClient;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -22,6 +22,21 @@ use lya_hub::{HubError, SessionHub};
 use super::sessions::ApiError;
 
 type Hub = State<Arc<SessionHub<LlmClient>>>;
+
+/// 提示词各段在界面上的展示。
+#[derive(Debug, Serialize)]
+pub struct PromptView {
+    /// 环境段。
+    pub environment: String,
+    /// 运行段。
+    pub operations: String,
+    /// 表达修正段。
+    pub voice: String,
+    /// 身份默认段。
+    pub identity: String,
+    /// 口吻默认段。
+    pub style: String,
+}
 
 /// 配置总览。
 #[derive(Debug, Serialize)]
@@ -32,8 +47,8 @@ pub struct ConfigView {
     pub runtime: RuntimeConfig,
     /// 模型清单；密钥已打码。
     pub models: Vec<MaskedModel>,
-    /// 全局人设。
-    pub persona: Option<String>,
+    /// 全局提示词各段（空串表示该段回退内置默认）。
+    pub prompt: PromptView,
     /// 告诉界面 core 那一段不可改。
     pub core_readonly: bool,
 }
@@ -102,9 +117,19 @@ pub async fn read(State(_hub): Hub) -> Result<Json<ConfigView>, ApiError> {
         core: config.core,
         runtime: config.runtime,
         models: config.models.models.iter().map(mask).collect(),
-        persona: config.persona,
+        prompt: prompt_view(&config.prompt),
         core_readonly: true,
     }))
+}
+
+fn prompt_view(file: &PromptFile) -> PromptView {
+    PromptView {
+        environment: file.environment.text.clone(),
+        operations: file.operations.text.clone(),
+        voice: file.voice.text.clone(),
+        identity: file.identity.text.clone(),
+        style: file.style.text.clone(),
+    }
 }
 
 /// 模型清单（供界面选择）。
@@ -135,29 +160,35 @@ pub async fn write_runtime(
     Ok(Json(config.runtime))
 }
 
-/// 人设正文。
+/// 提示词某段正文。
 #[derive(Debug, Deserialize)]
-pub struct PersonaBody {
-    /// 空字符串表示回退到内置默认人设。
+pub struct PromptSectionBody {
+    /// 空字符串表示回退到内置默认。
     pub text: String,
 }
 
-/// 改 `persona.toml`。
-pub async fn write_persona(
+/// 改 `prompt.toml` 的某一节。
+pub async fn write_prompt_section(
     State(hub): Hub,
-    Json(body): Json<PersonaBody>,
+    Path(section): Path<String>,
+    Json(body): Json<PromptSectionBody>,
 ) -> Result<StatusCode, ApiError> {
+    let key = PromptSectionKey::parse(section.as_str()).ok_or_else(|| {
+        ApiError::from(HubError::Invalid(format!(
+            "没有名为 {section} 的提示词段；可用：environment / operations / voice / identity / style"
+        )))
+    })?;
     let dir = lya_config::data_root().map_err(invalid)?;
-    lya_config::write_persona(&dir, &body.text).map_err(invalid)?;
+    lya_config::write_prompt_section(&dir, key, &body.text).map_err(invalid)?;
     apply(&hub)?;
-    hub.broadcast_global("config_changed", json!({ "file": "persona" }));
+    hub.broadcast_global("config_changed", json!({ "file": "prompt", "section": section }));
     Ok(StatusCode::NO_CONTENT)
 }
 
 /// 把刚写进文件的配置推给运行中的组件。
 ///
 /// 少了这一步，界面读磁盘（立刻是新的）、模型读进程内存（还是启动那一刻的），
-/// 于是「改完人设显示已生效，模型却还用旧的」——两个真相来源只更新了一个。
+/// 于是「改完提示词显示已生效，模型却还用旧的」——两个真相来源只更新了一个。
 fn apply(hub: &SessionHub<LlmClient>) -> Result<(), ApiError> {
     hub.reload_config()
         .map_err(|err| ApiError::from(HubError::Invalid(format!("配置已写入，但重新加载失败：{err}"))))
@@ -171,7 +202,7 @@ pub async fn raw(Path(file): Path<String>) -> Result<String, ApiError> {
         "core" => lya_config::CORE_FILE,
         "runtime" => lya_config::RUNTIME_FILE,
         "models" => lya_config::MODELS_FILE,
-        "persona" => lya_config::PERSONA_FILE,
+        "prompt" => lya_config::PROMPT_FILE,
         other => return Err(HubError::Invalid(format!("没有名为 {other} 的配置文件")).into()),
     };
     let path = lya_config::data_root().map_err(invalid)?.join(name);

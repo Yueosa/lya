@@ -29,7 +29,7 @@ const VIEWS: readonly View[] = [
   'tools',
   'models',
   'theme',
-  'persona',
+  'prompt',
   'config',
   'storage',
 ]

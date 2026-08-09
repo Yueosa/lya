@@ -77,7 +77,7 @@ fn check_default_model(
 /// agent 里那些**来自配置、因此会在运行时被改**的值。
 ///
 /// 单独成一族是为了能整体换：它们原先是 [`Agent`] 上的独立字段，装配时拷一份进来
-/// 就再没人动过，于是用户在界面上改完 `runtime.toml` / `persona.toml`，要重启才生效
+/// 就再没人动过，于是用户在界面上改完 `runtime.toml` / `prompt.toml`，要重启才生效
 /// （而界面读的是磁盘，显示的已经是新值，两边对不上更难查）。
 ///
 /// 换的时候是**整族一起换**，[`Agent::run_turn`] 在轮次开头取一次快照用到底。
@@ -349,7 +349,8 @@ impl<B: ChatBackend> Agent<B> {
                 if native_web {
                     input = input.with_extra(RESPONSES_NATIVE_SEARCH);
                 }
-                input.persona = meta.persona.clone();
+                input.identity = meta.identity.clone();
+                input.style = meta.style.clone();
                 let system = settings.prompt.build(&input);
 
                 let path = bail!(self.sessions.path_to_active_leaf(&session_id));

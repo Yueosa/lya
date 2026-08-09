@@ -29,16 +29,19 @@ CREATE TABLE IF NOT EXISTS model_templates (
     updated_at           TEXT NOT NULL
 );
 
--- ── sessions：人设 + 上下文配置 ─────────────────────────────────
+-- ── sessions：identity / style + 上下文配置 ─────────────────────
 
--- persona 曾为 NULL（表示跟全局走）——一次性补成当前默认人设正文。
--- 下面占位符请改成你 persona.toml 里的 text，或跑完用 Session 面板逐条改。
-UPDATE sessions
-SET persona = ''
-WHERE persona IS NULL;
+-- 老库只有 persona 列时，迁到 identity；style 留空由 prompt.toml 或会话设置补。
+-- 下列 ALTER 在列已存在时会报错，可忽略（重复执行安全）。
+-- ALTER TABLE sessions ADD COLUMN identity TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE sessions ADD COLUMN style TEXT NOT NULL DEFAULT '';
+-- ALTER TABLE sessions ADD COLUMN context_config_json TEXT;
 
--- SQLite 无法直接给已有列加 NOT NULL；新库在 000_init 里已是 NOT NULL DEFAULT ''。
--- 老库靠上面 UPDATE 保证不再出现 NULL 即可。
+-- persona → identity（persona 列仍存在时执行；DROP 后此行无效果）
+UPDATE sessions SET identity = persona WHERE length(identity) = 0 AND persona IS NOT NULL AND length(persona) > 0;
 
--- 上下文配置列（不存在才加——重复执行安全）
-ALTER TABLE sessions ADD COLUMN context_config_json TEXT;
+UPDATE sessions SET identity = '' WHERE identity IS NULL;
+UPDATE sessions SET style = '' WHERE style IS NULL;
+
+-- 废弃列清理（SQLite 3.35+；列已删时会报错，可忽略）
+-- ALTER TABLE sessions DROP COLUMN persona;

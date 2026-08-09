@@ -82,8 +82,10 @@ export interface PatchSession {
   model_id?: string | null
   /** 显式给 null 表示启用全部工具。 */
   enabled_tools?: string[] | null
-  /** 显式给 null 表示回退到全局人设。 */
-  persona?: string | null
+  /** 显式给 null 表示清空。 */
+  identity?: string | null
+  /** 显式给 null 表示清空。 */
+  style?: string | null
   /** 空会话可改；有消息后锁定。 */
   api_mode?: ApiMode
   /** 归档或取回。归档后只能回看，后端会拒绝一切写入。 */
@@ -165,12 +167,24 @@ export interface ActionInfo {
   parameters?: Record<string, unknown>
 }
 
+/** 提示词各段键。 */
+export type PromptSectionKey = 'environment' | 'operations' | 'voice' | 'identity' | 'style'
+
+/** 提示词各段正文（空串表示回退内置默认）。 */
+export interface PromptView {
+  environment: string
+  operations: string
+  voice: string
+  identity: string
+  style: string
+}
+
 /** 配置全貌。`core` 只读——改端口这类事需要重启才生效，界面上不给改。 */
 export interface ConfigView {
   core: Record<string, unknown>
   runtime: Record<string, unknown>
   models: ModelInfo[]
-  persona: string | null
+  prompt: PromptView
   core_readonly: boolean
 }
 
@@ -430,12 +444,12 @@ export class LyaClient {
     return this.request('PUT', '/api/config/runtime', tables)
   }
 
-  writePersona(text: string): Promise<void> {
-    return this.request('PUT', '/api/config/persona', { text })
+  writePromptSection(section: PromptSectionKey, text: string): Promise<void> {
+    return this.request('PUT', `/api/config/prompt/${section}`, { text })
   }
 
   /** 某个配置文件的原文，供高级编辑直接看 TOML。 */
-  rawConfig(file: 'core' | 'runtime' | 'models' | 'persona'): Promise<string> {
+  rawConfig(file: 'core' | 'runtime' | 'models' | 'prompt'): Promise<string> {
     return this.requestText('GET', `/api/config/raw/${file}`)
   }
 

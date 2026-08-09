@@ -60,4 +60,4 @@ export {
   setApiMode,
   readOnly,
 } from './settings'
-export { setArchived, removeSession, rename, setPersona } from './lifecycle'
+export { setArchived, removeSession, rename, setIdentity, setStyle } from './lifecycle'

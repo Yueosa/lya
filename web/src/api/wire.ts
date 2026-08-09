@@ -162,7 +162,8 @@ export interface SessionMeta {
   status: 'active' | 'archived'
   active_leaf_id: number | null
   work_mode: Mode
-  persona: string | null
+  identity: string | null
+  style: string | null
   /** null 表示用配置里的默认模型。 */
   model_id: string | null
   /** 创建时锁定的 API 栈。 */

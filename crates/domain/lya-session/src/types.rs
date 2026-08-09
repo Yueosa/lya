@@ -42,8 +42,10 @@ pub struct CreateSession {
     pub title: String,
     /// 初始模式；默认 agent。
     pub work_mode: Mode,
-    /// 会话人设；创建时写入，之后不跟全局默认联动。
-    pub persona: Option<String>,
+    /// 会话身份；创建时写入，之后不跟全局默认联动。
+    pub identity: Option<String>,
+    /// 会话口吻（口癖、few-shot）；创建时写入，之后不跟全局默认联动。
+    pub style: Option<String>,
     /// 使用哪个模型；`None` 表示用配置里的默认模型。
     pub model_id: Option<String>,
     /// LLM API 栈；默认 `completions`。
@@ -67,8 +69,10 @@ pub struct SessionMeta {
     pub active_leaf_id: Option<i64>,
     /// 工作模式。
     pub work_mode: Mode,
-    /// 会话人设。
-    pub persona: Option<String>,
+    /// 会话级身份（角色是谁）。
+    pub identity: Option<String>,
+    /// 会话级口吻（few-shot、口癖）。
+    pub style: Option<String>,
     /// 使用哪个模型；`None` 表示用配置里的默认模型。
     pub model_id: Option<String>,
     /// 创建时锁定的 API 栈：`completions` 或 `responses`。

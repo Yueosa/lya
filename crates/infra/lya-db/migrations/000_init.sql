@@ -49,8 +49,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     active_leaf_id      INTEGER,
     work_mode           TEXT NOT NULL DEFAULT 'agent'
                             CHECK (work_mode IN ('ask', 'edit', 'agent')),
-    -- 创建时从默认人设抄一份正文进来；之后只改本会话，不跟 persona.toml 联动
-    persona             TEXT NOT NULL DEFAULT '',
+    -- 创建时从 prompt.toml 默认抄一份；之后只改本会话
+    identity            TEXT NOT NULL DEFAULT '',
+    style               TEXT NOT NULL DEFAULT '',
     -- NULL = 启用全部工具；JSON 数组 = 只启用列出的（空数组即全部禁用）
     enabled_tools_json  TEXT,
     model_id            TEXT,

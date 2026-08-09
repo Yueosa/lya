@@ -33,7 +33,7 @@ pub(super) fn load_session(
 ) -> Result<Option<SessionMeta>, SessionError> {
     let raw = conn
         .query_row(
-            "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
+            "SELECT id, title, status, active_leaf_id, work_mode, identity, style, model_id,
                     api_mode, enabled_tools_json, context_config_json, created_at, updated_at
              FROM sessions WHERE id = ?1",
             [session_id],
@@ -125,7 +125,8 @@ pub(super) struct RawSession {
     status: String,
     active_leaf_id: Option<i64>,
     work_mode: String,
-    persona: Option<String>,
+    identity: Option<String>,
+    style: Option<String>,
     model_id: Option<String>,
     api_mode: String,
     enabled_tools_json: Option<String>,
@@ -142,13 +143,14 @@ impl RawSession {
             status: row.get(2)?,
             active_leaf_id: row.get(3)?,
             work_mode: row.get(4)?,
-            persona: row.get(5)?,
-            model_id: row.get(6)?,
-            api_mode: row.get(7)?,
-            enabled_tools_json: row.get(8)?,
-            context_config_json: row.get(9)?,
-            created_at: row.get(10)?,
-            updated_at: row.get(11)?,
+            identity: row.get(5)?,
+            style: row.get(6)?,
+            model_id: row.get(7)?,
+            api_mode: row.get(8)?,
+            enabled_tools_json: row.get(9)?,
+            context_config_json: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
         })
     }
 
@@ -171,7 +173,8 @@ impl RawSession {
             id: self.id,
             title: self.title,
             active_leaf_id: self.active_leaf_id,
-            persona: self.persona,
+            identity: self.identity,
+            style: self.style,
             model_id: self.model_id,
             api_mode: self.api_mode,
             context_config_json: self.context_config_json,

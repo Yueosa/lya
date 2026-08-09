@@ -26,7 +26,6 @@ export async function removeSession(id: string): Promise<void> {
   sessions.value = sessions.value.filter((item) => item.id !== id)
   archivedSessions.value = archivedSessions.value.filter((item) => item.id !== id)
   if (currentId.value === id) closeSession()
-  // 会话没了，它那份显示偏好和滚动位置留着只会慢慢攒垃圾
   forgetSessionPrefs(id)
   forgetScrollPosition(id)
 }
@@ -41,18 +40,34 @@ export async function rename(id: string, title: string): Promise<void> {
   }
 }
 
-/** 改会话人设；传 null 回退到全局默认。 */
-export async function setPersona(persona: string | null): Promise<boolean> {
+/** 改会话身份。 */
+export async function setIdentity(identity: string | null): Promise<boolean> {
   const id = currentId.value
   if (!id) return false
   try {
-    const updated = await client.patchSession(id, { persona })
+    const updated = await client.patchSession(id, { identity })
     if (state.value.meta?.id === id) {
       state.value = { ...state.value, meta: updated }
     }
     return true
   } catch (error) {
-    report(error, '保存人设')
+    report(error, '保存身份')
+    return false
+  }
+}
+
+/** 改会话口吻。 */
+export async function setStyle(style: string | null): Promise<boolean> {
+  const id = currentId.value
+  if (!id) return false
+  try {
+    const updated = await client.patchSession(id, { style })
+    if (state.value.meta?.id === id) {
+      state.value = { ...state.value, meta: updated }
+    }
+    return true
+  } catch (error) {
+    report(error, '保存口吻')
     return false
   }
 }

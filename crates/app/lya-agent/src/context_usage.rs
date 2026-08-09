@@ -28,6 +28,9 @@ impl<B: ChatBackend> Agent<B> {
         let conv = &assembly.conversation;
 
         let system_prompt = [
+            sections.environment.as_str(),
+            sections.operations.as_str(),
+            sections.voice.as_str(),
             sections.core.as_str(),
             sections.actions.as_str(),
             sections.tools.as_str(),
@@ -42,7 +45,8 @@ impl<B: ChatBackend> Agent<B> {
 
         let mut categories = Vec::new();
         push_category(&mut categories, "system", "系统提示词", &system_prompt);
-        push_category(&mut categories, "persona", "人设", &sections.persona);
+        push_category(&mut categories, "identity", "身份", &sections.identity);
+        push_category(&mut categories, "style", "口吻", &sections.style);
         push_category(&mut categories, "system_messages", "系统消息", &conv.system);
         push_category(&mut categories, "assistant", "模型输出", &conv.assistant);
         push_category(&mut categories, "tool_calls", "工具调用", &tool_wire);
@@ -90,7 +94,8 @@ impl<B: ChatBackend> Agent<B> {
         if native_web {
             input = input.with_extra(RESPONSES_NATIVE_SEARCH);
         }
-        input.persona = meta.persona.clone();
+        input.identity = meta.identity.clone();
+        input.style = meta.style.clone();
 
         let sections = prompt.build_sections(&input);
         let path = self.sessions().path_to_active_leaf(&meta.id)?;

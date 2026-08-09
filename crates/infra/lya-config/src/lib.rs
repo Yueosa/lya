@@ -7,7 +7,7 @@
 //! | `core.toml` | 进程级：端口、日志、库路径、HTTP 超时 | 改了要重启 |
 //! | `runtime.toml` | 各模块默认值：轮数上限、默认模式/模型、索引体积 | 重新加载即可 |
 //! | `models.toml` | 模型清单（含密钥，权限 0600） | 重新加载即可 |
-//! | `persona.toml` | 全局人设 | 重新加载即可 |
+//! | `prompt.toml` | 全局提示词各段 | 重新加载即可 |
 //!
 //! **没有「会话级配置文件」**。会话自己设过的工作模式、启用工具、人设都存在
 //! `sessions` 表里，本 crate 只回答「会话没设时用什么」。
@@ -30,18 +30,20 @@
 pub mod core;
 pub mod error;
 pub mod models;
+pub mod prompt;
 pub mod runtime;
 pub mod write;
 
 pub use core::{CoreConfig, DbConfig, HttpSettings, LogConfig, LogLevel, ServerConfig};
 pub use error::ConfigError;
-pub use write::{edit_file, merge_table, redact_models_toml, write_persona, write_runtime};
+pub use write::{edit_file, merge_table, redact_models_toml, write_prompt_section, write_runtime};
 // 调用栈与 capability 键住在 lya-base：它们是 models.toml 与请求体之间的合约，
 // 这里和 lya-llm 都得认，而两边互不依赖
 pub use lya_base::{ApiMode, CAPABILITY_TEXT, CAPABILITY_VISION, CAPABILITY_WEB_SEARCH};
 pub use models::{
     ModelCatalog, ModelEntry, ModeConfig, validate_session_binding,
 };
+pub use prompt::{PromptFile, PromptSection, PromptSectionKey};
 pub use runtime::{
     AgentSettings, AudioMediaSettings, ImageMediaSettings, MediaSettings, MemorySettings,
     RuntimeConfig, ShellConfirm, ShellSettings, ToolSettings, VideoMediaSettings,
@@ -50,21 +52,19 @@ pub use runtime::{
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
-
 /// `core.toml` 文件名。
 pub const CORE_FILE: &str = "core.toml";
 /// `runtime.toml` 文件名。
 pub const RUNTIME_FILE: &str = "runtime.toml";
 /// `models.toml` 文件名。
 pub const MODELS_FILE: &str = "models.toml";
-/// `persona.toml` 文件名。
-pub const PERSONA_FILE: &str = "persona.toml";
+/// `prompt.toml` 文件名。
+pub const PROMPT_FILE: &str = "prompt.toml";
 
 const CORE_TEMPLATE: &str = include_str!("../templates/core.toml");
 const RUNTIME_TEMPLATE: &str = include_str!("../templates/runtime.toml");
 const MODELS_TEMPLATE: &str = include_str!("../templates/models.toml");
-const PERSONA_TEMPLATE: &str = include_str!("../templates/persona.toml");
+const PROMPT_TEMPLATE: &str = include_str!("../templates/prompt.toml");
 
 /// 配置根目录：`$HOME/.lya`。
 ///
@@ -72,14 +72,6 @@ const PERSONA_TEMPLATE: &str = include_str!("../templates/persona.toml");
 /// 都要问同一个问题，答案只该有一份。
 pub fn data_root() -> Result<PathBuf, ConfigError> {
     lya_base::data_root().map_err(|err| ConfigError::Path(err.to_string()))
-}
-
-/// `persona.toml` 的结构。
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct PersonaFile {
-    /// 人设正文。
-    text: String,
 }
 
 /// 合并后的完整配置。
@@ -91,8 +83,8 @@ pub struct Config {
     pub runtime: RuntimeConfig,
     /// 模型清单。
     pub models: ModelCatalog,
-    /// 全局人设；未配置或为空时是 `None`，由 `lya-prompt` 回退到内置默认。
-    pub persona: Option<String>,
+    /// 全局提示词；未配置时使用 `lya-prompt` 内置默认。
+    pub prompt: PromptFile,
     /// 本次读取的目录。
     pub dir: PathBuf,
 }
@@ -112,9 +104,7 @@ impl Config {
             core: read_toml(&dir.join(CORE_FILE))?.unwrap_or_default(),
             runtime: read_toml(&dir.join(RUNTIME_FILE))?.unwrap_or_default(),
             models: read_toml(&dir.join(MODELS_FILE))?.unwrap_or_default(),
-            persona: read_toml::<PersonaFile>(&dir.join(PERSONA_FILE))?
-                .map(|file| file.text.trim().to_string())
-                .filter(|text| !text.is_empty()),
+            prompt: read_toml(&dir.join(PROMPT_FILE))?.unwrap_or_default(),
             dir,
         };
         config.validate()?;
@@ -136,7 +126,7 @@ impl Config {
             (CORE_FILE, CORE_TEMPLATE, false),
             (RUNTIME_FILE, RUNTIME_TEMPLATE, false),
             (MODELS_FILE, MODELS_TEMPLATE, true),
-            (PERSONA_FILE, PERSONA_TEMPLATE, false),
+            (PROMPT_FILE, PROMPT_TEMPLATE, false),
         ] {
             let path = dir.join(name);
             if path.exists() {

@@ -18,7 +18,7 @@ import ConfigView from '../views/ConfigView.vue'
 import HomeView from '../views/HomeView.vue'
 import MemoryView from '../views/MemoryView.vue'
 import ModelsView from '../views/ModelsView.vue'
-import PersonaView from '../views/PersonaView.vue'
+import PromptView from '../views/PromptView.vue'
 import SessionPanel from '../views/session/SessionPanel.vue'
 import StorageView from '../views/StorageView.vue'
 import ThemeView from '../views/ThemeView.vue'
@@ -152,7 +152,7 @@ function navigate(next: View): void {
       <ToolsView v-else-if="view === 'tools'" key="tools" />
       <ModelsView v-else-if="view === 'models'" key="models" />
       <ThemeView v-else-if="view === 'theme'" key="theme" />
-      <PersonaView v-else-if="view === 'persona'" key="persona" />
+      <PromptView v-else-if="view === 'prompt'" key="prompt" />
       <ConfigView v-else-if="view === 'config'" key="config" />
       <StorageView v-else-if="view === 'storage'" key="storage" />
       <div v-else key="todo" class="app__todo">

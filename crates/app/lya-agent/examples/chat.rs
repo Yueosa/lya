@@ -84,8 +84,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     register_actions(&mut actions, Arc::clone(&memory))?;
 
     let mut prompt = PromptBuilder::new();
-    if let Some(persona) = &config.persona {
-        prompt = prompt.with_persona(persona.clone());
+    {
+        use lya_config::PromptSectionKey;
+        let p = &config.prompt;
+        prompt = prompt.with_prompt_file(
+            p.section_text(PromptSectionKey::Environment)
+                .map(str::to_string),
+            p.section_text(PromptSectionKey::Operations)
+                .map(str::to_string),
+            p.section_text(PromptSectionKey::Voice)
+                .map(str::to_string),
+            p.section_text(PromptSectionKey::Identity)
+                .map(str::to_string),
+            p.section_text(PromptSectionKey::Style)
+                .map(str::to_string),
+        );
     }
 
     let agent = Agent::new(AgentParts {

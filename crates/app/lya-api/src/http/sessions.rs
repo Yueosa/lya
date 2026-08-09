@@ -74,14 +74,16 @@ pub async fn create(
     // 取的是「此刻默认人设解析出来的正文」：配置里写了就用它，没写就是内置那段。
     // 抄正文而不是留空，是为了让这个会话从此完全自洽——将来改进内置默认，老会话也不会动
     let settings = hub.agent().settings();
-    let persona = settings.prompt.global_persona_body().to_string();
+    let identity = settings.prompt.global_identity_body().to_string();
+    let style = settings.prompt.global_style_body().to_string();
 
     let meta = hub.agent().sessions().create_session(CreateSession {
         title: body.title,
         work_mode: body.work_mode.unwrap_or_default(),
         model_id: body.model_id,
         api_mode: Some(api_mode.as_str().into()),
-        persona: Some(persona),
+        identity: Some(identity),
+        style: Some(style),
         ..Default::default()
     })?;
     Ok((StatusCode::CREATED, Json(meta)))
@@ -107,9 +109,12 @@ pub struct PatchBody {
     pub enabled_tools: Option<Option<Vec<String>>>,
     /// 归档或取回。归档后会话只能回看，不能再发消息。
     pub status: Option<SessionStatus>,
-    /// 会话专属人设；显式给 `null` 表示回退到全局默认。
+    /// 会话专属身份；显式给 `null` 表示清空。
     #[serde(default, deserialize_with = "double_option")]
-    pub persona: Option<Option<String>>,
+    pub identity: Option<Option<String>>,
+    /// 会话专属口吻；显式给 `null` 表示清空。
+    #[serde(default, deserialize_with = "double_option")]
+    pub style: Option<Option<String>>,
     /// API 栈；仅空会话可改，有消息后锁定。
     #[serde(default)]
     pub api_mode: Option<ApiMode>,
@@ -178,8 +183,11 @@ pub async fn patch(
     if let Some(tools) = body.enabled_tools {
         sessions.set_enabled_tools(&id, tools.as_deref())?;
     }
-    if let Some(persona) = body.persona {
-        sessions.set_persona(&id, persona.as_deref())?;
+    if let Some(identity) = body.identity {
+        sessions.set_identity(&id, identity.as_deref())?;
+    }
+    if let Some(style) = body.style {
+        sessions.set_style(&id, style.as_deref())?;
     }
     if let Some(status) = body.status {
         // 归档中途不该有轮次在跑，否则那一轮写回结果时会撞上只读

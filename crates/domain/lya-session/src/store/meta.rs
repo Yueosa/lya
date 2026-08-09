@@ -18,14 +18,16 @@ impl SessionStore {
             .api_mode
             .filter(|s| !s.trim().is_empty())
             .unwrap_or_else(|| "completions".into());
-        let persona = req.persona.unwrap_or_default();
+        let identity = req.identity.unwrap_or_default();
+        let style = req.style.unwrap_or_default();
         let meta = SessionMeta {
             id: Uuid::new_v4().to_string(),
             title: req.title,
             status: SessionStatus::Active,
             active_leaf_id: None,
             work_mode: req.work_mode,
-            persona: Some(persona),
+            identity: Some(identity),
+            style: Some(style),
             model_id: req.model_id,
             api_mode,
             enabled_tools: req.enabled_tools,
@@ -42,15 +44,16 @@ impl SessionStore {
         self.db.write(|conn| -> Result<(), SessionError> {
             conn.execute(
                 "INSERT INTO sessions (
-                     id, title, status, active_leaf_id, work_mode, persona, model_id,
+                     id, title, status, active_leaf_id, work_mode, identity, style, model_id,
                      api_mode, enabled_tools_json, context_config_json, created_at, updated_at
-                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, NULL, ?9, ?10)",
+                 ) VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7, ?8, ?9, NULL, ?10, ?11)",
                 params![
                     meta.id,
                     meta.title,
                     meta.status.as_str(),
                     meta.work_mode.as_str(),
-                    meta.persona,
+                    meta.identity,
+                    meta.style,
                     meta.model_id,
                     meta.api_mode,
                     tools_json,
@@ -77,7 +80,7 @@ impl SessionStore {
     fn list_by_status(&self, status: SessionStatus) -> Result<Vec<SessionMeta>, SessionError> {
         self.db.read(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, title, status, active_leaf_id, work_mode, persona, model_id,
+                "SELECT id, title, status, active_leaf_id, work_mode, identity, style, model_id,
                         api_mode, enabled_tools_json, context_config_json, created_at, updated_at
                  FROM sessions
                  WHERE status = ?1
@@ -221,33 +224,25 @@ impl SessionStore {
         })
     }
 
-    /// 设置会话级人设；`None` 表示清空库里的值（prompt 层会再按自己的规则回退）。
-    pub fn set_persona(&self, session_id: &str, persona: Option<&str>) -> Result<(), SessionError> {
+    /// 设置会话级身份。
+    pub fn set_identity(&self, session_id: &str, identity: Option<&str>) -> Result<(), SessionError> {
         self.set_field(session_id, |conn, now| {
             conn.execute(
-                "UPDATE sessions SET persona = ?1, updated_at = ?2 WHERE id = ?3",
-                params![persona, now, session_id],
+                "UPDATE sessions SET identity = ?1, updated_at = ?2 WHERE id = ?3",
+                params![identity, now, session_id],
             )?;
             Ok(())
         })
     }
 
-    /// 给还没有自己人设的会话补上一份，返回补了几个。
-    ///
-    /// 人设**从前**是「会话留空就每轮读全局」，于是改一次默认人设会把每一段正在进行的对话
-    /// 都换掉性格，而聊天记录还是旧性格写的——模型下一轮得同时扮演两个人。现在会话在创建时
-    /// 就抄一份（见 `lya-api` 的 `create`），这个方法只管把改之前建的那些会话补齐。
-    ///
-    /// 一次性把 `persona IS NULL` 或空串的老会话补成给定正文。
-    ///
-    /// **不在启动时自动调用**——老库请跑 `scripts/upgrade-existing-lya-db.sh`。
-    pub fn adopt_default_persona(&self, persona: &str) -> Result<usize, SessionError> {
-        self.db.write(|conn| {
-            let n = conn.execute(
-                "UPDATE sessions SET persona = ?1 WHERE persona IS NULL OR persona = ''",
-                params![persona],
+    /// 设置会话级口吻。
+    pub fn set_style(&self, session_id: &str, style: Option<&str>) -> Result<(), SessionError> {
+        self.set_field(session_id, |conn, now| {
+            conn.execute(
+                "UPDATE sessions SET style = ?1, updated_at = ?2 WHERE id = ?3",
+                params![style, now, session_id],
             )?;
-            Ok(n)
+            Ok(())
         })
     }
 

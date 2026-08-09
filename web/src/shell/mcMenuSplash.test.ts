@@ -5,7 +5,7 @@ import { buildSplashLines, menuFootLeft, menuFootRight, pickSplash } from './mcM
 describe('mcMenuSplash', () => {
   it('有数据时生成 splash', () => {
     const lines = buildSplashLines(
-      [{ id: 's1', title: 'Rust 闲聊', updated_at: '', status: 'active', work_mode: 'agent', model_id: null, api_mode: 'completions', persona: null, created_at: '', active_leaf_id: null, enabled_tools: null }],
+      [{ id: 's1', title: 'Rust 闲聊', updated_at: '', status: 'active', work_mode: 'agent', model_id: null, api_mode: 'completions', identity: null, style: null, created_at: '', active_leaf_id: null, enabled_tools: null }],
       [],
       [{ id: 1, title: '偏好', summary: '', body: '', tags: [], source_session_id: null, created_at: '', updated_at: '' }],
       [{ id: 'md1', name: 'gpt-4', base_url: '', api_key_masked: '', api_key_placeholder: false, modes: { completions: { capabilities: ['text'] } } }],
