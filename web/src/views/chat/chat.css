@@ -87,6 +87,10 @@
   gap: 10px;
 }
 
+.chat__load-earlier {
+  align-self: center;
+}
+
 .chat__stream--loading {
   visibility: hidden;
 }

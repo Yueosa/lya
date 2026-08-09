@@ -41,6 +41,12 @@ import { sessionEnterMotionMs } from '../../ui/useMotion'
  */
 const INITIAL_TAIL = 48
 
+/** 常态下最多挂载的时间线条数；更早的按需加载。 */
+const MAX_VISIBLE = 120
+
+/** 每次「加载更早」多露出多少条。 */
+const LOAD_CHUNK = 60
+
 /** 离底多少像素以内算「精确贴着底」。用于百分比显示和位置记忆。 */
 const BOTTOM_EPS = 2
 
@@ -70,6 +76,7 @@ export function forgetScrollPosition(id: string): void {
 
 export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HTMLElement | null>) {
   const renderTail = ref<number | null>(null)
+  const shownFrom = ref(0)
   const timelineReady = ref(false)
   /** 仅进入会话时短暂为 true；SSE 流式更新不再播放入场动画。 */
   const sessionEnterMotion = ref(false)
@@ -83,15 +90,23 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
   const timelineOffset = computed(() => {
     const items = timeline.value
     const tail = renderTail.value
-    if (tail === null || items.length <= tail) return 0
-    return items.length - tail
+    if (tail !== null && items.length > tail) return items.length - tail
+    if (shownFrom.value > 0) return shownFrom.value
+    if (items.length > MAX_VISIBLE) return items.length - MAX_VISIBLE
+    return 0
   })
+
+  const hiddenCount = computed(() => timelineOffset.value)
 
   const displayTimeline = computed(() => {
     const items = timeline.value
     const tail = renderTail.value
-    if (tail === null || items.length <= tail) return items
-    return items.slice(items.length - tail)
+    if (tail !== null && items.length > tail) {
+      return items.slice(items.length - tail)
+    }
+    if (shownFrom.value > 0) return items.slice(shownFrom.value)
+    if (items.length > MAX_VISIBLE) return items.slice(items.length - MAX_VISIBLE)
+    return items
   })
 
   const scrollPercent = ref(0)
@@ -297,23 +312,41 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
     scrollBottom()
   }
 
+  function loadEarlier(): void {
+    const offset = timelineOffset.value
+    if (offset <= 0) return
+    const el = scroller.value
+    const prevHeight = content.value?.scrollHeight ?? 0
+    shownFrom.value = Math.max(0, offset - LOAD_CHUNK)
+    nextTick(() => {
+      if (!el || !content.value) return
+      el.scrollTop += content.value.scrollHeight - prevHeight
+      onScroll()
+    })
+  }
+
   onMounted(() => {
     // 盯内容不盯滚动容器：容器高度不随消息变。也不能定时摘掉，
     // 媒体可能好几秒后才报出自己的尺寸
     if (content.value) {
+      let resizeRaf: number | null = null
       layoutObserver = new ResizeObserver(() => {
-        const el = scroller.value
-        if (!el) return
-        // 用户还没接手：内容每长高一次就重新归位一次，一直到他自己动手为止。
-        // 就地同步写——回调在绘制前跑，这一帧的位置立刻就是对的
-        if (!userTookOver.value) {
-          el.scrollTop = anchorTop(el)
-          return
-        }
-        if (!stuckToBottom.value) return
-        // 正在输出时跟不跟由偏好定；不在输出时，贴底就该一直贴着
-        if (running.value && !prefs.followStream) return
-        el.scrollTop = el.scrollHeight
+        if (resizeRaf !== null) return
+        resizeRaf = requestAnimationFrame(() => {
+          resizeRaf = null
+          const el = scroller.value
+          if (!el) return
+          // 用户还没接手：内容每长高一次就重新归位一次，一直到他自己动手为止。
+          // 就地同步写——回调在绘制前跑，这一帧的位置立刻就是对的
+          if (!userTookOver.value) {
+            el.scrollTop = anchorTop(el)
+            return
+          }
+          if (!stuckToBottom.value) return
+          // 正在输出时跟不跟由偏好定；不在输出时，贴底就该一直贴着
+          if (running.value && !prefs.followStream) return
+          el.scrollTop = el.scrollHeight
+        })
       })
       layoutObserver.observe(content.value)
     }
@@ -342,6 +375,8 @@ export function useChatScroll(scroller: Ref<HTMLElement | null>, content: Ref<HT
   return {
     displayTimeline,
     timelineOffset,
+    hiddenCount,
+    loadEarlier,
     timelineReady,
     sessionEnterMotion,
     jumpState,

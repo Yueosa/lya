@@ -24,7 +24,7 @@ const treeOpen = ref(false)
 const sessionOpen = ref(false)
 const editing = ref<{ id: number; text: string } | null>(null)
 
-const { displayTimeline, timelineOffset, timelineReady, sessionEnterMotion, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
+const { displayTimeline, timelineOffset, hiddenCount, loadEarlier, timelineReady, sessionEnterMotion, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
   useChatScroll(scroller, content)
 
 function closePanels(except?: 'tree' | 'session'): void {
@@ -64,6 +64,14 @@ function toggleSession(): void {
         <!-- 内容单独一层：ResizeObserver 只有盯着它才看得见「内容长高了」，
              盯滚动容器自己只能看到窗口变化 -->
         <div ref="content" class="chat__stream-content">
+          <button
+            v-if="hiddenCount > 0"
+            type="button"
+            class="btn btn--sm chat__load-earlier"
+            @click="loadEarlier"
+          >
+            加载更早（{{ hiddenCount }}）
+          </button>
           <ChatTimeline
             v-model:editing="editing"
             :items="displayTimeline"

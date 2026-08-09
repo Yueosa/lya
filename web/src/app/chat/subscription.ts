@@ -1,15 +1,16 @@
 import { computed, watch } from 'vue'
 
 import type { HitlReply } from '../../api/client'
-import type { HitlBlock } from '../../api/wire'
+import type { HitlBlock, LyaEvent } from '../../api/wire'
 import { buildTimeline } from '../../model/timeline'
-import { applyEvent, applySnapshot, canSend as canSendTo, emptyState, isRunning } from '../../store/session'
+import { applySnapshot, canSend as canSendTo, emptyState, isRunning } from '../../store/session'
 import { toast } from '../../ui/useToast'
 import { bindSessionPrefs } from '../usePrefs'
 import { report } from '../errors'
 import { loadTools } from './settings'
 import { refreshTree } from './snapshot'
 import { round, startClock, stopClock } from './turn'
+import { createEventBatcher } from './eventBatch'
 import { client } from '../client'
 import {
   currentId,
@@ -119,36 +120,6 @@ export const pendingHitlBatch = computed<{ index: number; total: number } | null
   return { index, total }
 })
 
-/** 打开一个会话并订阅 SSE。 */
-export async function openSession(id: string): Promise<void> {
-  closeSession()
-  currentId.value = id
-  bindSessionPrefs(id)
-  hydrating.value = true
-
-  unsubscribe.value = client.subscribe(id, {
-    onSnapshot: (snapshot) => {
-      state.value = applySnapshot(state.value, snapshot)
-      void loadTools()
-      void refreshTree()
-      queueMicrotask(() => {
-        hydrating.value = false
-      })
-    },
-    onEvent: (event) => {
-      state.value = applyEvent(state.value, event)
-      if (event.type === 'round_started' && round.value === 0) startClock()
-      if (event.type === 'turn_end') {
-        stopClock()
-        void refreshTree()
-      }
-    },
-    onError: () => {
-      toast('与后端的连接断了，正在重试', 'error')
-    },
-  })
-}
-
 /** 关掉当前会话的订阅。 */
 export function closeSession(): void {
   unsubscribe.value?.()
@@ -160,6 +131,54 @@ export function closeSession(): void {
   focusedHitlId.value = null
   hydrating.value = false
   stopClock()
+}
+
+function handleEventSideEffects(event: LyaEvent): void {
+  if (event.type === 'round_started' && round.value === 0) startClock()
+  if (event.type === 'turn_end') {
+    stopClock()
+    void refreshTree()
+  }
+}
+
+/** 打开一个会话并订阅 SSE。 */
+export async function openSession(id: string): Promise<void> {
+  closeSession()
+  currentId.value = id
+  bindSessionPrefs(id)
+  hydrating.value = true
+
+  const batcher = createEventBatcher({
+    getState: () => state.value,
+    setState: (next) => {
+      state.value = next
+    },
+    onApplied: handleEventSideEffects,
+  })
+
+  unsubscribe.value = client.subscribe(id, {
+    onSnapshot: (snapshot) => {
+      batcher.flush()
+      state.value = applySnapshot(state.value, snapshot)
+      void loadTools()
+      void refreshTree()
+      queueMicrotask(() => {
+        hydrating.value = false
+      })
+    },
+    onEvent: (event) => {
+      batcher.push(event)
+    },
+    onError: () => {
+      toast('与后端的连接断了，正在重试', 'error')
+    },
+  })
+
+  const priorClose = unsubscribe.value
+  unsubscribe.value = () => {
+    batcher.dispose()
+    priorClose()
+  }
 }
 
 /** 答复当前挂起的 HITL。 */
