@@ -342,6 +342,43 @@ describe('buildTimeline', () => {
     expect(tool?.type === 'tool' && tool.call.result).toBeUndefined()
   })
 
+  it('缓冲里 call 还在跑但结果已落库时，应显示结果而不是执行中', () => {
+    reset()
+    const draft = record({
+      ...calling('稍等', 'c1', 'bash', '{"cmd":"ls"}'),
+      status: 'streaming',
+    })
+    const tool = record(toolResult('c1', 'file.txt'), { parent: draft.id })
+    const running: TurnBuffer = {
+      round: 1,
+      message_id: draft.id,
+      content: '',
+      reasoning: '',
+      calls: [{ call_id: 'c1', name: 'bash', kind: 'tool', ok: null }],
+    }
+    const items = buildTimeline({ messages: [draft, tool], running })
+    const message = messageAt(items, 0)
+    const block = message?.blocks.find((b) => b.type === 'tool')
+    expect(block?.type === 'tool' && block.call.result?.content).toBe('file.txt')
+    expect(block?.type === 'tool' && block.call.arguments).toEqual({ cmd: 'ls' })
+  })
+
+  it('快照缓冲用 success 字段时也能识别完成状态', () => {
+    reset()
+    const draft = record(calling('', 'c1', 'bash', '{}'))
+    const running = {
+      round: 1,
+      message_id: draft.id,
+      content: '',
+      reasoning: '',
+      calls: [{ call_id: 'c1', name: 'bash', kind: 'tool' as const, success: true }],
+    } as unknown as TurnBuffer
+    const items = buildTimeline({ messages: [draft], running })
+    const message = messageAt(items, 0)
+    const tool = message?.blocks.find((b) => b.type === 'tool')
+    expect(tool?.type === 'tool' && tool.call.result?.ok).toBe(true)
+  })
+
   it('这一轮已经落库就不重复添一条', () => {
     reset()
     const u = record(user('你好'))

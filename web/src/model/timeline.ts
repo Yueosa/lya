@@ -145,8 +145,10 @@ export function buildTimeline(input: TimelineInput): TimelineItem[] {
 
     // 正在写的那条：占位消息已经落库但正文是空的，真正在长的字在缓冲里。
     // 不覆盖的话界面上就只有一个空气泡——「没有流式输出」就是这么来的。
+    // 工具结果可能已经落库，但缓冲里的 call 还是 ok=null——必须把 results 并进来，
+    // 否则一直显示「执行中」，刷新（running 清空）后才正常。
     if (input.running && input.running.message_id === record.id) {
-      const live = runningBlocks(input.running)
+      const live = runningBlocks(input.running, results, record)
       if (live.length > 0) message.blocks = live
       message.status = 'streaming'
     }
@@ -352,7 +354,33 @@ function toCallView(
  * 缓冲里是**还没落库**的内容。流式开始时后端先落一条空占位好让界面有 id 可挂，
  * 所以那条消息虽然在树上，正文却是空的——真正在长的字在缓冲里。谁更新就用谁。
  */
-function runningBlocks(running: TurnBuffer): Block[] {
+/** 快照里后端写 `success`，SSE 增量写 `ok`，统一成一种读法。 */
+function callOk(call: CallState & { success?: boolean | null }): boolean | null {
+  if (call.ok === true || call.ok === false) return call.ok
+  if (call.success === true || call.success === false) return call.success
+  return null
+}
+
+function persistedToolCalls(
+  record: MessageRecord | undefined,
+  results: Map<string, { ok: boolean; content: string }>,
+): Map<string, ToolCallView> {
+  const map = new Map<string, ToolCallView>()
+  if (!record) return map
+  for (const call of record.payload.openai?.tool_calls ?? []) {
+    map.set(
+      call.id,
+      toCallView(call.id, call.function.name, call.function.arguments, results.get(call.id)),
+    )
+  }
+  return map
+}
+
+function runningBlocks(
+  running: TurnBuffer,
+  results: Map<string, { ok: boolean; content: string }>,
+  record?: MessageRecord,
+): Block[] {
   const blocks: Block[] = []
   if (running.reasoning) blocks.push({ type: 'reasoning', text: running.reasoning })
   for (const search of running.provider_searches ?? []) {
@@ -365,8 +393,19 @@ function runningBlocks(running: TurnBuffer): Block[] {
     )
   }
   if (running.content) blocks.push({ type: 'text', text: running.content })
+
+  const persisted = persistedToolCalls(record, results)
+  const seen = new Set<string>()
   for (const call of running.calls) {
-    blocks.push({ type: 'tool', call: runningCall(call) })
+    seen.add(call.call_id)
+    blocks.push({
+      type: 'tool',
+      call: runningCall(call, results, persisted.get(call.call_id)),
+    })
+  }
+  for (const [callId, view] of persisted) {
+    if (seen.has(callId)) continue
+    blocks.push({ type: 'tool', call: view })
   }
   return blocks
 }
@@ -385,7 +424,7 @@ function orphanRunning(
   if (running.message_id !== null && messages.some((m) => m.id === running.message_id)) {
     return null
   }
-  const blocks = runningBlocks(running)
+  const blocks = runningBlocks(running, collectToolResults(messages))
   if (blocks.length === 0) return null
 
   return {
@@ -399,15 +438,32 @@ function orphanRunning(
   }
 }
 
-function runningCall(call: CallState): ToolCallView {
+function runningCall(
+  call: CallState & { success?: boolean | null },
+  results: Map<string, { ok: boolean; content: string }>,
+  persisted?: ToolCallView,
+): ToolCallView {
+  const fromDb = results.get(call.call_id)
+  if (fromDb) {
+    return toCallView(
+      call.call_id,
+      call.name,
+      persisted?.rawArguments ?? '',
+      fromDb,
+    )
+  }
+
   const view: ToolCallView = {
     callId: call.call_id,
     name: call.name,
-    rawArguments: '',
-    argsUnknown: true,
+    rawArguments: persisted?.rawArguments ?? '',
+    argsUnknown: persisted ? !persisted.rawArguments : true,
   }
+  if (persisted?.arguments !== undefined) view.arguments = persisted.arguments
+
   // ok 为 null 表示还在跑，这时不给 result，界面显示「执行中」
-  if (call.ok !== null) view.result = { ok: call.ok, content: '' }
+  const ok = callOk(call)
+  if (ok !== null) view.result = { ok, content: '' }
   return view
 }
 

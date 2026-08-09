@@ -91,6 +91,10 @@
   align-self: center;
 }
 
+.chat__stream:focus {
+  outline: none;
+}
+
 .chat__stream--loading {
   visibility: hidden;
 }

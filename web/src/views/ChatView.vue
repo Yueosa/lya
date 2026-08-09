@@ -3,8 +3,9 @@
 -->
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onUnmounted, provide, ref } from 'vue'
 
+import { bindChatScroll } from '../app/chat/scrollBridge'
 import { hydrating, readOnly } from '../app/useChat'
 import BranchTree from './BranchTree.vue'
 import Composer from './Composer.vue'
@@ -14,6 +15,7 @@ import ChatSideDrawer from './chat/ChatSideDrawer.vue'
 import ChatStatusBar from './chat/ChatStatusBar.vue'
 import ChatTimeline from './chat/ChatTimeline.vue'
 import ScrollJumpButton from './chat/ScrollJumpButton.vue'
+import { chatScrollKey } from './chat/chatScrollKey'
 import { useChatScroll } from './chat/useChatScroll'
 
 import './chat/chat.css'
@@ -24,8 +26,13 @@ const treeOpen = ref(false)
 const sessionOpen = ref(false)
 const editing = ref<{ id: number; text: string } | null>(null)
 
+const scroll = useChatScroll(scroller, content)
+provide(chatScrollKey, scroll)
+bindChatScroll(scroll)
+onUnmounted(() => bindChatScroll(null))
+
 const { displayTimeline, timelineOffset, hiddenCount, loadEarlier, timelineReady, sessionEnterMotion, jumpState, jumpText, jumpTip, onScroll, jumpLatest } =
-  useChatScroll(scroller, content)
+  scroll
 
 function closePanels(except?: 'tree' | 'session'): void {
   if (except !== 'tree') treeOpen.value = false
@@ -58,6 +65,7 @@ function toggleSession(): void {
       <div
         ref="scroller"
         class="chat__stream"
+        tabindex="0"
         :class="{ 'chat__stream--loading': hydrating || !timelineReady }"
         @scroll="onScroll"
       >
@@ -77,7 +85,7 @@ function toggleSession(): void {
             :items="displayTimeline"
             :timeline-offset="timelineOffset"
             :motion-ready="sessionEnterMotion"
-            :defer-heavy="!timelineReady || sessionEnterMotion"
+            :defer-heavy="!timelineReady"
           />
         </div>
       </div>

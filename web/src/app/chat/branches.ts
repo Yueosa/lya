@@ -2,6 +2,7 @@ import type { SessionTree } from '../../api/wire'
 import { applySnapshot } from '../../store/session'
 import { report } from '../errors'
 import { refreshSnapshot, refreshTree, setTree } from './snapshot'
+import { armSendFollow } from './scrollBridge'
 import { client } from '../client'
 import { currentId, state, tree } from './state'
 
@@ -12,6 +13,7 @@ export async function regenerate(): Promise<void> {
   try {
     await client.regenerate(id)
     await refreshTree()
+    armSendFollow()
   } catch (error) {
     report(error, '重新生成')
   }
@@ -24,6 +26,7 @@ export async function editAndResend(messageId: number, text: string): Promise<vo
   try {
     await client.editAndResend(id, messageId, text)
     await refreshTree()
+    armSendFollow()
   } catch (error) {
     report(error, '编辑重发')
   }
@@ -68,6 +71,7 @@ export async function switchBranch(leafId: number): Promise<void> {
   try {
     state.value = applySnapshot(state.value, await client.switchBranch(id, leafId))
     await refreshTree()
+    armSendFollow()
   } catch (error) {
     report(error, '切换分支')
   }

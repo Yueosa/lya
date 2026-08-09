@@ -28,11 +28,14 @@ const props = withDefaults(
     autoCollapse?: boolean
     /** 流式正文变化时递增/更新，用于触发块内滚动跟随。 */
     scrollToken?: string | number
+    /** 进行中且用户未手动折叠时自动展开（工具块用）。 */
+    autoExpandWhenBusy?: boolean
   }>(),
   {
     busy: false,
     streaming: false,
     autoCollapse: true,
+    autoExpandWhenBusy: false,
   },
 )
 
@@ -45,6 +48,7 @@ const open = ref(!shouldStartCollapsed())
 /** 用户是不是自己点过。 */
 const touched = ref(false)
 const bodyEl = ref<HTMLElement | null>(null)
+const contentEl = ref<HTMLElement | null>(null)
 /** 块内滚动是否跟随流式输出尾部。 */
 const followTail = ref(true)
 let bodyObserver: ResizeObserver | null = null
@@ -65,20 +69,22 @@ function onBodyScroll(): void {
 function bindBodyObserver(): void {
   bodyObserver?.disconnect()
   bodyObserver = null
-  const el = bodyEl.value
-  if (!el || !props.streaming) return
+  const target = contentEl.value ?? bodyEl.value
+  if (!target || !props.streaming) return
   bodyObserver = new ResizeObserver(() => {
     if (!open.value || !props.busy || !followTail.value) return
     scrollBodyToBottom()
   })
-  bodyObserver.observe(el)
+  bodyObserver.observe(target)
 }
 
 function followStreamingTail(): void {
   if (!props.streaming || !props.busy || !open.value || !followTail.value) return
   void nextTick(() => {
-    scrollBodyToBottom()
-    bindBodyObserver()
+    requestAnimationFrame(() => {
+      scrollBodyToBottom()
+      bindBodyObserver()
+    })
   })
 }
 
@@ -92,8 +98,17 @@ watch(
 )
 
 watch(
+  () => props.failed,
+  (failed) => {
+    if (failed && !touched.value) open.value = true
+  },
+)
+
+watch(
   () => props.busy,
   (busy, was) => {
+    if (props.autoExpandWhenBusy && busy && !touched.value) open.value = true
+    if (props.failed && !touched.value) open.value = true
     if (!props.streaming || touched.value) return
     if (props.autoCollapse && was && !busy) open.value = false
     if (busy) {
@@ -143,7 +158,9 @@ function toggle(): void {
     </button>
     <Transition enter-active-class="lya-fold-enter-active" leave-active-class="lya-fold-leave-active">
       <div v-if="open" ref="bodyEl" class="fold__body" @scroll="onBodyScroll">
-        <slot />
+        <div ref="contentEl" class="fold__body-inner">
+          <slot />
+        </div>
       </div>
     </Transition>
   </div>

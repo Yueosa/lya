@@ -5,8 +5,6 @@ import { applyEvent, type SessionState } from '../../store/session'
 const BATCHABLE = new Set<LyaEvent['type']>([
   'message_delta',
   'reasoning_delta',
-  'call_started',
-  'call_finished',
   'provider_search',
 ])
 
@@ -16,15 +14,24 @@ export type EventBatchSink = {
   onApplied: (event: LyaEvent) => void
 }
 
+function scheduleFlush(run: () => void): () => void {
+  if (typeof document !== 'undefined' && document.hidden) {
+    const id = window.setTimeout(run, 0)
+    return () => window.clearTimeout(id)
+  }
+  const id = requestAnimationFrame(run)
+  return () => cancelAnimationFrame(id)
+}
+
 /** 把高频 SSE 增量合并为每帧一次 state 更新。 */
 export function createEventBatcher(sink: EventBatchSink) {
   let pending: LyaEvent[] = []
-  let rafId: number | null = null
+  let cancelScheduled: (() => void) | null = null
 
   function flush(): void {
-    if (rafId !== null) {
-      cancelAnimationFrame(rafId)
-      rafId = null
+    if (cancelScheduled) {
+      cancelScheduled()
+      cancelScheduled = null
     }
     if (pending.length === 0) return
     const batch = pending
@@ -47,9 +54,9 @@ export function createEventBatcher(sink: EventBatchSink) {
       return
     }
     pending.push(event)
-    if (rafId === null) {
-      rafId = requestAnimationFrame(() => {
-        rafId = null
+    if (cancelScheduled === null) {
+      cancelScheduled = scheduleFlush(() => {
+        cancelScheduled = null
         flush()
       })
     }

@@ -39,6 +39,7 @@ export {
   canNavHitlPrev,
   canNavHitlNext,
   navigateHitlBatch,
+  hitlFocusBlocksSubmit,
   pendingHitlId,
   phase,
   readOnly,

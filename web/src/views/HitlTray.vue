@@ -11,10 +11,12 @@ import {
   canNavHitlNext,
   canNavHitlPrev,
   canSubmitFocusedHitl,
+  hitlFocusBlocksSubmit,
   navigateHitlBatch,
   replyHitl,
 } from '../app/useChat'
 import Icon from '../ui/Icon.vue'
+import { toast } from '../ui/useToast'
 
 const busy = ref(false)
 /** 表单作答：题目 id → 选中的值。 */
@@ -38,6 +40,14 @@ const remark = computed({
 watch(pendingHitlId, (id, prev) => {
   if (prev !== null && prev !== id) delete hitlRemarks[prev]
   busy.value = false
+  if (id !== null) {
+    void nextTick(() => {
+      trayBody.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      trayBody.value
+        ?.querySelector<HTMLElement>('button, textarea, input, [tabindex]')
+        ?.focus({ preventScroll: true })
+    })
+  }
 })
 
 watch(pendingHitl, (block) => {
@@ -94,7 +104,6 @@ function isPicked(questionId: string, key: string): boolean {
 async function submitForm(): Promise<void> {
   const current = block.value
   if (current?.type !== 'form' || busy.value) return
-  busy.value = true
 
   const items: FormAnswerItem[] = current.questions
     .map((question) => {
@@ -110,6 +119,12 @@ async function submitForm(): Promise<void> {
     })
     .filter((item) => item.values.length > 0 || item.note)
 
+  if (items.length === 0) {
+    toast('请至少回答一题', 'info')
+    return
+  }
+
+  busy.value = true
   try {
     await replyHitl({
       kind: 'form',
@@ -237,6 +252,9 @@ async function answerMode(approved: boolean): Promise<void> {
             <li v-for="(reason, at) in block.reasons" :key="at">{{ reason }}</li>
           </ul>
         </details>
+        <p v-if="hitlFocusBlocksSubmit" class="tray__hint">
+          请先回到当前待确认项（◀）再点拒绝或放行。
+        </p>
       </template>
 
       <!-- 模式切换 -->
@@ -433,6 +451,15 @@ async function answerMode(approved: boolean): Promise<void> {
   font-size: var(--text-sm);
   max-height: 160px;
   overflow-y: auto;
+}
+
+.tray__hint {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft, color-mix(in srgb, var(--warning) 12%, transparent));
+  color: var(--text-muted);
+  font-size: var(--text-sm);
 }
 
 .tray__actions {

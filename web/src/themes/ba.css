@@ -55,6 +55,9 @@
    */
   --local-ba-skew: -8deg;
 
+  /* 聊天输入框圆角；Composer 用 token 而不是写死 pill，避免 scoped 盖住主题 */
+  --composer-radius: 22px;
+
   /* 底色偏冷白，不是纯白：纯白配蓝会显得发灰 */
   --bg: #eef2f7;
   --bg-sunken: #e4eaf2;
@@ -792,18 +795,33 @@
 
   /*
    * 走大圆角、不走全胶囊：多行时 `--radius-pill`（999px）会把每行首尾字裁进侧弧里。
-   * 固定 22px 仍然圆，行数变多时侧壁趋直，可读性更好；横内边距略加大，字离弧更远。
-   *
-   * 超高时仍可在框内滚，只是不画直 scrollbar——和消息流一样藏起来，免得直条配圆框。
+   * 横内边距略加大，字离弧更远。圆角本身由 `--composer-radius` 在主题根上定。
    */
   .composer__input {
-    border-radius: 22px;
     padding: 10px 22px;
     scrollbar-width: none;
   }
 
+  .composer__input:hover,
+  .composer__input:focus {
+    scrollbar-width: thin;
+  }
+
   .composer__input::-webkit-scrollbar {
+    width: 0;
     display: none;
+  }
+
+  .composer__input:hover::-webkit-scrollbar,
+  .composer__input:focus::-webkit-scrollbar {
+    width: 6px;
+    display: block;
+  }
+
+  .composer__input:hover::-webkit-scrollbar-thumb,
+  .composer__input:focus::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--text-faint) 45%, transparent);
+    border-radius: 999px;
   }
 
   /* ── Momotalk：只作用在聊天页 ─────────────────────── */

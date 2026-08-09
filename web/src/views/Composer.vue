@@ -1,9 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, inject, nextTick, ref, watch } from 'vue'
 
 import { canSend, currentId, pendingHitl, running, readComposerDraft, send, stop, writeComposerDraft } from '../app/useChat'
+import { chatScrollKey } from './chat/chatScrollKey'
 import ContextUsagePanel from './ContextUsagePanel.vue'
 import HitlTray from './HitlTray.vue'
+
+const scroll = inject(chatScrollKey, null)
 
 const draft = ref('')
 
@@ -36,6 +39,7 @@ function grow(): void {
   el.style.height = 'auto'
   el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`
   el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden'
+  scroll?.nudgeIfFollowing()
 }
 
 watch(draft, () => void nextTick(grow))
@@ -43,6 +47,7 @@ watch(draft, () => void nextTick(grow))
 async function submit(): Promise<void> {
   const text = draft.value
   if (!text.trim() || !canSend.value) return
+  scroll?.armSendFollow()
   draft.value = ''
   writeComposerDraft(currentId.value, '')
   await nextTick()
@@ -111,7 +116,7 @@ function onKeydown(event: KeyboardEvent): void {
   min-height: 44px;
   padding: 10px 18px;
   border: var(--border-width) solid var(--border);
-  border-radius: var(--radius-pill);
+  border-radius: var(--composer-radius, var(--radius-pill));
   background: var(--bg-sunken);
   color: var(--text);
   font: inherit;

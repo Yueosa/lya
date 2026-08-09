@@ -249,6 +249,7 @@ function onEditKey(event: KeyboardEvent): void {
                 :label="toolLabel(tb)"
                 :busy="!tb.call.result"
                 :failed="tb.call.result?.ok === false"
+                auto-expand-when-busy
                 :auto-collapse="prefs.autoCollapseAside"
               >
                 <FormPreview
@@ -278,6 +279,7 @@ function onEditKey(event: KeyboardEvent): void {
             :label="toolLabel(block)"
             :busy="!block.call.result"
             :failed="block.call.result?.ok === false"
+            auto-expand-when-busy
             :auto-collapse="prefs.autoCollapseAside"
           >
             <FormPreview

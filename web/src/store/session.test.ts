@@ -133,6 +133,57 @@ describe('applyEvent', () => {
     expect(state.messages[0]?.payload.openai?.content).toBe('你好')
   })
 
+  it('助手定稿带 tool_calls 时清掉缓冲，避免工具块一直显示执行中', () => {
+    const assistantWithTools = (): MessagePayload => ({
+      v: 1,
+      role: 'assistant',
+      kind: 'tool_call',
+      status: 'complete',
+      openai: {
+        role: 'assistant',
+        content: '稍等',
+        tool_calls: [
+          { id: 'c1', type: 'function', function: { name: 'bash', arguments: '{}' } },
+        ],
+      },
+      lya: {},
+    })
+    const state = applyEvents(emptyState(), [
+      { type: 'round_started', round: 1 },
+      { type: 'message_committed', record: record(1, draft()) },
+      { type: 'call_started', call_id: 'c1', name: 'bash', kind: 'tool' },
+      {
+        type: 'message_updated',
+        record: record(1, assistantWithTools()),
+      },
+    ])
+    expect(state.running).toBeNull()
+  })
+
+  it('定稿别的消息时不误清新一轮的 running', () => {
+    const assistantWithTools = (): MessagePayload => ({
+      v: 1,
+      role: 'assistant',
+      kind: 'tool_call',
+      status: 'complete',
+      openai: {
+        role: 'assistant',
+        content: '稍等',
+        tool_calls: [
+          { id: 'c1', type: 'function', function: { name: 'bash', arguments: '{}' } },
+        ],
+      },
+      lya: {},
+    })
+    const state = applyEvents(emptyState(), [
+      { type: 'round_started', round: 1 },
+      { type: 'message_committed', record: record(1, draft()) },
+      { type: 'message_delta', text: '新一轮' },
+      { type: 'message_updated', record: record(2, assistantWithTools()) },
+    ])
+    expect(state.running?.content).toBe('新一轮')
+  })
+
   it('消息被删掉时从列表里去掉，不留幽灵', () => {
     // 模型一个字都没说，占位消息会被清掉——不处理这条事件的话，
     // 界面上会留一个永远抹不掉的空气泡

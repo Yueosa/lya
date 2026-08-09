@@ -76,7 +76,7 @@ export function applySnapshot(state: SessionState, snapshot: Snapshot): SessionS
     ...state,
     meta: snapshot.session,
     messages: snapshot.messages,
-    running: snapshot.running,
+    running: normalizeTurnBuffer(snapshot.running),
     // 快照没带这两个，但它们描述的是「刚刚发生了什么」，重连后本就不该沿用旧的
     endReason: null,
     pendingHitlId: findPendingHitl(snapshot.messages),
@@ -130,11 +130,11 @@ export function applyEvent(state: SessionState, event: LyaEvent): SessionState {
 
     case 'message_updated': {
       const messages = upsert(state.messages, event.record)
+      const dropRunning = state.running?.message_id === event.record.id
       return {
         ...state,
         messages,
-        // 定稿了就把缓冲里那份丢掉，否则同一段正文会显示两遍
-        running: state.running?.message_id === event.record.id ? null : state.running,
+        running: dropRunning ? null : state.running,
         pendingHitlId: findPendingHitl(messages),
       }
     }
@@ -223,6 +223,24 @@ function withRunning(
 ): SessionState {
   if (!state.running) return state
   return { ...state, running: update(state.running) }
+}
+
+/** 快照 TurnBuffer 里 calls 用 `success`，SSE 增量用 `ok`。 */
+function normalizeTurnBuffer(running: TurnBuffer | null): TurnBuffer | null {
+  if (!running) return null
+  return {
+    ...running,
+    calls: running.calls.map((call) => ({
+      ...call,
+      ok: normalizeCallOk(call as CallState & { success?: boolean | null }),
+    })),
+  }
+}
+
+function normalizeCallOk(call: CallState & { success?: boolean | null }): boolean | null {
+  if (call.ok === true || call.ok === false) return call.ok
+  if (call.success === true || call.success === false) return call.success
+  return null
 }
 
 /** 有则替换、无则按 `sort_key` 插入。 */

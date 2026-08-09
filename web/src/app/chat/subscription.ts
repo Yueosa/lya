@@ -85,10 +85,22 @@ export const canNavHitlPrev = computed(() => {
 export const canNavHitlNext = computed(() => {
   const ids = batchPendingHitlIds.value
   const focused = focusedHitlId.value ?? state.value.pendingHitlId
-  if (focused === null) return false
+  const pending = state.value.pendingHitlId
+  if (focused === null || pending === null) return false
   const at = ids.indexOf(focused)
-  return at >= 0 && at < ids.length - 1
+  const pendingAt = ids.indexOf(pending)
+  if (at < 0 || pendingAt < 0) return false
+  // 只能预览当前待确认项及之前的，不能跳过还没轮到的
+  return at < pendingAt
 })
+
+/** 正在预览批内其他项，还不能提交当前 pending。 */
+export const hitlFocusBlocksSubmit = computed(
+  () =>
+    state.value.pendingHitlId !== null &&
+    focusedHitlId.value !== null &&
+    focusedHitlId.value !== state.value.pendingHitlId,
+)
 
 export function navigateHitlBatch(delta: -1 | 1): void {
   const ids = batchPendingHitlIds.value
@@ -148,6 +160,9 @@ export async function openSession(id: string): Promise<void> {
   bindSessionPrefs(id)
   hydrating.value = true
 
+  let snapshotReady = false
+  let preSnapshotEvents: LyaEvent[] = []
+
   const batcher = createEventBatcher({
     getState: () => state.value,
     setState: (next) => {
@@ -160,6 +175,9 @@ export async function openSession(id: string): Promise<void> {
     onSnapshot: (snapshot) => {
       batcher.flush()
       state.value = applySnapshot(state.value, snapshot)
+      snapshotReady = true
+      for (const event of preSnapshotEvents) batcher.push(event)
+      preSnapshotEvents = []
       void loadTools()
       void refreshTree()
       queueMicrotask(() => {
@@ -167,6 +185,10 @@ export async function openSession(id: string): Promise<void> {
       })
     },
     onEvent: (event) => {
+      if (!snapshotReady) {
+        preSnapshotEvents.push(event)
+        return
+      }
       batcher.push(event)
     },
     onError: () => {

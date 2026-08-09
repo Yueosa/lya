@@ -34,6 +34,7 @@ export {
   canNavHitlPrev,
   canNavHitlNext,
   navigateHitlBatch,
+  hitlFocusBlocksSubmit,
   openSession,
   closeSession,
   replyHitl,

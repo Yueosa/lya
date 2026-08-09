@@ -101,7 +101,8 @@ pub struct CallState {
     /// `tool` 或 `action`。
     pub kind: String,
     /// 是否成功；`None` 表示还在跑。
-    pub success: Option<bool>,
+    #[serde(rename = "ok")]
+    pub ok: Option<bool>,
 }
 
 /// 一个分支端点的概要，供界面做分支切换器。
@@ -792,13 +793,13 @@ fn apply(buffer: &mut TurnBuffer, event: &AgentEvent) {
                 CallKind::Tool => "tool".into(),
                 CallKind::Action => "action".into(),
             },
-            success: None,
+            ok: None,
         }),
         AgentEvent::CallFinished {
             call_id, success, ..
         } => {
             if let Some(call) = buffer.calls.iter_mut().find(|c| &c.call_id == call_id) {
-                call.success = Some(*success);
+                call.ok = Some(*success);
             }
         }
         AgentEvent::ProviderSearch {
@@ -891,7 +892,7 @@ mod tests {
         ]);
         assert_eq!(buffer.content, "第二轮", "上一轮正文已落库，不该重复堆着");
         assert_eq!(buffer.calls.len(), 1, "调用记录跨轮保留，界面要连着看");
-        assert_eq!(buffer.calls[0].success, Some(true));
+        assert_eq!(buffer.calls[0].ok, Some(true));
     }
 
     #[test]
@@ -901,7 +902,7 @@ mod tests {
             name: "bash".into(),
             kind: CallKind::Tool,
         }]);
-        assert_eq!(buffer.calls[0].success, None, "还在跑");
+        assert_eq!(buffer.calls[0].ok, None, "还在跑");
         assert_eq!(buffer.calls[0].kind, "tool");
     }
 }
