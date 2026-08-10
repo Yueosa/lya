@@ -28,6 +28,11 @@ pub struct ServerConfig {
     pub port: u16,
     /// 端口被占用时向后依次尝试的最大偏移。
     pub port_backoff_max: u16,
+    /// 经 Caddy 等反代用域名访问时，浏览器 `Origin` 的主机名白名单（不含 scheme 与端口）。
+    ///
+    /// 例：`["lya.lian.love"]` 允许 `http://lya.lian.love` 与 `https://lya.lian.love`。
+    #[serde(default)]
+    pub trusted_hosts: Vec<String>,
 }
 
 impl Default for ServerConfig {
@@ -36,6 +41,7 @@ impl Default for ServerConfig {
             host: "127.0.0.1".into(),
             port: 51616,
             port_backoff_max: 50,
+            trusted_hosts: Vec::new(),
         }
     }
 }

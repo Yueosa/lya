@@ -22,6 +22,7 @@ use thiserror::Error;
 use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
+use lya_api::http::guard::Policy;
 use lya_api::router;
 use lya_hub::SessionHub;
 
@@ -201,7 +202,7 @@ async fn serve(
         Ok(())
     });
 
-    let app = router(hub);
+    let app = router(hub, Policy::new(config.core.server.trusted_hosts.clone()));
 
     let mut listener = None;
     let mut bound_port = 0u16;

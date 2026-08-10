@@ -25,7 +25,7 @@ use axum::routing::{get, post};
 use lya_hub::SessionHub;
 
 /// 组装路由。
-pub fn router(hub: Arc<SessionHub>) -> Router {
+pub fn router(hub: Arc<SessionHub>, guard: guard::Policy) -> Router {
     Router::new()
         .route("/api/sessions", get(sessions::list).post(sessions::create))
         .route("/api/sessions/archived", get(sessions::archived))
@@ -101,6 +101,9 @@ pub fn router(hub: Arc<SessionHub>) -> Router {
                 .delete(memories::delete),
         )
         .fallback(static_ui::serve_ui)
-        .layer(axum::middleware::from_fn(guard::same_origin))
+        .layer(axum::middleware::from_fn(move |request, next| {
+            let guard = guard.clone();
+            async move { guard::same_origin(request, next, guard).await }
+        }))
         .with_state(hub)
 }
