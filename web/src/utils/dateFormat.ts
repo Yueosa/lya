@@ -2,13 +2,26 @@ const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '�
 
 const GAP_MINUTES = 10
 
-/** 气泡旁短时间：HH:MM */
-export function fmtBubbleTime(ts: string | number | Date | null | undefined): string {
+/**
+ * 气泡旁时间。
+ *
+ * 当天只显示 `HH:MM`；跨日则带上「昨天」或月日，避免只看时钟分不清哪天。
+ */
+export function fmtBubbleTime(
+  ts: string | number | Date | null | undefined,
+  now: Date = new Date(),
+): string {
   if (!ts) return ''
   try {
     const d = new Date(ts)
     if (Number.isNaN(d.getTime())) return ''
-    return formatClock(d)
+    const diff = calendarDayDiff(d, now)
+    if (diff === 0) return formatClock(d)
+    if (diff === 1) return `昨天 ${formatClock(d)}`
+    if (d.getFullYear() === now.getFullYear()) {
+      return `${d.getMonth() + 1}月${d.getDate()}日 ${formatClock(d)}`
+    }
+    return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日 ${formatClock(d)}`
   } catch {
     return ''
   }

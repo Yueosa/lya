@@ -1,6 +1,30 @@
 import { describe, expect, it } from 'vitest'
 
-import { bubbleSeparator, messageTimeSeparator } from './dateFormat'
+import { bubbleSeparator, fmtBubbleTime, messageTimeSeparator } from './dateFormat'
+
+describe('fmtBubbleTime', () => {
+  const now = new Date(2026, 7, 2, 12, 0, 0)
+
+  it('当天只显示时钟', () => {
+    const ts = new Date(2026, 7, 2, 9, 5, 0).toISOString()
+    expect(fmtBubbleTime(ts, now)).toBe('09:05')
+  })
+
+  it('昨天带昨天前缀', () => {
+    const ts = new Date(2026, 7, 1, 14, 23, 0).toISOString()
+    expect(fmtBubbleTime(ts, now)).toBe('昨天 14:23')
+  })
+
+  it('更早显示月日', () => {
+    const ts = new Date(2026, 6, 12, 14, 23, 0).toISOString()
+    expect(fmtBubbleTime(ts, now)).toBe('7月12日 14:23')
+  })
+
+  it('跨年带年份', () => {
+    const ts = new Date(2025, 11, 31, 23, 50, 0).toISOString()
+    expect(fmtBubbleTime(ts, now)).toBe('2025年12月31日 23:50')
+  })
+})
 
 describe('messageTimeSeparator', () => {
   const now = new Date(2026, 7, 2, 12, 0, 0)
