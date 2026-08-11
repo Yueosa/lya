@@ -1392,6 +1392,7 @@ dependencies = [
  "lya-session",
  "lya-token",
  "lya-tool",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",

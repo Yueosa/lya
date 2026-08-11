@@ -869,7 +869,8 @@ async fn memory_written_this_turn_shows_up_next_round() {
             text: String::new(),
             call_id: "c1".into(),
             name: "memory_write".into(),
-            arguments: r#"{"title":"用户偏好","body":"喜欢简短回答","summary":"简短"}"#.into(),
+            // 标题避开动作说明里的示例词「用户偏好」，否则会误伤 system 断言
+            arguments: r#"{"title":"会话测试标记-α","body":"喜欢简短回答","summary":"简短"}"#.into(),
         },
         Turn::Text("记住了喵~".into()),
     ]);
@@ -877,10 +878,17 @@ async fn memory_written_this_turn_shows_up_next_round() {
     let events = fx.run().await;
 
     assert_eq!(end_reason(&events), TurnEndReason::Completed);
-    // 系统提示词每轮重建，所以刚写的记忆立刻出现在常驻索引里
-    let system = fx.backend.last_messages()[0].content.clone();
-    assert!(system.contains("用户偏好"), "刚写的记忆应出现在索引中");
-    assert!(!fx.backend.seen.lock().unwrap()[0].is_empty());
+    // 记忆挂在 messages 尾部：下一轮装配立刻可见，且不进 system
+    let last = fx.backend.last_messages();
+    assert!(
+        !last[0].content.contains("=== [记忆]"),
+        "记忆索引段不该再进 system"
+    );
+    assert!(
+        last.iter()
+            .any(|m| m.content.contains("=== [记忆]") && m.content.contains("会话测试标记-α")),
+        "刚写的记忆应出现在尾部动态段"
+    );
 }
 
 #[tokio::test]

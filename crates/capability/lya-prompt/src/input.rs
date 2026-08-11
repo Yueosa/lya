@@ -14,8 +14,6 @@ pub struct PromptInput {
     pub tool_section: Option<String>,
     /// 工作模式说明段。
     pub mode_section: Option<String>,
-    /// 长期记忆索引段。
-    pub memory_section: Option<String>,
     /// 能力补充说明段。
     pub extra_section: Option<String>,
     /// 本会话模型能否读懂图片。
@@ -43,12 +41,6 @@ impl PromptInput {
     /// 注入工作模式说明段。
     pub fn with_mode(mut self, section: impl Into<String>) -> Self {
         self.mode_section = Some(section.into());
-        self
-    }
-
-    /// 注入长期记忆索引段。
-    pub fn with_memory(mut self, section: impl Into<String>) -> Self {
-        self.memory_section = Some(section.into());
         self
     }
 

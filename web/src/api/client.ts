@@ -373,6 +373,11 @@ export class LyaClient {
     return this.request('GET', `/api/sessions/${id}/context-usage`)
   }
 
+  /** 手动压缩：裁掉较旧约一半工具结果（界面仍可见原文）。 */
+  compactSession(id: string): Promise<{ pruned: number; saved_tokens: number }> {
+    return this.request('POST', `/api/sessions/${id}/compact`)
+  }
+
   /**
    * 发一条用户消息。
    *

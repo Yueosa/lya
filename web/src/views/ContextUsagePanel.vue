@@ -2,13 +2,16 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 
 import { client } from '../app/client'
+import { refreshSnapshot } from '../app/chat/snapshot'
 import { errorText, type ContextUsageReport } from '../api/client'
 import { currentId, running } from '../app/useChat'
 
 const open = ref(false)
 const refreshing = ref(false)
+const compacting = ref(false)
 const report = ref<ContextUsageReport | null>(null)
 const error = ref<string | null>(null)
+const compactHint = ref<string | null>(null)
 
 const pct = computed(() => report.value?.pct ?? 0)
 const pctLabel = computed(() => `${pct.value.toFixed(1)}%`)
@@ -38,6 +41,28 @@ async function refresh(): Promise<void> {
     error.value = errorText(err)
   } finally {
     refreshing.value = false
+  }
+}
+
+async function compact(): Promise<void> {
+  const id = currentId.value
+  if (!id || compacting.value || running.value) return
+  compacting.value = true
+  compactHint.value = null
+  error.value = null
+  try {
+    const result = await client.compactSession(id)
+    if (result.pruned === 0) {
+      compactHint.value = '没有可压缩的工具结果'
+    } else {
+      compactHint.value = `已压缩 ${result.pruned} 条，约省 ${formatTokens(result.saved_tokens)}`
+    }
+    await refreshSnapshot()
+    await refresh()
+  } catch (err) {
+    error.value = errorText(err)
+  } finally {
+    compacting.value = false
   }
 }
 
@@ -128,7 +153,18 @@ onBeforeUnmount(() => {
         </ul>
       </template>
 
+      <p v-if="compactHint" class="context-usage__hint">{{ compactHint }}</p>
+
       <footer class="context-usage__foot">
+        <button
+          type="button"
+          class="btn btn--ghost context-usage__refresh"
+          :disabled="!currentId || compacting || !!running"
+          :title="running ? '回合进行中，无法压缩' : '裁掉较旧约一半工具结果；界面仍保留原文'"
+          @click="compact"
+        >
+          {{ compacting ? '压缩中…' : '压缩' }}
+        </button>
         <button
           type="button"
           class="btn btn--ghost context-usage__refresh"
@@ -295,6 +331,7 @@ onBeforeUnmount(() => {
   margin-top: 10px;
   display: flex;
   justify-content: flex-end;
+  gap: 6px;
 }
 
 .context-usage__refresh {

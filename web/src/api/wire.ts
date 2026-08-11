@@ -126,6 +126,12 @@ export interface LyaExtras {
   meta?: Record<string, unknown>
   /** Responses API 原生 output items（如 `web_search_call`），供回灌与 UI 回放。 */
   responses_items?: unknown[]
+  /**
+   * 上下文压缩前的原文。
+   *
+   * 有值时 `openai.content` 是发给模型的占位，界面展示读这里。
+   */
+  full_content?: string
 }
 
 /** 一条消息的完整载荷。 */

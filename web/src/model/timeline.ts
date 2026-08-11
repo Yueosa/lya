@@ -183,7 +183,8 @@ function collectToolResults(
       // 工具自己的失败也会照常回灌给模型，所以走到这里的都算「拿到了结果」；
       // 成不成功看内容，不看有没有结果
       ok: record.payload.status !== 'interrupted',
-      content: openai.content,
+      // 压缩后 openai.content 是占位；界面优先展示 full_content
+      content: record.payload.lya.full_content ?? openai.content,
     })
   }
   return map

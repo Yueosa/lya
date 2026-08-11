@@ -15,8 +15,13 @@ use crate::context::{answered_call_ids, time_prefix, INTERRUPTED_MARK, MISSING_R
 /// 装配 Responses 请求的 `instructions` + `input`。
 ///
 /// `system_prompt` 进入 `instructions`；历史消息转为 input items。
-pub fn build_responses_input(system_prompt: &str, path: &[MessageRecord]) -> (String, Vec<Value>) {
-    let mut input = Vec::with_capacity(path.len());
+/// `memory_section` 挂在历史之后（与 Completions 路径一致）。
+pub fn build_responses_input(
+    system_prompt: &str,
+    path: &[MessageRecord],
+    memory_section: Option<&str>,
+) -> (String, Vec<Value>) {
+    let mut input = Vec::with_capacity(path.len() + 1);
     let answered = answered_call_ids(path);
     let mut previous_at = None;
 
@@ -61,6 +66,10 @@ pub fn build_responses_input(system_prompt: &str, path: &[MessageRecord]) -> (St
             }
             MessageRole::Hitl => unreachable!("已在上面跳过"),
         }
+    }
+
+    if let Some(memory) = memory_section.map(str::trim).filter(|s| !s.is_empty()) {
+        input.push(message_user(memory));
     }
 
     (system_prompt.to_string(), input)
@@ -141,7 +150,7 @@ mod tests {
             1,
             MessagePayload::user_text("你好"),
         )];
-        let (instructions, input) = build_responses_input("SYSTEM", &path);
+        let (instructions, input) = build_responses_input("SYSTEM", &path, None);
         assert_eq!(instructions, "SYSTEM");
         assert_eq!(input.len(), 1);
         assert_eq!(input[0]["type"], "message");
@@ -162,7 +171,7 @@ mod tests {
         }]);
         let tool = MessagePayload::tool_result("c1", "echo: x");
         let path = vec![record(1, MessagePayload::user_text("测")), record(2, assistant), record(3, tool)];
-        let (_, input) = build_responses_input("S", &path);
+        let (_, input) = build_responses_input("S", &path, None);
         assert!(input.iter().any(|i| i["type"] == "function_call"));
         assert!(input.iter().any(|i| i["type"] == "function_call_output"));
     }
@@ -182,8 +191,8 @@ mod tests {
                 ),
             ),
         ];
-        let completions = build_messages("S", &path);
-        let (_, responses) = build_responses_input("S", &path);
+        let completions = build_messages("S", &path, None);
+        let (_, responses) = build_responses_input("S", &path, None);
         assert_eq!(completions.len(), 2);
         assert_eq!(responses.len(), 1);
     }
@@ -197,7 +206,7 @@ mod tests {
             "status": "completed"
         })];
         let path = vec![record(1, MessagePayload::user_text("今天天气")), record(2, assistant)];
-        let (_, input) = build_responses_input("S", &path);
+        let (_, input) = build_responses_input("S", &path, None);
         assert_eq!(input[1]["type"], "web_search_call");
         assert_eq!(input[1]["action"]["type"], "search");
         assert_eq!(input[1]["action"]["queries"], json!([]));
@@ -213,7 +222,7 @@ mod tests {
             "action": { "type": "search", "queries": ["天气"] }
         })];
         let path = vec![record(1, MessagePayload::user_text("今天天气")), record(2, assistant)];
-        let (_, input) = build_responses_input("S", &path);
+        let (_, input) = build_responses_input("S", &path, None);
         assert_eq!(input[0]["type"], "message");
         assert_eq!(input[1]["type"], "web_search_call");
         assert_eq!(input[1]["id"], "ws1");

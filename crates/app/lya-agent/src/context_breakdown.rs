@@ -250,7 +250,7 @@ mod tests {
             breakdown.tool_results,
             breakdown.provider_items,
         );
-        let messages = build_messages("SYS", &path);
+        let messages = build_messages("SYS", &path, None);
         let serialized: String = messages
             .iter()
             .filter(|m| m.role != lya_llm::Role::System)

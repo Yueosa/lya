@@ -107,7 +107,6 @@ impl PromptBuilder {
             tools: trim_section(input.tool_section.as_deref()),
             extra: trim_section(input.extra_section.as_deref()),
             mode: trim_section(input.mode_section.as_deref()),
-            memory: trim_section(input.memory_section.as_deref()),
             style,
         }
     }
@@ -157,15 +156,16 @@ mod tests {
                 .with_tools("=== [工具] 可用工具 ===\n### file_read")
                 .with_extra("=== [联网] 原生搜索 ===\n内置搜索")
                 .with_mode("=== [模式] ask ===\n只读")
-                .with_memory("=== [记忆] 长期记忆索引 ===\n#1 环境操作偏好"),
+                .with_style("=== [口吻] 测试 ==="),
         );
         let action = text.find("=== [动作]").unwrap();
         let tools = text.find("=== [工具]").unwrap();
         let network = text.find("=== [联网]").unwrap();
         let mode = text.find("=== [模式]").unwrap();
-        let memory = text.find("=== [记忆]").unwrap();
+        let style = text.find("=== [口吻]").unwrap();
         assert!(action < tools && tools < network);
-        assert!(network < mode && mode < memory);
+        assert!(network < mode && mode < style);
+        assert!(!text.contains("=== [记忆]"), "记忆索引不进 system");
     }
 
     #[test]

@@ -21,14 +21,15 @@ pub struct SystemSections {
     pub extra: String,
     /// 工作模式。
     pub mode: String,
-    /// 长期记忆索引。
-    pub memory: String,
     /// 口吻与 few-shot（会话级）。
     pub style: String,
 }
 
 impl SystemSections {
     /// 拼成完整 system prompt。
+    ///
+    /// 记忆索引不在这里：它挂在 messages 尾部动态段，避免 `memory_write`
+    /// 刷掉所有会话的 system 前缀缓存。
     pub fn join(&self) -> String {
         let mut parts = Vec::new();
         push_part(&mut parts, &self.environment);
@@ -40,7 +41,6 @@ impl SystemSections {
         push_part(&mut parts, &self.tools);
         push_part(&mut parts, &self.extra);
         push_part(&mut parts, &self.mode);
-        push_part(&mut parts, &self.memory);
         push_part(&mut parts, &self.style);
         parts.join("\n\n")
     }

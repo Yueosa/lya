@@ -273,6 +273,22 @@ pub async fn context_usage(
     Ok(Json(report))
 }
 
+/// 手动压缩：裁掉较旧约一半工具结果（界面仍可见原文）。
+pub async fn compact(
+    State(hub): Hub,
+    Path(id): Path<String>,
+) -> Result<Json<lya_agent::CompactReport>, ApiError> {
+    let hub = hub.clone();
+    let report = tokio::task::spawn_blocking(move || hub.compact_session(&id))
+        .await
+        .map_err(|err| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("compact task failed: {err}"),
+        })?
+        .map_err(ApiError::from)?;
+    Ok(Json(report))
+}
+
 /// 整棵消息树，供分叉图与逐节点回看。
 pub async fn tree(State(hub): Hub, Path(id): Path<String>) -> Result<Json<SessionTree>, ApiError> {
     Ok(Json(hub.tree(&id)?))

@@ -289,8 +289,8 @@ impl<B: ChatBackend> Agent<B> {
                 yield AgentEvent::RoundStarted { round };
 
                 // ── 每轮重新装配 ────────────────────────────────
-                // 系统提示词每轮重建：模型可能刚写了一条记忆，重建才能让它
-                // 立刻出现在常驻索引里。
+                // system 重建以吃到工具开关 / 模式等会话态变化；记忆索引挂在
+                // messages 尾部，本轮刚写入的记忆下一轮装配就会出现在尾巴上。
                 let meta = match bail!(self.sessions.get_session(&session_id)) {
                     Some(meta) => meta,
                     None => {
@@ -344,7 +344,6 @@ impl<B: ChatBackend> Agent<B> {
                     .with_actions(action_bundle.prompt.clone())
                     .with_tools(tool_bundle.prompt.clone())
                     .with_mode(meta.work_mode.prompt_section().to_string())
-                    .with_memory(memory_section)
                     .with_vision(vision);
                 if native_web {
                     input = input.with_extra(RESPONSES_NATIVE_SEARCH);
@@ -354,12 +353,14 @@ impl<B: ChatBackend> Agent<B> {
                 let system = settings.prompt.build(&input);
 
                 let path = bail!(self.sessions.path_to_active_leaf(&session_id));
+                let memory = Some(memory_section.as_str()).filter(|s| !s.trim().is_empty());
                 let request = match api_mode {
                     ApiMode::Completions => {
-                        ChatStreamRequest::Completions(build_messages(&system, &path))
+                        ChatStreamRequest::Completions(build_messages(&system, &path, memory))
                     }
                     ApiMode::Responses => {
-                        let (instructions, input) = build_responses_input(&system, &path);
+                        let (instructions, input) =
+                            build_responses_input(&system, &path, memory);
                         ChatStreamRequest::Responses {
                             instructions,
                             input,

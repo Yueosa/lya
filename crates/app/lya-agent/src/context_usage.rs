@@ -36,7 +36,6 @@ impl<B: ChatBackend> Agent<B> {
             sections.tools.as_str(),
             sections.extra.as_str(),
             sections.mode.as_str(),
-            sections.memory.as_str(),
             serialize_tool_schemas(&assembly.schemas).as_str(),
         ]
         .join("\n\n");
@@ -52,6 +51,7 @@ impl<B: ChatBackend> Agent<B> {
         push_category(&mut categories, "tool_calls", "工具调用", &tool_wire);
         push_category(&mut categories, "user", "用户输入", &conv.user);
         push_category(&mut categories, "provider", "Provider 原生", &conv.provider_items);
+        push_category(&mut categories, "memory", "记忆索引", &assembly.memory_section);
 
         Ok(build_report(limit, categories))
     }
@@ -89,7 +89,6 @@ impl<B: ChatBackend> Agent<B> {
             .with_actions(action_bundle.prompt.clone())
             .with_tools(tool_bundle.prompt.clone())
             .with_mode(meta.work_mode.prompt_section().to_string())
-            .with_memory(memory_section)
             .with_vision(vision);
         if native_web {
             input = input.with_extra(RESPONSES_NATIVE_SEARCH);
@@ -108,6 +107,7 @@ impl<B: ChatBackend> Agent<B> {
             sections,
             schemas,
             conversation,
+            memory_section,
             limit: Some(endpoint.effective_context_window()),
         })
     }
@@ -117,6 +117,7 @@ struct TurnAssembly {
     sections: lya_prompt::SystemSections,
     schemas: Vec<serde_json::Value>,
     conversation: crate::context_breakdown::ConversationBreakdown,
+    memory_section: String,
     limit: Option<u64>,
 }
 

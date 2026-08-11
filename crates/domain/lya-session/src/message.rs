@@ -241,6 +241,12 @@ pub struct LyaExtras {
     /// Responses API 原生 output items（如 `web_search_call`），供回灌与 UI 回放。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub responses_items: Vec<Value>,
+    /// 上下文压缩前的原文。
+    ///
+    /// 有值时：`openai.content` 是发给模型的占位，界面展示读这里。
+    /// 无 migration——旧行缺字段即为 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_content: Option<String>,
 }
 
 /// 持久化消息 JSON 根对象。
@@ -370,5 +376,23 @@ impl MessagePayload {
     /// 是否为未决 HITL。
     pub fn is_pending_hitl(&self) -> bool {
         self.role == MessageRole::Hitl && self.status == MessageStatus::Pending
+    }
+
+    /// 发给模型的正文（可能已被压缩成占位）。
+    pub fn wire_content(&self) -> Option<&str> {
+        self.openai.as_ref().map(|openai| openai.content.as_str())
+    }
+
+    /// 界面展示用正文：优先压缩前原文。
+    pub fn display_content(&self) -> Option<&str> {
+        self.lya
+            .full_content
+            .as_deref()
+            .or_else(|| self.wire_content())
+    }
+
+    /// 是否已经做过工具结果压缩。
+    pub fn is_compacted(&self) -> bool {
+        self.lya.full_content.is_some()
     }
 }

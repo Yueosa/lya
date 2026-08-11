@@ -281,6 +281,19 @@ impl<B: ChatBackend + 'static> SessionHub<B> {
             .map_err(HubError::Agent)
     }
 
+    /// 手动压缩：裁掉较旧约一半工具结果正文（原文保留供 UI）。
+    pub fn compact_session(
+        &self,
+        session_id: &str,
+    ) -> Result<lya_agent::CompactReport, HubError> {
+        if self.is_running(session_id) {
+            return Err(HubError::Busy(session_id.to_string()));
+        }
+        self.agent
+            .compact_tool_results(session_id)
+            .map_err(HubError::Agent)
+    }
+
     /// 该会话是否有轮次在跑，或正在执行挂起后放行的工具。
     pub fn is_running(&self, session_id: &str) -> bool {
         self.channel_if_present(session_id).is_some_and(|channel| {

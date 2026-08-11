@@ -35,8 +35,14 @@ const GAP_HINT_THRESHOLD: Duration = Duration::minutes(30);
 ///
 /// `path` 需为根到当前叶的时间正序，即 `SessionStore::path_to_active_leaf`
 /// 的输出。
-pub fn build_messages(system_prompt: &str, path: &[MessageRecord]) -> Vec<ChatMessage> {
-    let mut out = Vec::with_capacity(path.len() + 1);
+///
+/// `memory_section` 挂在历史之后：写记忆只动尾巴，不刷 system 前缀。
+pub fn build_messages(
+    system_prompt: &str,
+    path: &[MessageRecord],
+    memory_section: Option<&str>,
+) -> Vec<ChatMessage> {
+    let mut out = Vec::with_capacity(path.len() + 2);
     out.push(ChatMessage::system(system_prompt));
 
     let answered = answered_call_ids(path);
@@ -70,6 +76,7 @@ pub fn build_messages(system_prompt: &str, path: &[MessageRecord]) -> Vec<ChatMe
                 let Some(call_id) = &openai.tool_call_id else {
                     continue;
                 };
+                // openai.content 是 wire（可能已压缩）；原文在 lya.full_content
                 out.push(ChatMessage::tool_result(
                     call_id,
                     format!("{stamp}{}", openai.content),
@@ -86,6 +93,10 @@ pub fn build_messages(system_prompt: &str, path: &[MessageRecord]) -> Vec<ChatMe
             }
             MessageRole::Hitl => unreachable!("已在上面跳过"),
         }
+    }
+
+    if let Some(memory) = memory_section.map(str::trim).filter(|s| !s.is_empty()) {
+        out.push(ChatMessage::user(memory));
     }
 
     out
@@ -225,7 +236,7 @@ mod tests {
                 MessagePayload::assistant_text("你好喵~", MessageStatus::Complete),
             ),
         ];
-        let messages = build_messages("SYSTEM", &path);
+        let messages = build_messages("SYSTEM", &path, None);
 
         assert_eq!(messages.len(), 3);
         assert_eq!(messages[0].role, Role::System);
@@ -250,7 +261,7 @@ mod tests {
                 ),
             ),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
         assert_eq!(messages.len(), 2, "HITL 节点不该进模型上下文");
     }
 
@@ -261,7 +272,7 @@ mod tests {
             assistant_with_call(2, "call_1"),
             record(3, MessagePayload::tool_result("call_1", "文件内容")),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
 
         assert_eq!(messages.len(), 4);
         assert_eq!(messages[2].role, Role::Assistant);
@@ -278,7 +289,7 @@ mod tests {
             record(1, MessagePayload::user_text("看看配置")),
             assistant_with_call(2, "call_1"),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
 
         assert_eq!(messages.len(), 4, "缺的结果要补上，否则 API 会拒绝");
         assert_eq!(messages[3].role, Role::Tool);
@@ -312,7 +323,7 @@ mod tests {
             record(1, payload),
             record(2, MessagePayload::tool_result("a", "有结果")),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
 
         let tools: Vec<_> = messages.iter().filter(|m| m.role == Role::Tool).collect();
         assert_eq!(tools.len(), 2);
@@ -326,7 +337,7 @@ mod tests {
             1,
             MessagePayload::assistant_text("我正要说", MessageStatus::Interrupted),
         )];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
         assert_eq!(messages[1].content, format!("我正要说\n{INTERRUPTED_MARK}"));
     }
 
@@ -337,7 +348,7 @@ mod tests {
             1,
             MessagePayload::assistant_text("", MessageStatus::Streaming),
         )];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
         assert_eq!(messages[1].content, INTERRUPTED_MARK);
     }
 
@@ -363,7 +374,7 @@ mod tests {
                 MessagePayload::assistant_text("你好喵~", MessageStatus::Complete),
             ),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
 
         // 前缀格式 [YYYY-MM-DD HH:MM ±TZ]，本机时区
         assert!(
@@ -382,7 +393,7 @@ mod tests {
             user_at(1, "晚安", at("2026-04-26T15:00:00Z")),
             user_at(2, "早", at("2026-04-27T02:00:00Z")),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
 
         assert!(
             !messages[1].content.contains("距上一条"),
@@ -398,7 +409,7 @@ mod tests {
             user_at(1, "一", at("2026-04-26T06:00:00Z")),
             user_at(2, "二", at("2026-04-26T06:10:00Z")),
         ];
-        let messages = build_messages("S", &path);
+        let messages = build_messages("S", &path, None);
         assert!(!messages[2].content.contains("距上一条"));
         assert!(!messages[2].content.contains("日期已变更"));
     }
@@ -410,7 +421,7 @@ mod tests {
             user_at(1, "一", at("2026-04-26T06:00:00Z")),
             user_at(2, "二", at("2026-04-27T09:00:00Z")),
         ];
-        assert_eq!(build_messages("S", &path), build_messages("S", &path));
+        assert_eq!(build_messages("S", &path, None), build_messages("S", &path, None));
     }
 
     #[test]
@@ -420,8 +431,19 @@ mod tests {
             reasoning: Some("很长的思考过程".into()),
             ..Default::default()
         };
-        let messages = build_messages("S", &[record(1, payload)]);
+        let messages = build_messages("S", &[record(1, payload)], None);
         assert_eq!(messages[1].content, "答案");
         assert!(!messages[1].content.contains("思考"));
+    }
+
+    #[test]
+    fn memory_section_appends_after_history() {
+        let path = vec![record(1, MessagePayload::user_text("你好"))];
+        let messages = build_messages("SYS", &path, Some("=== [记忆] ===\n#1 偏好"));
+        assert_eq!(messages.len(), 3);
+        assert_eq!(messages[0].content, "SYS");
+        assert!(messages[1].content.contains("你好"));
+        assert_eq!(messages[2].role, Role::User);
+        assert!(messages[2].content.contains("=== [记忆]"));
     }
 }

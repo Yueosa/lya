@@ -289,7 +289,7 @@ impl MemoryStore {
             .read(|conn| Ok(conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?))
     }
 
-    /// 渲染常驻索引段落，直接塞进 `lya_prompt::PromptInput::memory_section`。
+    /// 渲染记忆索引段落；由 agent 挂在 messages 尾部动态段。
     pub fn index_section(&self) -> Result<String, MemoryError> {
         Ok(render_index(&self.list()?, &self.budget.get()))
     }

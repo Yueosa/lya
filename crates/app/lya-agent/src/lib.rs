@@ -33,6 +33,7 @@
 
 pub mod agent;
 pub mod backend;
+pub mod compact;
 pub mod context;
 pub mod context_breakdown;
 pub mod context_responses;
@@ -42,6 +43,7 @@ pub mod event;
 
 pub use agent::{Agent, AgentParts, TurnSettings};
 pub use backend::ChatBackend;
+pub use compact::CompactReport;
 pub use context::{INTERRUPTED_MARK, MISSING_RESULT, build_messages};
 pub use context_responses::build_responses_input;
 pub use error::AgentError;
