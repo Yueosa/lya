@@ -74,7 +74,8 @@ fn generated_templates_parse_and_are_consistent() {
     assert!(flash.can(ApiMode::Responses, "web_search"));
     let pro = config.models.get("deepseek-v4-pro").unwrap();
     assert!(pro.supports(ApiMode::Completions));
-    assert!(!pro.supports(ApiMode::Responses));
+    assert!(pro.supports(ApiMode::Responses));
+    assert!(pro.can(ApiMode::Responses, "web_search"));
     assert!(config.prompt.identity.text.contains("普拉娜"));
     assert_eq!(
         config.runtime.agent.default_model.as_deref(),

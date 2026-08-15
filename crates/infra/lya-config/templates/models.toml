@@ -7,7 +7,7 @@
 #
 # - context_window：lya 侧输入预算（token），不会发给 API。
 # - modes.completions：Chat Completions（/chat/completions）
-# - modes.responses：Responses API（/responses），Flash 可用原生 web_search
+# - modes.responses：Responses API（/responses），Flash / Pro 可用原生 web_search
 #
 # capabilities 当前用到的值：
 #   text        —— 文本生成（每个 mode 必填）
@@ -52,6 +52,14 @@ params = {
   max_tokens = 8192,
   reasoning_effort = "high",
   thinking = { type = "enabled" },
+}
+
+[models.modes.responses]
+capabilities = ["text", "web_search"]
+params = {
+  model = "deepseek-v4-pro",
+  max_output_tokens = 8192,
+  reasoning = { effort = "high" },
 }
 
 # Gemini 示例：只声明 completions 栈即可。

@@ -200,7 +200,7 @@ pub fn validate_session_binding(
     if !entry.supports(api_mode) {
         let hint = match api_mode {
             ApiMode::Responses => {
-                "该模型未在 models.toml 配置 modes.responses（例如 Pro 仅 Completions）"
+                "该模型未在 models.toml 配置 modes.responses"
             }
             ApiMode::Completions => "该模型未在 models.toml 配置 modes.completions",
         };
